@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface BoardRow {
   id: string;
@@ -72,7 +73,7 @@ function ForumHomePage() {
               <div className="divide-y divide-neutral-100 dark:divide-neutral-700 border-t border-neutral-100 dark:border-neutral-800">
                 {board.subBoards.map((sub) => (
                   <Link key={sub.id} to="/forum/$boardSlug" params={{ boardSlug: sub.slug }} className="flex items-center gap-2 px-4 py-2 pl-10 text-sm text-neutral-600 dark:text-neutral-400">
-                    <span>↳</span>
+                    <span><Icon emoji="↳" size={12} /></span>
                     <span>{sub.icon_emoji}</span>
                     <span className="flex-1">{sub.name}</span>
                     <span className="text-xs text-neutral-400 dark:text-neutral-500">{sub.thread_count}</span>

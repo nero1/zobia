@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { Icon } from '@/components/ui/Icon';
 
 interface BusinessAccount {
   tier: string;
@@ -490,11 +491,11 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
               </div>
               <p className="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2">{q.description}</p>
               {q.pause_reason && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-300 mt-1">
-                  ⚠️ {t('ads.quests.pausedNote', 'Paused: {{reason}}. Restart it once resolved.', { reason: q.pause_reason })}
+                <p className="flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300 mt-1">
+                  <Icon emoji="⚠️" size={12} /> {t('ads.quests.pausedNote', 'Paused: {{reason}}. Restart it once resolved.', { reason: q.pause_reason })}
                 </p>
               )}
-              <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
+              <p className="flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500 mt-1"><Icon emoji="🪙" size={12} /> {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
               {q.is_daily_quest_eligible && (
                 <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-0.5">
                   {t('ads.quests.spendLine', '{{spent}}/{{total}} {{currency}} spent · {{impressions}} impressions', {

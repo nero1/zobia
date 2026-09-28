@@ -15,6 +15,7 @@ import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { resolveMenuItemTarget, type BlogMenuConfig } from '@/lib/blogs/menu';
 import { Browser } from '@capacitor/browser';
+import { Icon } from '@/components/ui/Icon';
 
 export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfig: BlogMenuConfig }) {
   const { t } = useTranslation();
@@ -29,7 +30,7 @@ export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfi
         aria-expanded={open}
         className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300"
       >
-        <span aria-hidden="true">☰</span>
+        <Icon emoji="☰" size={16} />
         {t('blogs.menu.title', 'Menu')}
       </button>
       {open && (

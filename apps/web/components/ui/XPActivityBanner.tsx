@@ -12,6 +12,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +65,7 @@ export function XPActivityBanner() {
       role="status"
       aria-live="polite"
     >
-      <span className="text-base" aria-hidden>⚡</span>
+      <Icon emoji="⚡" size={18} />
       <p className="text-sm font-medium text-teal-700 dark:text-teal-300">{label}</p>
     </div>
   );

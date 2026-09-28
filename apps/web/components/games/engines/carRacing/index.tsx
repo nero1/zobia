@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const W = 300;
 const H = 460;
@@ -245,11 +246,11 @@ export default function CarRacingGame({ onReady, onGameOver, onScore, difficulty
       <div className="flex gap-4">
         <button type="button" onClick={() => steer(-1)}
           className="px-6 py-3 rounded-xl bg-neutral-800 text-white font-bold text-xl hover:bg-neutral-700 active:scale-90 transition-transform">
-          ◀
+          <Icon emoji="◀" size={20} className="text-white" />
         </button>
         <button type="button" onClick={() => steer(1)}
           className="px-6 py-3 rounded-xl bg-neutral-800 text-white font-bold text-xl hover:bg-neutral-700 active:scale-90 transition-transform">
-          ▶
+          <Icon emoji="▶" size={20} className="text-white" />
         </button>
       </div>
       <p className="text-xs text-muted-foreground">Arrow keys / A-D, tap sides, or use buttons.</p>

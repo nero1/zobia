@@ -17,6 +17,7 @@
 
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 export function WikiEditCta({
   wikiSlug,
@@ -48,7 +49,7 @@ export function WikiEditCta({
       href={href}
       className="inline-flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
     >
-      ✏️ {label}
+      <Icon emoji="✏️" size={14} /> {label}
     </Link>
   );
 }

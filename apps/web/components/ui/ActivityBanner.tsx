@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,7 +65,7 @@ export function ActivityBanner({ event }: ActivityBannerProps) {
       role="banner"
       aria-live="polite"
     >
-      <span className="text-lg" aria-hidden>🔥</span>
+      <Icon emoji="🔥" size={20} />
       <div className="min-w-0 flex-1">
         <span className="text-sm font-bold text-white">
           {event.xp_multiplier}x XP Active:{" "}

@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
 import type { ClassroomEventView } from "@/components/classroom/types";
+import { Icon } from "@/components/ui/Icon";
 
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
@@ -178,7 +179,7 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
           </div>
           {e.status === "live" && (
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-bold text-red-700 dark:bg-red-900/40 dark:text-red-300">
-              ● {t("classroom.events.live", "Live now")}
+              <Icon emoji="●" size={8} className="inline align-[-1px]" /> {t("classroom.events.live", "Live now")}
             </span>
           )}
         </div>
@@ -194,7 +195,7 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
             ) : null)}
           {e.recordingUrl ? (
             <a href={e.recordingUrl} target="_blank" rel="noopener noreferrer" className="rounded-lg border border-violet-600 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-950">
-              🎬 {t("classroom.events.recording", "Watch / download recording")}
+              <Icon emoji="🎬" size={14} className="inline align-[-2px]" /> {t("classroom.events.recording", "Watch / download recording")}
             </a>
           ) : e.hasRecording && !isMember ? (
             <span className="text-xs text-neutral-500">{t("classroom.events.membersOnlyRecording", "Recording available to members")}</span>
@@ -235,7 +236,7 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
         <div className="h-20 animate-pulse rounded-xl bg-white dark:bg-neutral-900" />
       ) : list.length === 0 ? (
         <div className="py-10 text-center">
-          <span className="text-4xl">📅</span>
+          <Icon emoji="📅" size={40} />
           <p className="mt-2 text-sm text-neutral-500">{t("classroom.events.empty", "No live sessions scheduled yet.")}</p>
         </div>
       ) : (

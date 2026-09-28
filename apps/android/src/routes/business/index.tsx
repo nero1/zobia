@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { BUSINESS_TIER_PRODUCTS, purchaseBusinessTier } from '@/lib/payments/googlePlay';
+import { Icon } from '@/components/ui/Icon';
 
 /**
  * Business plan expiry reminder — mirrors the PlanExpiryBanner on web
@@ -147,7 +148,7 @@ function BusinessPage() {
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{account.business_name}</h1>
       <div className="mt-1 flex flex-wrap gap-2">
         <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 text-xs font-semibold capitalize text-blue-700 dark:text-blue-300">{account.tier} tier</span>
-        {account.verified && <span className="rounded-full bg-teal-100 dark:bg-teal-900/40 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:text-teal-300">Verified ✓</span>}
+        {account.verified && <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 dark:bg-teal-900/40 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:text-teal-300">Verified <Icon emoji="✓" size={12} /></span>}
       </div>
 
       {account.downgrade_to_tier && account.downgrade_effective_at && (
@@ -160,19 +161,19 @@ function BusinessPage() {
 
       <div className="mt-4 space-y-2">
         <Link to="/business/pages" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">🏢 Business Pages</p>
+          <p className="flex items-center gap-1.5 font-semibold text-sm text-neutral-900 dark:text-neutral-100"><Icon emoji="🏢" size={16} /> Business Pages</p>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Create and manage pages, post updates.</p>
         </Link>
         <Link to="/business/ads" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📣 Advertising Panel</p>
+          <p className="flex items-center gap-1.5 font-semibold text-sm text-neutral-900 dark:text-neutral-100"><Icon emoji="📣" size={16} /> Advertising Panel</p>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Submit and track Sponsored Quests.</p>
         </Link>
         <Link to="/business/stats" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📊 Stats</p>
+          <p className="flex items-center gap-1.5 font-semibold text-sm text-neutral-900 dark:text-neutral-100"><Icon emoji="📊" size={16} /> Stats</p>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Page and advert stats — depth grows with tier.</p>
         </Link>
         <Link to="/business/broadcasts" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📢 Broadcasts</p>
+          <p className="flex items-center gap-1.5 font-semibold text-sm text-neutral-900 dark:text-neutral-100"><Icon emoji="📢" size={16} /> Broadcasts</p>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Message your followers — quota grows with tier.</p>
         </Link>
       </div>

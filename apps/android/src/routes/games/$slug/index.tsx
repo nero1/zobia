@@ -9,6 +9,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
+import { Icon } from '@/components/ui/Icon';
 
 async function fetchGame(slug: string) {
   // The API wraps the game as { game: GameSummary }, not a bare GameSummary —
@@ -68,7 +69,7 @@ function GameDetailPage() {
             <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{game.name}</h2>
             {game.tagline && <p className="text-neutral-500 dark:text-neutral-400 text-sm mt-0.5">{game.tagline}</p>}
             <div className="flex items-center gap-3 mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-              <span>⭐ {game.avgRating.toFixed(1)} ({game.ratingCount.toLocaleString()})</span>
+              <span className="inline-flex items-center gap-1"><Icon emoji="⭐" size={12} /> {game.avgRating.toFixed(1)} ({game.ratingCount.toLocaleString()})</span>
               <span>·</span>
               <span>{game.playCount.toLocaleString()} plays</span>
             </div>
@@ -100,7 +101,7 @@ function GameDetailPage() {
       <div className="bg-white dark:bg-neutral-800 mt-3 px-6 py-4">
         <div className="flex items-center gap-6 text-center">
           <div className="flex-1">
-            <p className="text-lg font-bold text-gold-600 dark:text-gold-300">🪙 {game.rewardCreditsPerWin}</p>
+            <p className="inline-flex items-center gap-1 text-lg font-bold text-gold-600 dark:text-gold-300"><Icon emoji="🪙" size={16} /> {game.rewardCreditsPerWin}</p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">Credits/win</p>
           </div>
           <div className="flex-1">
@@ -109,7 +110,7 @@ function GameDetailPage() {
           </div>
           {game.playCostCredits > 0 && (
             <div className="flex-1">
-              <p className="text-lg font-bold text-neutral-700 dark:text-neutral-300">🪙 {game.playCostCredits}</p>
+              <p className="inline-flex items-center gap-1 text-lg font-bold text-neutral-700 dark:text-neutral-300"><Icon emoji="🪙" size={16} /> {game.playCostCredits}</p>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">Cost/play</p>
             </div>
           )}

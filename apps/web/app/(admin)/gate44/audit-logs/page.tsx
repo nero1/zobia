@@ -17,6 +17,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,7 +122,7 @@ function DetailModal({ entry, source, onClose }: { entry: AuditEntry; source: So
             className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
             aria-label="Close"
           >
-            ✕
+            <Icon emoji="✕" size={16} />
           </button>
         </div>
         <div className="max-h-[70vh] space-y-3 overflow-y-auto px-5 py-4 text-sm">
@@ -326,7 +327,7 @@ export default function AdminAuditLogsPage() {
               <tr>
                 <td colSpan={5} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <span className="text-3xl">🧾</span>
+                    <Icon emoji="🧾" className="text-3xl" size={32} />
                     <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">No audit entries found</p>
                     <p className="text-xs text-neutral-400">Try adjusting your filters</p>
                   </div>

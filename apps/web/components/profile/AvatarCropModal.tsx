@@ -29,6 +29,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 export interface AvatarChangeEligibility {
   plan: string;
@@ -189,7 +190,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
             aria-label={t("action.close")}
             className="rounded-full p-1 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
-            ✕
+            <Icon emoji="✕" />
           </button>
         </div>
 

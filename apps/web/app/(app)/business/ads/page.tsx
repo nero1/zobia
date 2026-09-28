@@ -17,6 +17,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // Mirrors lib/quests/sponsoredQuestPacing.ts SPONSORED_QUEST_DURATION_PRESETS —
 // kept as a plain client constant since that module pulls in server-only DB access.
@@ -776,10 +777,10 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
                         <p className="mt-1 text-xs text-red-600">Reason: {q.moderation_reason}</p>
                       )}
                       {q.auto_paused && q.pause_reason && (
-                        <p className="mt-1 text-xs text-amber-600">⚠️ Paused: {q.pause_reason}. Restart it once resolved.</p>
+                        <p className="mt-1 flex items-center gap-1 text-xs text-amber-600"><Icon emoji="⚠️" className="h-3 w-3" /> Paused: {q.pause_reason}. Restart it once resolved.</p>
                       )}
-                      <p className="mt-2 text-xs text-neutral-400">
-                        🪙 {q.reward_coins.toLocaleString()} {currency.softPlural} · 📋 {q.application_count}/{q.max_applications} applications · ⏰ {new Date(q.deadline).toLocaleDateString()}
+                      <p className="mt-2 flex flex-wrap items-center gap-1 text-xs text-neutral-400">
+                        <Icon emoji="🪙" className="h-3 w-3" /> {q.reward_coins.toLocaleString()} {currency.softPlural} · <Icon emoji="📋" className="h-3 w-3" /> {q.application_count}/{q.max_applications} applications · <Icon emoji="⏰" className="h-3 w-3" /> {new Date(q.deadline).toLocaleDateString()}
                       </p>
                       {q.is_daily_quest_eligible && (
                         <p className="mt-1 text-xs text-neutral-400">
@@ -843,7 +844,7 @@ export default function BusinessAdsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-3">
-        <Link href="/business" className="text-sm text-neutral-500 hover:underline">← Business</Link>
+        <Link href="/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" className="h-3.5 w-3.5" /> Business</Link>
         <span className="text-neutral-300">/</span>
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Advertising Panel</h1>
       </div>

@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 interface MyRoom {
   id: string;
@@ -123,7 +124,7 @@ function CreatorMarketplacePage() {
 
       {!quests || quests.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-          <span className="text-5xl">📋</span>
+          <span className="flex justify-center"><Icon emoji="📋" size={44} /></span>
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('creator.marketplace.empty', 'No quests available')}</p>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('creator.marketplace.emptyHint', 'New brand campaigns will appear here. Check back soon!')}</p>
         </div>
@@ -137,7 +138,7 @@ function CreatorMarketplacePage() {
             return (
               <div key={q.id} className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm">
                 <div className="mb-2 flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40 text-lg">🏷️</div>
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40 text-lg"><Icon emoji="🏷️" size={18} /></div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{q.brand_name}</p>
                     <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
@@ -154,16 +155,16 @@ function CreatorMarketplacePage() {
                 <div className="mb-3 grid grid-cols-2 gap-2">
                   <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-2 text-center">
                     <p className="text-xs text-amber-600 dark:text-amber-300">{t('creator.marketplace.userReward', 'User Reward')}</p>
-                    <p className="font-bold text-amber-700 dark:text-amber-300">🪙 {q.reward_coins.toLocaleString()}</p>
+                    <p className="inline-flex items-center gap-1 font-bold text-amber-700 dark:text-amber-300"><Icon emoji="🪙" size={13} /> {q.reward_coins.toLocaleString()}</p>
                   </div>
                   <div className="rounded-lg border border-teal-200 bg-teal-50 dark:bg-teal-900/30 p-2 text-center">
                     <p className="text-xs text-teal-600 dark:text-teal-300">{t('creator.marketplace.creatorPayout', 'Creator Payout')}</p>
-                    <p className="font-bold text-teal-700 dark:text-teal-300">🪙 {creatorPayout.toLocaleString()}</p>
+                    <p className="inline-flex items-center gap-1 font-bold text-teal-700 dark:text-teal-300"><Icon emoji="🪙" size={13} /> {creatorPayout.toLocaleString()}</p>
                   </div>
                 </div>
                 <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">{q.application_count} / {q.max_applications} {t('creator.marketplace.applicants', 'applicants')}</p>
                 {applied ? (
-                  <div className="rounded-xl bg-teal-50 dark:bg-teal-900/30 py-2 text-center text-sm font-semibold text-teal-700 dark:text-teal-300">✓ {t('creator.marketplace.applied', 'Applied')}</div>
+                  <div className="flex items-center justify-center gap-1 rounded-xl bg-teal-50 dark:bg-teal-900/30 py-2 text-center text-sm font-semibold text-teal-700 dark:text-teal-300"><Icon emoji="✓" size={13} /> {t('creator.marketplace.applied', 'Applied')}</div>
                 ) : (
                   <button
                     onClick={() => canApply && applyMutation.mutate({ questId: q.id, roomId: selectedRoomId })}
@@ -187,8 +188,8 @@ function CreatorMarketplacePage() {
         </div>
       )}
 
-      <Link to="/creator" className="block text-center text-sm text-primary-600 dark:text-primary-300">
-        ← {t('creator.title', 'Creator Dashboard')}
+      <Link to="/creator" className="flex items-center justify-center gap-1 text-center text-sm text-primary-600 dark:text-primary-300">
+        <Icon emoji="←" size={14} /> {t('creator.title', 'Creator Dashboard')}
       </Link>
     </div>
   );

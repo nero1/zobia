@@ -19,14 +19,15 @@
 import Link from "next/link";
 import { formatShortDate } from "@/lib/format/date";
 import type { BlogHomeLayoutProps, HomeArticle } from "./types";
+import { Icon } from "@/components/ui/Icon";
 
 function ArticleMeta({ a, dense }: { a: HomeArticle; dense?: boolean }) {
   return (
     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
       {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
       {!dense && a.category_name && <span className="rounded-full bg-neutral-800 px-2 py-0.5">{a.category_name}</span>}
-      {!dense && <span>👁 {a.view_count}</span>}
-      {!dense && <span>❤️ {a.like_count}</span>}
+      {!dense && <span><Icon emoji="👁" size={14} className="inline align-[-2px]" /> {a.view_count}</span>}
+      {!dense && <span><Icon emoji="❤️" size={14} className="inline align-[-2px]" /> {a.like_count}</span>}
     </div>
   );
 }
@@ -83,7 +84,7 @@ function ClassicHome(props: BlogHomeLayoutProps) {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h2 className="font-bold text-foreground">{a.title}</h2>
-                    {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5">🔒</span>}
+                    {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5"><Icon emoji="🔒" size={11} /></span>}
                   </div>
                   {a.excerpt && <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{a.excerpt}</p>}
                   <ArticleMeta a={a} />

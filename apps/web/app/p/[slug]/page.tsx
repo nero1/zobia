@@ -18,6 +18,7 @@ import { resolvePublicBusinessPage } from "@/lib/public/resolveBusinessPage";
 import { listBusinessPagePosts } from "@/lib/business/repo";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { PageViewTracker } from "@/components/business/PageViewTracker";
+import { Icon } from "@/components/ui/Icon";
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -62,13 +63,13 @@ export default async function PublicBusinessPage({ params }: { params: Promise<{
               // eslint-disable-next-line @next/next/no-img-element
               <img src={page.avatar_url} alt="" className="h-16 w-16 flex-shrink-0 rounded-2xl object-cover" />
             ) : (
-              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-neutral-800 text-2xl">🏢</div>
+              <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-neutral-800"><Icon emoji="🏢" className="text-2xl" size={24} /></div>
             )}
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-2xl font-bold text-foreground">{page.name}</h1>
                 {page.verified && (
-                  <span className="rounded-full bg-teal-950/40 px-2 py-0.5 text-xs font-semibold text-teal-400">Verified ✓</span>
+                  <span className="rounded-full bg-teal-950/40 px-2 py-0.5 text-xs font-semibold text-teal-400">Verified <Icon emoji="✓" className="inline h-3 w-3 align-[-1px]" /></span>
                 )}
               </div>
               <p className="mt-0.5 text-sm text-muted-foreground">A page by {page.business_name}</p>
@@ -97,7 +98,7 @@ export default async function PublicBusinessPage({ params }: { params: Promise<{
 
         <div className="mt-8">
           <a href="/business" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← Zobia Business
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Zobia Business
           </a>
         </div>
       </div>

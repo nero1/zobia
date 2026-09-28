@@ -13,6 +13,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,7 @@ export function TopGifters({ roomId, limit = 5 }: TopGiftersProps) {
     })();
   }, [roomId, limit]);
 
-  const MEDALS = ["🥇", "🥈", "🥉"];
+  const MEDALS = ["🥇", "🥈", "🥉"] as const;
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-800">
@@ -105,7 +106,7 @@ export function TopGifters({ roomId, limit = 5 }: TopGiftersProps) {
         ) : error ? (
           <p className="p-3 text-center text-xs text-neutral-400">{error}</p>
         ) : gifters.length === 0 ? (
-          <p className="p-3 text-center text-xs text-neutral-400">No gifts yet. Be the first! 🎁</p>
+          <p className="inline-flex w-full items-center justify-center gap-1 p-3 text-center text-xs text-neutral-400">No gifts yet. Be the first! <Icon emoji="🎁" size={12} /></p>
         ) : (
           <div className="space-y-0.5">
             {gifters.map((g) => (
@@ -114,8 +115,10 @@ export function TopGifters({ roomId, limit = 5 }: TopGiftersProps) {
                 href={`/profile/${g.userId}`}
                 className="flex items-center gap-2.5 rounded-lg px-2 py-2 transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
               >
-                <span className="w-5 text-center text-sm">
-                  {MEDALS[g.rank - 1] ?? (
+                <span className="flex w-5 items-center justify-center text-sm">
+                  {MEDALS[g.rank - 1] ? (
+                    <Icon emoji={MEDALS[g.rank - 1]} size={16} />
+                  ) : (
                     <span className="text-xs font-bold text-neutral-400">#{g.rank}</span>
                   )}
                 </span>
@@ -127,8 +130,8 @@ export function TopGifters({ roomId, limit = 5 }: TopGiftersProps) {
                     @{g.username}
                   </p>
                 </div>
-                <span className="shrink-0 text-xs font-bold tabular-nums text-amber-600">
-                  {g.totalCoins.toLocaleString()} 🪙
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-bold tabular-nums text-amber-600">
+                  {g.totalCoins.toLocaleString()} <Icon emoji="🪙" size={12} />
                 </span>
               </Link>
             ))}

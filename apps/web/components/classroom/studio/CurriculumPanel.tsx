@@ -13,6 +13,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
+import { Icon } from "@/components/ui/Icon";
 import type { ClassroomHomePayload, ModuleView } from "@/components/classroom/types";
 
 interface Draft {
@@ -140,18 +141,23 @@ export function CurriculumPanel({ home, levelName }: { home: ClassroomHomePayloa
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-neutral-900 dark:text-neutral-50">{m.title}</span>
                 <span className="block text-[11px] text-neutral-500">
-                  {m.videoUrl ? "▶ " : ""}
+                  {m.videoUrl && <Icon emoji="▶️" className="mr-1 inline-block align-[-1px]" size={12} />}
                   {m.content ? t("classroom.module.hasContent", "Written lesson") : t("classroom.module.noContent", "No written content")}
                   {m.resources?.length ? ` · ${t("classroom.card.resourceCount", "{{count}} resource(s)", { count: m.resources.length })}` : ""}
-                  {m.unlockLevel && m.unlockLevel > 1 ? ` · 🔒 ${t("classroom.level.number", "Level {{level}}", { level: m.unlockLevel })}` : ""}
+                  {m.unlockLevel && m.unlockLevel > 1 ? (
+                    <>
+                      {" · "}
+                      <Icon emoji="🔒" className="inline-block align-[-1px]" size={12} /> {t("classroom.level.number", "Level {{level}}", { level: m.unlockLevel })}
+                    </>
+                  ) : ""}
                 </span>
               </span>
               <span className="flex flex-shrink-0 gap-1">
                 <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="px-1 text-neutral-400 disabled:opacity-30" aria-label={t("classroom.module.moveUp", "Move up")}>
-                  ↑
+                  <Icon emoji="↑" size={14} />
                 </button>
                 <button type="button" onClick={() => move(i, 1)} disabled={i === home.modules.length - 1} className="px-1 text-neutral-400 disabled:opacity-30" aria-label={t("classroom.module.moveDown", "Move down")}>
-                  ↓
+                  <Icon emoji="↓" size={14} />
                 </button>
                 <button type="button" onClick={() => setEditing(m.id)} className="rounded px-2 py-1 text-xs text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950">
                   {t("classroom.feed.edit", "Edit")}

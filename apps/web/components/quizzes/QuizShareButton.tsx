@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
+import { Icon } from "@/components/ui/Icon";
 
 export function QuizShareButton({ slug }: { slug: string }) {
   const { t } = useTranslation();
@@ -56,7 +57,7 @@ export function QuizShareButton({ slug }: { slug: string }) {
         disabled={sharing}
         className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
       >
-        <span>🔗</span>
+        <Icon emoji="🔗" size={16} />
         <span>{t("quizzes.share.button", "Share")}</span>
       </button>
       {notice && <span className="text-xs text-amber-400">{notice}</span>}

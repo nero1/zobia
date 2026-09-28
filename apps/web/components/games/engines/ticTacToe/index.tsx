@@ -10,6 +10,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 type Cell = "X" | "O" | null;
 type Board = Cell[];
@@ -237,9 +238,9 @@ export default function TicTacToeGame({
         roundResult ? "text-muted-foreground" :
         isPlayerTurn ? "text-blue-400 bg-blue-500/20" : "text-orange-400 bg-orange-500/20"
       }`}>
-        {roundResult === "win" ? "🎉 You won this round!" :
-         roundResult === "lose" ? "🤖 AI won this round" :
-         roundResult === "draw" ? "🤝 Draw!" :
+        {roundResult === "win" ? <span className="inline-flex items-center gap-1"><Icon emoji="🎉" size={16} /> You won this round!</span> :
+         roundResult === "lose" ? <span className="inline-flex items-center gap-1"><Icon emoji="🤖" size={16} /> AI won this round</span> :
+         roundResult === "draw" ? <span className="inline-flex items-center gap-1"><Icon emoji="🤝" size={16} /> Draw!</span> :
          isPlayerTurn ? "Your turn (X)" : "AI thinking..."}
       </div>
 

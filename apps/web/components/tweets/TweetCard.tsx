@@ -16,6 +16,7 @@ import { UserBadgeRow } from "@/components/shared/UserBadges";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { VideoEmbed } from "./VideoEmbed";
 import { type Tweet, timeAgo } from "./types";
+import { Icon } from "@/components/ui/Icon";
 
 export function TweetCard({
   tweet,
@@ -43,7 +44,7 @@ export function TweetCard({
     <article className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       {tweet.retweetedByUsername && (
         <div className="flex items-center gap-1.5 border-b border-neutral-100 px-4 py-1.5 text-xs font-semibold text-neutral-500 dark:border-neutral-800">
-          <span aria-hidden="true">🔁</span>
+          <Icon emoji="🔁" />
           {t("tweets.retweetedBy", { username: tweet.retweetedByUsername })}
         </div>
       )}
@@ -54,7 +55,7 @@ export function TweetCard({
       )}
       {tweet.isPinned && (
         <div className="flex items-center gap-1.5 border-b border-neutral-100 px-4 py-1.5 text-xs font-semibold text-neutral-500 dark:border-neutral-800">
-          <span aria-hidden="true">📌</span>
+          <Icon emoji="📌" />
           {t("tweets.pinned")}
         </div>
       )}
@@ -143,7 +144,7 @@ export function TweetCard({
           href={`/tweets/${tweet.id}`}
           className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
         >
-          <span>💬</span>
+          <Icon emoji="💬" size={14} />
           <span>{tweet.repliesCount.toLocaleString()}</span>
         </Link>
 
@@ -160,7 +161,7 @@ export function TweetCard({
                   : "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
               }`}
             >
-              <span>🔁</span>
+              <Icon emoji="🔁" size={14} />
               <span>{tweet.retweetsCount.toLocaleString()}</span>
             </button>
             {showQuoteBox && (
@@ -172,7 +173,7 @@ export function TweetCard({
                   }}
                   className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  🔁 {t("tweets.retweet")}
+                  <Icon emoji="🔁" size={14} className="mr-1 inline" /> {t("tweets.retweet")}
                 </button>
                 <textarea
                   value={quoteDraft}
@@ -205,7 +206,7 @@ export function TweetCard({
               : "border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
           }`}
         >
-          <span>{tweet.liked ? "❤️" : "🤍"}</span>
+          <Icon emoji={tweet.liked ? "❤️" : "🤍"} size={14} />
           <span>{tweet.likesCount.toLocaleString()}</span>
         </button>
       </div>

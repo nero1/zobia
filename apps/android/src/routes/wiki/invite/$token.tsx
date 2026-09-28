@@ -12,6 +12,7 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { fetchInvitePreview } from '@/lib/wiki/api';
+import { Icon } from '@/components/ui/Icon';
 
 function WikiInvitePage() {
   const { token } = Route.useParams();
@@ -35,7 +36,7 @@ function WikiInvitePage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4">
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 text-center">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-3xl">📖</div>
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800"><Icon emoji="📖" size={28} /></div>
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.invite.title', "You've been invited to contribute to {{name}}", { name: preview.wiki.name })}</h1>
 
         {preview.used ? (

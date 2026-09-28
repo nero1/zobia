@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import AdSlot from '@/components/ads/AdSlot';
+import { Icon } from '@/components/ui/Icon';
 
 type SearchContentType = 'people' | 'blogs' | 'wikis' | 'answers' | 'games';
 type SearchDateRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
@@ -156,7 +157,7 @@ function SearchPage() {
                   className="flex items-center gap-1.5 rounded-full border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:border-neutral-700 dark:text-neutral-300"
                 >
                   <input type="checkbox" checked={types.includes(type)} onChange={() => toggleType(type)} className="h-3.5 w-3.5" />
-                  {TYPE_ICON[type]} {t(`search.category.${type}`)}
+                  <Icon emoji={TYPE_ICON[type]} size={12} /> {t(`search.category.${type}`)}
                 </label>
               ))}
             </div>
@@ -193,7 +194,7 @@ function SearchPage() {
         </div>
       ) : results.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-10 text-center dark:border-neutral-700 dark:bg-neutral-900">
-          <div className="mb-2 text-3xl">🔍</div>
+          <div className="mb-2 flex justify-center"><Icon emoji="🔍" size={28} /></div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('search.noResults')}</p>
         </div>
       ) : (
@@ -211,8 +212,8 @@ function SearchPage() {
                 {r.thumbnail_url ? (
                   <img src={r.thumbnail_url} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
                 ) : (
-                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-2xl dark:bg-neutral-800">
-                    {TYPE_ICON[r.type]}
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800">
+                    <Icon emoji={TYPE_ICON[r.type]} size={22} />
                   </div>
                 )}
                 <div className="min-w-0 flex-1">

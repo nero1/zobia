@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
+import { Icon } from "@/components/ui/Icon";
 
 const VIEWED_STORAGE_KEY = "zobia_blog_viewed";
 
@@ -113,7 +114,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
         disabled={liked === null || busy}
         className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
       >
-        <span>{liked ? "❤️" : "🤍"}</span>
+        <Icon emoji={liked ? "❤️" : "🤍"} size={16} />
         <span>{count}</span>
         <span className="sr-only">{t("blogs.post.like", "Like")}</span>
       </button>
@@ -123,7 +124,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
         disabled={sharing}
         className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
       >
-        <span>🔗</span>
+        <Icon emoji="🔗" size={16} />
         <span>{t("blogs.post.share", "Share")}</span>
       </button>
       {shareNotice && <span className="text-xs text-amber-400">{shareNotice}</span>}

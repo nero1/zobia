@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/auth/hooks";
 import { buildGameReferralUrl } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { authFetch } from "@/lib/api/authFetch";
+import { Icon } from "@/components/ui/Icon";
 
 export default function GameCoverActions({ slug, name }: { slug: string; name: string }) {
   const { user, isLoading } = useAuth();
@@ -89,9 +90,9 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
       <div className="flex flex-col items-center gap-4">
         <a
           href={playPath}
-          className="inline-block rounded-lg bg-primary px-8 py-3 text-base font-semibold text-primary-foreground transition hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-8 py-3 text-base font-semibold text-primary-foreground transition hover:opacity-90"
         >
-          ▶ Play {name}
+          <Icon emoji="▶️" size={16} /> Play {name}
         </a>
 
         {/* Star rating widget — only shown after at least one play */}
@@ -100,8 +101,10 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
             {myRating && ratingSaved ? (
               <>
                 <span className="text-xs text-muted-foreground">Your rating</span>
-                <span className="text-amber-400 text-2xl tracking-wide">
-                  {"★".repeat(myRating)}{"☆".repeat(5 - myRating)}
+                <span className="flex gap-0.5 text-amber-400">
+                  {Array.from({ length: 5 }, (_, i) => (
+                    <Icon key={i} emoji={i < myRating ? "★" : "☆"} size={22} />
+                  ))}
                 </span>
                 <span className="text-xs text-emerald-400">Thanks for rating!</span>
               </>
@@ -123,7 +126,7 @@ export default function GameCoverActions({ slug, name }: { slug: string; name: s
                           : "text-neutral-600 hover:text-amber-300"
                       }`}
                     >
-                      ★
+                      <Icon emoji="★" size={22} />
                     </button>
                   ))}
                 </div>

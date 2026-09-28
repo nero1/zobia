@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface BroadcastAllowance {
   tier: string;
@@ -65,7 +66,7 @@ function ComposeModal({ allowance, onClose, onSend, sending }: {
       <div className="fixed left-4 right-4 top-1/2 z-50 max-h-[85vh] -translate-y-1/2 overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-4 py-4">
           <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('creator.broadcasts.composeTitle')}</h2>
-          <button onClick={onClose} className="rounded-full p-2 text-neutral-500 dark:text-neutral-400">✕</button>
+          <button onClick={onClose} className="rounded-full p-2 text-neutral-500 dark:text-neutral-400"><Icon emoji="✕" size={16} /></button>
         </div>
         <div className="space-y-3 px-4 py-4">
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2.5 text-xs text-neutral-600 dark:text-neutral-400">
@@ -147,7 +148,7 @@ function CreatorBroadcastsPage() {
   if (accessDenied) {
     return (
       <div className="flex flex-col items-center py-16 px-6 text-center">
-        <span className="text-5xl">🔒</span>
+        <span className="flex justify-center"><Icon emoji="🔒" size={44} /></span>
         <h2 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('creator.broadcasts.accessDeniedTitle')}</h2>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{t('creator.broadcasts.accessDeniedDesc')}</p>
       </div>

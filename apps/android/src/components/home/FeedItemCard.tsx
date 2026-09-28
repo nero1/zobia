@@ -14,6 +14,7 @@ import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { feedItemPath } from '@/lib/feed/deeplink';
 import type { FeedContentType, FeedItem } from '@/lib/feed/types';
+import { Icon } from '@/components/ui/Icon';
 
 const CONTENT_TYPE_ICON: Record<FeedContentType, string> = {
   moment: '⚡',
@@ -54,7 +55,7 @@ export function FeedItemCard({ item }: { item: FeedItem }) {
         <img src={item.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
       ) : (
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 text-2xl">
-          {CONTENT_TYPE_ICON[item.contentType] ?? '📄'}
+          <Icon emoji={CONTENT_TYPE_ICON[item.contentType] ?? '📄'} size={28} />
         </span>
       )}
       <div className="min-w-0 flex-1">

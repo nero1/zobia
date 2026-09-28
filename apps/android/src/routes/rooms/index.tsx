@@ -11,6 +11,7 @@ import { apiClient } from '@/lib/api/client';
 import type { Room } from '@zobia/shared/types';
 import { RoomPulseBar } from '@/components/ui/RoomPulseBar';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { Icon } from '@/components/ui/Icon';
 
 /**
  * Rooms carry `isFavorited` and `recentMessageCount` from GET /api/rooms
@@ -110,8 +111,8 @@ function RoomsPage() {
               <p className="text-neutral-500 dark:text-neutral-400 text-xs mb-2 line-clamp-2">{room.description}</p>
             )}
             <div className="flex items-center gap-3 text-xs text-neutral-400 dark:text-neutral-500">
-              <span>👥 {room.memberCount.toLocaleString()} {t('rooms.members', { count: room.memberCount })}</span>
-              {room.isActive && <span className="text-success-600 dark:text-success-300 font-medium">● LIVE</span>}
+              <span className="inline-flex items-center gap-1"><Icon emoji="👥" size={12} /> {room.memberCount.toLocaleString()} {t('rooms.members', { count: room.memberCount })}</span>
+              {room.isActive && <span className="inline-flex items-center gap-1 text-success-600 dark:text-success-300 font-medium"><Icon emoji="●" size={8} /> LIVE</span>}
             </div>
 
             {/* Activity pulse bar — PRD §2.2 "Room pulse bars", mirrors web RoomCard */}
@@ -129,7 +130,7 @@ function RoomsPage() {
             aria-label={room.isFavorited ? t('room.removeFavorite') : t('room.addFavorite')}
             className="absolute right-3 top-3 text-lg"
           >
-            {room.isFavorited ? '❤️' : '🤍'}
+            <Icon emoji={room.isFavorited ? '❤️' : '🤍'} size={18} />
           </button>
         </div>
       ))}

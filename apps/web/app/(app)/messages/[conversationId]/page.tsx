@@ -18,6 +18,7 @@ import { authFetch } from "@/lib/api/authFetch";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,7 +263,7 @@ function MessageBubble({
             <div>
               <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{msg.content}</p>
               {msg.giftAmount && (
-                <p className="text-xs text-amber-600 dark:text-amber-400">🪙 {msg.giftAmount.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
+                <p className="text-xs text-amber-600 dark:text-amber-400"><Icon emoji="🪙" className="inline h-3.5 w-3.5 align-text-bottom" /> {msg.giftAmount.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
               )}
             </div>
           </div>
@@ -323,7 +324,7 @@ function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onC
     <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">{t("messages.gifPicker.title")}</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.gifPicker.close")}>✕</button>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.gifPicker.close")}><Icon emoji="✕" size={16} /></button>
       </div>
       <div className="p-2">
         <input
@@ -402,7 +403,7 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
     <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">{t("messages.stickerPicker.title")}</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.stickerPicker.close")}>✕</button>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.stickerPicker.close")}><Icon emoji="✕" size={16} /></button>
       </div>
 
       {loading ? (
@@ -524,7 +525,7 @@ function GiftPicker({
         <span className="text-xs font-semibold text-neutral-500">
           {t("messages.giftPicker.title", { username: recipientUsername })}
         </span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.giftPicker.close")}>✕</button>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.giftPicker.close")}><Icon emoji="✕" size={16} /></button>
       </div>
 
       {error && (
@@ -549,7 +550,7 @@ function GiftPicker({
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{gift.name}</p>
               </div>
               <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-                🪙 {gift.coinCost.toLocaleString()}
+                <Icon emoji="🪙" className="inline h-3 w-3 align-text-bottom" /> {gift.coinCost.toLocaleString()}
               </span>
             </button>
           ))}
@@ -1037,7 +1038,7 @@ export default function DMConversationPage() {
                     }`}
                     title={t("messages.conversation.connectionScoreTitle", { score: connectionBadge.score, days: connectionBadge.streakDays })}
                   >
-                    🔗 {connectionBadge.badgeLabel}
+                    <Icon emoji="🔗" className="inline h-3 w-3 align-text-bottom" /> {connectionBadge.badgeLabel}
                   </span>
                 )}
                 {/* Conversation Score — PRD §5 */}
@@ -1046,11 +1047,11 @@ export default function DMConversationPage() {
                     className="flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
                     title={t("messages.conversation.scoreTitle")}
                   >
-                    <span>💬</span>
+                    <Icon emoji="💬" size={12} />
                     <span>{t("messages.conversation.points", { count: convScore })}</span>
-                    {convScore >= 250 && <span className="ml-1">🏆</span>}
-                    {convScore >= 100 && convScore < 250 && <span className="ml-1">⭐</span>}
-                    {convScore >= 50 && convScore < 100 && <span className="ml-1">🔵</span>}
+                    {convScore >= 250 && <Icon emoji="🏆" size={12} className="ml-1" />}
+                    {convScore >= 100 && convScore < 250 && <Icon emoji="⭐" size={12} className="ml-1" />}
+                    {convScore >= 50 && convScore < 100 && <Icon emoji="🔵" size={12} className="ml-1" />}
                   </div>
                 )}
               </div>
@@ -1093,7 +1094,7 @@ export default function DMConversationPage() {
             >
               {t("messages.coinError.buyCoins", { currency: currency.softPlural })}
             </Link>
-            <button onClick={() => setCoinError(null)} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
+            <button onClick={() => setCoinError(null)} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400"><Icon emoji="✕" size={14} /></button>
           </div>
         </div>
       )}
@@ -1108,7 +1109,7 @@ export default function DMConversationPage() {
             href={`/wallet?transfer=${otherUserId}`}
             className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
           >
-            {t("messages.conversation.giftThemCurrency", { currency: currency.softPlural.toLowerCase() })}
+            <Icon emoji="🪙" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("messages.conversation.giftThemCurrency", { currency: currency.softPlural.toLowerCase() })}
           </Link>
         </div>
       )}
@@ -1124,7 +1125,7 @@ export default function DMConversationPage() {
           <MessageSkeleton />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
-            <span className="text-4xl">💬</span>
+            <Icon emoji="💬" className="text-4xl" size={36} />
             <p className="mt-2 text-sm">{t("messages.conversation.sayHello")}</p>
           </div>
         ) : (
@@ -1214,7 +1215,7 @@ export default function DMConversationPage() {
             aria-label={t("messages.stickerPicker.title")}
             title={t("messages.stickerPicker.title")}
           >
-            😊
+            <Icon emoji="😊" size={20} />
           </button>
 
           {/* Pidgin autocomplete suggestions — PRD §5 */}
@@ -1260,7 +1261,7 @@ export default function DMConversationPage() {
             aria-label={t("messages.giftPicker.sendAriaLabel")}
             title={t("messages.giftPicker.sendAriaLabel")}
           >
-            🎁
+            <Icon emoji="🎁" size={20} />
           </button>
 
           {/* Send button */}

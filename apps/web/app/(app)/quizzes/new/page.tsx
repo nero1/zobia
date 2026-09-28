@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 2000;
@@ -339,7 +340,7 @@ export default function CreateQuizPage() {
                             o.isCorrect ? "border-emerald-500 bg-emerald-500 text-white" : "border-neutral-300 dark:border-neutral-600"
                           }`}
                         >
-                          {o.isCorrect && "✓"}
+                          {o.isCorrect && <Icon emoji="✓" size={12} />}
                         </button>
                         <input
                           type="text"
@@ -357,7 +358,7 @@ export default function CreateQuizPage() {
                             aria-label={t("quizzes.new.removeOption", "Remove option")}
                             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-800"
                           >
-                            ✕
+                            <Icon emoji="✕" size={14} />
                           </button>
                         )}
                       </div>

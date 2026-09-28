@@ -23,6 +23,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -217,8 +218,12 @@ function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) 
   return (
     <div className={`rounded-xl border p-5 space-y-4 ${war.finalHour ? "border-red-400 bg-red-50 dark:border-red-700 dark:bg-red-950/30" : "border-orange-300 bg-orange-50 dark:border-orange-700 dark:bg-orange-950/20"}`}>
       <div className="flex items-center justify-between">
-        <h2 className={`font-bold ${war.finalHour ? "text-red-700 dark:text-red-300" : "text-orange-700 dark:text-orange-300"}`}>
-          {war.finalHour ? "🔥 FINAL HOUR — WAR ONGOING" : "⚔️ Active Guild War"}
+        <h2 className={`flex items-center gap-1.5 font-bold ${war.finalHour ? "text-red-700 dark:text-red-300" : "text-orange-700 dark:text-orange-300"}`}>
+          {war.finalHour ? (
+            <><Icon emoji="🔥" size={16} /> FINAL HOUR — WAR ONGOING</>
+          ) : (
+            <><Icon emoji="⚔️" size={16} /> Active Guild War</>
+          )}
         </h2>
         <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ${war.finalHour ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200" : "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300"}`}>
           {formatCountdown(secs)}
@@ -341,7 +346,7 @@ function AllianceRow({ alliance }: { alliance: AllianceRecord }) {
   return (
     <div className="flex items-center gap-4 px-5 py-3">
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-sm dark:bg-teal-900">
-        🤝
+        <Icon emoji="🤝" size={14} />
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{alliance.allianceName}</p>
@@ -443,7 +448,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
   const nonCaptainMembers = members.filter((m) => m.role !== "captain");
 
   return (
-    <SectionCard title="🛡️ Forum Mods">
+    <SectionCard title={<span className="flex items-center gap-1.5"><Icon emoji="🛡️" size={14} /> Forum Mods</span>}>
       <div className="px-5 py-4">
         <p className="mb-3 text-xs text-neutral-500">
           Forum Mods can review reports and take limited action (warn, remove messages, mute/kick) within this guild only —
@@ -472,7 +477,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
                           : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
                       }`}
                     >
-                      {isMod ? "Forum Mod ✓" : "Make Forum Mod"}
+                      {isMod ? <>Forum Mod <Icon emoji="✓" size={12} className="inline align-text-bottom" /></> : "Make Forum Mod"}
                     </button>
                   </div>
                 );
@@ -597,7 +602,7 @@ export default function GuildProfilePage() {
   if (!guild) {
     return (
       <div className="mx-auto max-w-3xl p-6 text-center">
-        <span className="text-5xl">🏰</span>
+        <Icon emoji="🏰" size={48} />
         <h1 className="mt-3 text-xl font-bold text-neutral-900 dark:text-neutral-50">Guild not found</h1>
         <p className="mt-1 text-sm text-neutral-500">This guild may have been disbanded or the link is incorrect.</p>
         <Link href="/guild" className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
@@ -619,7 +624,7 @@ export default function GuildProfilePage() {
     <div className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
       {/* Back link */}
       <Link href="/guild" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-        ← All Guilds
+        <Icon emoji="←" size={14} className="inline align-text-bottom" /> All Guilds
       </Link>
 
       {/* Guild header */}
@@ -635,7 +640,7 @@ export default function GuildProfilePage() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-black text-neutral-900 dark:text-neutral-50">{guild.name}</h1>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${tierClasses}`}>
-                {tierEmoji} {tierLabel}
+                <Icon emoji={tierEmoji} size={14} className="inline align-text-bottom" /> {tierLabel}
               </span>
               <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                 {xpBoost} XP
@@ -644,7 +649,7 @@ export default function GuildProfilePage() {
 
             {/* City */}
             {guild.city && (
-              <p className="mt-1 text-sm text-neutral-500">📍 {guild.city}</p>
+              <p className="mt-1 flex items-center gap-1 text-sm text-neutral-500"><Icon emoji="📍" size={14} /> {guild.city}</p>
             )}
 
             {/* Description */}
@@ -700,10 +705,12 @@ export default function GuildProfilePage() {
             { label: "Members", value: `${guild.memberCount}/${guild.maxMembers}` },
             { label: "Wars Won", value: guild.warWins.toLocaleString() },
             { label: "Wars Lost", value: guild.warLosses.toLocaleString() },
-            { label: "Treasury", value: guild.treasuryBalance !== null ? `${guild.treasuryBalance.toLocaleString()} 🪙` : "—" },
-          ].map(({ label, value }) => (
+            { label: "Treasury", value: guild.treasuryBalance !== null ? `${guild.treasuryBalance.toLocaleString()}` : "—", isTreasury: true },
+          ].map(({ label, value, isTreasury }) => (
             <div key={label} className="flex flex-col items-center py-3 px-2">
-              <span className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{value}</span>
+              <span className="flex items-center gap-1 text-lg font-bold text-neutral-900 dark:text-neutral-50">
+                {value}{isTreasury && guild.treasuryBalance !== null && <Icon emoji="🪙" size={14} />}
+              </span>
               <span className="text-xs text-neutral-400">{label}</span>
             </div>
           ))}
@@ -722,7 +729,7 @@ export default function GuildProfilePage() {
 
       {/* Active guild quests */}
       {guild.activeQuests.length > 0 && (
-        <SectionCard title="🎯 Guild Quests">
+        <SectionCard title={<span className="flex items-center gap-1.5"><Icon emoji="🎯" size={14} /> Guild Quests</span>}>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.activeQuests.map((q) => <QuestRow key={q.id} quest={q} />)}
           </div>
@@ -730,7 +737,7 @@ export default function GuildProfilePage() {
       )}
 
       {/* Members */}
-      <SectionCard title={`👥 Members (${guild.memberCount})`}>
+      <SectionCard title={<span className="flex items-center gap-1.5"><Icon emoji="👥" size={14} /> Members ({guild.memberCount})</span>}>
         <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {guild.members.slice(0, 20).map((m) => <MemberRow key={m.userId} member={m} />)}
           {guild.memberCount > 20 && (
@@ -748,7 +755,7 @@ export default function GuildProfilePage() {
 
       {/* War history */}
       {guild.warHistory.length > 0 && (
-        <SectionCard title="⚔️ War History">
+        <SectionCard title={<span className="flex items-center gap-1.5"><Icon emoji="⚔️" size={14} /> War History</span>}>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.warHistory.map((w) => <WarHistoryRow key={w.id} war={w} />)}
           </div>
@@ -757,7 +764,7 @@ export default function GuildProfilePage() {
 
       {/* Alliance history */}
       {guild.allianceHistory.length > 0 && (
-        <SectionCard title="🤝 Alliance History">
+        <SectionCard title={<span className="flex items-center gap-1.5"><Icon emoji="🤝" size={14} /> Alliance History</span>}>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.allianceHistory.map((a) => <AllianceRow key={a.id} alliance={a} />)}
           </div>

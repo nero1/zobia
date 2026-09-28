@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { appendReferralCode } from '@zobia/shared/utils';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
+import { Icon } from '@/components/ui/Icon';
 
 export type MarketCategory = 'digital' | 'physical' | 'cosmetics_themes' | 'boosts_passes' | 'credits';
 
@@ -72,14 +73,14 @@ function ReferralRow({ item }: { item: MarketItem }) {
   return (
     <div className="mt-1 text-[11px]">
       <button type="button" onClick={toggle} className="w-full rounded-lg border border-teal-200 bg-teal-50 dark:bg-teal-900/30 px-2 py-1 font-medium text-teal-700 dark:text-teal-300">
-        💰 {label}
+        <Icon emoji="💰" size={12} /> {label}
       </button>
       {open && (
         <div className="mt-1 flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1.5">
           {link ? (
             <>
               <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-400">{link}</span>
-              <button type="button" onClick={copy} className="shrink-0 rounded bg-teal-600 px-1.5 py-0.5 text-white">{copied ? '✓' : '📋'}</button>
+              <button type="button" onClick={copy} className="shrink-0 rounded bg-teal-600 px-1.5 py-0.5 text-white"><Icon emoji={copied ? '✓' : '📋'} size={12} /></button>
             </>
           ) : (
             <span className="text-neutral-500 dark:text-neutral-400">Loading…</span>
@@ -121,19 +122,28 @@ function BuyBoostButton({ item }: { item: MarketItem }) {
 
 export function MarketItemCard({ item, view }: { item: MarketItem; view: 'grid' | 'list' }) {
   const isBoost = item.kind === 'platform' && item.category === 'boosts_passes';
-  const price = item.priceCoin != null ? `🪙 ${item.priceCoin.toLocaleString()}` : item.starsCost != null ? `⭐ ${item.starsCost.toLocaleString()}` : null;
+  const price =
+    item.priceCoin != null ? (
+      <>
+        <Icon emoji="🪙" size={14} /> {item.priceCoin.toLocaleString()}
+      </>
+    ) : item.starsCost != null ? (
+      <>
+        <Icon emoji="⭐" size={14} /> {item.starsCost.toLocaleString()}
+      </>
+    ) : null;
 
   if (view === 'list') {
     const inner = (
       <>
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xl">
-          {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-11 w-11 rounded-lg object-cover" /> : '🛍️'}
+          {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-11 w-11 rounded-lg object-cover" /> : <Icon emoji="🛍️" size={20} />}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.name}</p>
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{CATEGORY_LABEL[item.category]}</p>
         </div>
-        {price && <span className="shrink-0 text-sm font-bold text-amber-600 dark:text-amber-300">{price}</span>}
+        {price && <span className="shrink-0 inline-flex items-center gap-1 text-sm font-bold text-amber-600 dark:text-amber-300">{price}</span>}
       </>
     );
     if (isBoost) {
@@ -154,7 +164,7 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: 'grid' 
   const cardBody = (
     <>
       <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl">
-        {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" /> : '🛍️'}
+        {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" /> : <Icon emoji="🛍️" size={32} />}
       </div>
       <div className="mb-1 flex flex-wrap gap-1">
         {item.isSponsored && <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">Sponsored</span>}
@@ -162,9 +172,11 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: 'grid' 
       </div>
       <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{item.name}</p>
       {item.kind === 'creator' && item.rating != null && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-300">★ {item.rating.toFixed(1)} ({item.ratingCount})</p>
+        <p className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300">
+          <Icon emoji="★" size={12} /> {item.rating.toFixed(1)} ({item.ratingCount})
+        </p>
       )}
-      {price && <p className="mt-1 text-base font-bold text-amber-600 dark:text-amber-300">{price}</p>}
+      {price && <p className="mt-1 inline-flex items-center gap-1 text-base font-bold text-amber-600 dark:text-amber-300">{price}</p>}
     </>
   );
 

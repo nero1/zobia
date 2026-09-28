@@ -19,6 +19,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -191,7 +192,7 @@ function UsernameHistorySection({ userId }: { userId: string }) {
         className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wider text-neutral-500"
       >
         <span>Username History</span>
-        <span>{open ? "▲" : "▼"}</span>
+        <Icon emoji={open ? "▲" : "▼"} size={14} />
       </button>
       {open && (
         <div className="space-y-2">
@@ -292,7 +293,7 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
           className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
           aria-label="Close panel"
         >
-          ✕
+          <Icon emoji="✕" />
         </button>
       </div>
 
@@ -424,7 +425,7 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
             rel="noopener noreferrer"
             className="flex min-h-[44px] items-center justify-center rounded-lg bg-neutral-100 px-3 py-3 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
           >
-            View Profile ↗
+            View Profile <Icon emoji="↗" size={14} className="ml-1 inline" />
           </Link>
           <Link
             href={`/gate44/kyc?userId=${user.id}`}
@@ -445,7 +446,7 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
             disabled={impersonating}
             className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-3 text-xs font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
           >
-            {impersonating ? "Starting…" : "🎭 Impersonate this user"}
+            {impersonating ? "Starting…" : <><Icon emoji="🎭" size={16} /> Impersonate this user</>}
           </button>
         </div>
 
@@ -1049,7 +1050,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
               onClick={goPrev}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
-              ← Prev
+<Icon emoji="←" size={14} className="inline" /> Prev
             </button>
             <span className="flex items-center px-2">Page {pageIndex + 1}</span>
             <button
@@ -1057,7 +1058,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
               onClick={goNext}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
-              Next →
+              Next <Icon emoji="→" size={14} className="inline" />
             </button>
           </div>
         </div>

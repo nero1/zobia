@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface QuizOption {
   id: string;
@@ -72,8 +73,14 @@ function ResultsSummary({ result, passingScorePercent }: { result: AttemptResult
       }`}
     >
       <div className="flex items-center justify-between gap-3">
-        <span className="font-semibold">
-          {result.passed ? t("quizzes.take.passed", "Passed! 🎉") : t("quizzes.take.failed", "Not quite")}
+        <span className="inline-flex items-center gap-1 font-semibold">
+          {result.passed ? (
+            <>
+              {t("quizzes.take.passed", "Passed!")} <Icon emoji="🎉" size={14} />
+            </>
+          ) : (
+            t("quizzes.take.failed", "Not quite")
+          )}
         </span>
         <span className="tabular-nums">{result.score}/{result.totalPoints} · {result.scorePercent}%</span>
       </div>
@@ -168,8 +175,16 @@ export function QuizTakeCard({ quiz, viewerSignedIn }: { quiz: QuizForCard; view
               <div key={q.id} className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-medium text-foreground">{idx + 1}. {q.prompt}</p>
-                  <span className={`shrink-0 text-xs font-semibold ${qResult?.isCorrect ? "text-emerald-400" : "text-red-400"}`}>
-                    {qResult?.isCorrect ? t("quizzes.take.correct", "✓ Correct") : t("quizzes.take.incorrect", "✗ Incorrect")}
+                  <span className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${qResult?.isCorrect ? "text-emerald-400" : "text-red-400"}`}>
+                    {qResult?.isCorrect ? (
+                      <>
+                        <Icon emoji="✓" size={12} /> {t("quizzes.take.correct", "Correct")}
+                      </>
+                    ) : (
+                      <>
+                        <Icon emoji="✗" size={12} /> {t("quizzes.take.incorrect", "Incorrect")}
+                      </>
+                    )}
                   </span>
                 </div>
                 <div className="mt-2 space-y-1.5">
@@ -187,8 +202,8 @@ export function QuizTakeCard({ quiz, viewerSignedIn }: { quiz: QuizForCard; view
                               : "border-border text-muted-foreground"
                         }`}
                       >
-                        {isCorrectOption && <span className="mr-1">✓</span>}
-                        {!isCorrectOption && wasSelected && <span className="mr-1">✗</span>}
+                        {isCorrectOption && <Icon emoji="✓" size={12} className="mr-1 inline" />}
+                        {!isCorrectOption && wasSelected && <Icon emoji="✗" size={12} className="mr-1 inline" />}
                         {o.label}
                       </div>
                     );
@@ -243,7 +258,7 @@ export function QuizTakeCard({ quiz, viewerSignedIn }: { quiz: QuizForCard; view
                         isSelected ? "border-primary-500 bg-primary-500" : "border-neutral-500"
                       }`}
                     >
-                      {isSelected && <span className="text-[10px] leading-none text-white">✓</span>}
+                      {isSelected && <Icon emoji="✓" size={10} className="text-white" />}
                     </span>
                     <span className="min-w-0 flex-1 truncate">{o.label}</span>
                   </button>

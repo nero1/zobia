@@ -9,12 +9,13 @@
  */
 
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@/components/ui/Icon';
 
 export function FeatureNotFound() {
   const { t } = useTranslation();
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-      <span className="text-4xl">🔍</span>
+      <Icon emoji="🔍" size={36} />
       <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.notFound')}</p>
     </div>
   );

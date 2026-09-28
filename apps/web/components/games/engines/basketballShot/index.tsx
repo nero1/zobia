@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const SWEET_SPOT: Record<string, number> = {
   easy:   0.40, // 40% of arc width
@@ -35,7 +36,11 @@ const RESULT_PTS: Record<ShotResult, number> = {
 };
 
 const RESULT_LABEL: Record<ShotResult, string> = {
-  perfect: "PERFECT! 🔥", good: "GOOD! 👌", close: "CLOSE! 😬", miss: "MISS! 😔",
+  perfect: "PERFECT!", good: "GOOD!", close: "CLOSE!", miss: "MISS!",
+};
+
+const RESULT_EMOJI: Record<ShotResult, string> = {
+  perfect: "🔥", good: "👌", close: "😬", miss: "😔",
 };
 
 const RESULT_COLOR: Record<ShotResult, string> = {
@@ -168,7 +173,9 @@ export default function BasketballShotGame({
       </div>
 
       {/* Hoop */}
-      <div className="text-3xl text-center">🏀 Hoop</div>
+      <div className="text-3xl text-center flex items-center justify-center gap-2">
+        <Icon emoji="🏀" size={28} /> Hoop
+      </div>
 
       {/* Arc + ball */}
       <div className="relative w-full flex justify-center">
@@ -212,8 +219,8 @@ export default function BasketballShotGame({
 
         {/* Result flash */}
         {lastResult && (
-          <div className={`absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xl font-black animate-bounce pointer-events-none ${RESULT_COLOR[lastResult]}`}>
-            {RESULT_LABEL[lastResult]}
+          <div className={`absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xl font-black animate-bounce pointer-events-none flex items-center gap-1 ${RESULT_COLOR[lastResult]}`}>
+            {RESULT_LABEL[lastResult]} <Icon emoji={RESULT_EMOJI[lastResult]} size={20} />
           </div>
         )}
       </div>
@@ -243,9 +250,9 @@ export default function BasketballShotGame({
         <button
           type="button"
           onClick={handleTap}
-          className="w-full bg-primary text-primary-foreground rounded-xl py-4 font-bold text-lg active:scale-95 transition-all duration-150"
+          className="w-full bg-primary text-primary-foreground rounded-xl py-4 font-bold text-lg active:scale-95 transition-all duration-150 flex items-center justify-center gap-2"
         >
-          🏀 SHOOT! (Space)
+          <Icon emoji="🏀" size={20} /> SHOOT! (Space)
         </button>
       )}
 
@@ -261,7 +268,7 @@ export default function BasketballShotGame({
       {/* Game Over */}
       {gameOver && (
         <div className="flex flex-col items-center gap-2">
-          <span className="text-4xl animate-bounce">🎉</span>
+          <span className="animate-bounce"><Icon emoji="🎉" size={36} /></span>
           <span className="text-emerald-400 font-bold text-xl">Game Over!</span>
           <span className="text-muted-foreground">Final Score: {score} / {TOTAL_SHOTS * 3}</span>
         </div>

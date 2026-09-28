@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 export function ImpersonationBanner() {
   const { t } = useTranslation();
@@ -46,7 +47,7 @@ export function ImpersonationBanner() {
       className="fixed inset-x-0 bottom-0 z-[9999] flex items-center justify-center gap-3 bg-purple-700 px-4 py-2.5 text-xs font-medium text-white shadow-lg"
       style={{ paddingBottom: 'calc(0.625rem + env(safe-area-inset-bottom))' }}
     >
-      <span>🎭 {t('admin.impersonation.banner', 'Viewing as this user (impersonation).')}</span>
+      <span className="flex items-center gap-1.5"><Icon emoji="🎭" size={14} />{t('admin.impersonation.banner', 'Viewing as this user (impersonation).')}</span>
       <button
         type="button"
         onClick={handleEnd}

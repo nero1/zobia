@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 interface OwnedQuest {
   id: string;
@@ -111,20 +112,20 @@ export default function ManageMyQuestsPage() {
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${q.is_active ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-500"}`}>
                   {q.is_active ? "Live" : "Stopped"}
                 </span>
-                {q.flag_status === "flagged" && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">🚩 Flagged</span>}
+                {q.flag_status === "flagged" && <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"><Icon emoji="🚩" size={10} /> Flagged</span>}
               </div>
               <p className="mt-1 line-clamp-2 text-sm text-neutral-500">{q.description}</p>
               {q.pause_reason && (
                 <p className="mt-1 text-xs text-amber-600">
-                  {q.auto_paused ? "⚠️ Auto-paused: " : "Paused: "}{q.pause_reason}
+                  {q.auto_paused ? <><Icon emoji="⚠️" size={12} className="inline mr-1" />Auto-paused: </> : "Paused: "}{q.pause_reason}
                   {q.auto_paused && " — resolve the underlying account issue and restart from your Business panel."}
                 </p>
               )}
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-neutral-500 sm:grid-cols-4">
-                <div>📋 {q.application_count} applications</div>
-                <div>✅ {q.approved_count} approved</div>
-                <div>🏁 {q.completions_count} completions</div>
-                <div>🪙 {q.reward_coins.toLocaleString()} {currency.softPlural} reward</div>
+                <div className="flex items-center gap-1"><Icon emoji="📋" size={12} /> {q.application_count} applications</div>
+                <div className="flex items-center gap-1"><Icon emoji="✅" size={12} /> {q.approved_count} approved</div>
+                <div className="flex items-center gap-1"><Icon emoji="🏁" size={12} /> {q.completions_count} completions</div>
+                <div className="flex items-center gap-1"><Icon emoji="🪙" size={12} /> {q.reward_coins.toLocaleString()} {currency.softPlural} reward</div>
               </div>
               {q.is_daily_quest_eligible && (
                 <p className="mt-2 text-xs text-neutral-400">

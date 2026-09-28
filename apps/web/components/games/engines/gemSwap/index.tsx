@@ -10,6 +10,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const GEM_COLORS = [
   { bg: "bg-red-500",    label: "R", id: 0 },
@@ -275,7 +276,7 @@ export default function GemSwapGame({
 
       {gameOver && (
         <div className="flex flex-col items-center gap-1 mt-2">
-          <span className="text-4xl animate-bounce">🎉</span>
+          <span className="text-4xl animate-bounce inline-flex"><Icon emoji="🎉" size={32} /></span>
           <span className="text-emerald-400 font-bold text-xl">Time&apos;s Up!</span>
           <span className="text-muted-foreground text-sm">Final Score: {score}</span>
         </div>

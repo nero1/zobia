@@ -15,6 +15,7 @@ import React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -106,9 +107,7 @@ export function WalletCard({
           {/* Coins */}
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-xl" aria-hidden>
-                🪙
-              </span>
+              <Icon emoji="🪙" className="text-xl" size={20} />
               <span className="text-3xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
                 {formatCoins(data?.coins ?? 0)}
               </span>
@@ -123,9 +122,7 @@ export function WalletCard({
           {/* Premium currency */}
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-xl" aria-hidden>
-                ⭐
-              </span>
+              <Icon emoji="⭐" className="text-xl" size={20} />
               <span className="text-3xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
                 {data?.stars ?? 0}
               </span>
@@ -141,9 +138,9 @@ export function WalletCard({
       {showTopUp && (
         <Link
           href="/economy/store"
-          className="mt-5 flex w-full items-center justify-center rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
+          className="mt-5 flex w-full items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-blue-700 active:bg-blue-800"
         >
-          🪙 Add {currency.softPlural}
+          <Icon emoji="🪙" size={16} /> Add {currency.softPlural}
         </Link>
       )}
     </div>

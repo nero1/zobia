@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 // ── Note patterns (time in ms from start) ──────────────────────────────────
 const BEAT_MS = 500; // 120 BPM
@@ -296,9 +297,9 @@ export default function BeatTapGame({
         <button
           type="button"
           onClick={handleStart}
-          className="w-full bg-primary text-primary-foreground rounded-xl py-5 font-bold text-xl active:scale-95 transition-all duration-150"
+          className="w-full bg-primary text-primary-foreground rounded-xl py-5 font-bold text-xl active:scale-95 transition-all duration-150 flex items-center justify-center gap-2"
         >
-          🎵 TAP TO START
+          <Icon emoji="🎵" size={22} /> TAP TO START
         </button>
       ) : (
         <>
@@ -370,7 +371,7 @@ export default function BeatTapGame({
 
       {gameOver && (
         <div className="flex flex-col items-center gap-2">
-          <span className="text-4xl animate-bounce">🎉</span>
+          <span className="animate-bounce"><Icon emoji="🎉" size={36} /></span>
           <span className="text-emerald-400 font-bold text-xl">Great performance!</span>
           <span className="text-muted-foreground">Final Score: {score}</span>
         </div>

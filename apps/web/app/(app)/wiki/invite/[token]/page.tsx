@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface InvitePreview {
   wiki: { slug: string; name: string };
@@ -57,7 +58,7 @@ export default function WikiInviteAcceptPage() {
 
   return (
     <div className="mx-auto max-w-md px-4 py-16 text-center">
-      <div className="text-4xl mb-4">📚</div>
+      <div className="mb-4"><Icon emoji="📚" className="text-4xl" size={40} /></div>
       <h1 className="text-xl font-bold text-foreground mb-1">{t("wiki.invite.title", "You're invited to collaborate")}</h1>
       <p className="text-sm text-muted-foreground mb-6">
         {t("wiki.invite.subtitle", "Join \"{{name}}\" as a contributor.", { name: preview.wiki.name })}

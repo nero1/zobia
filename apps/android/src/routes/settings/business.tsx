@@ -28,6 +28,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { BUSINESS_TIER_PRODUCTS, purchaseBusinessTier } from '@/lib/payments/googlePlay';
+import { Icon } from '@/components/ui/Icon';
 
 type BusinessType = 'retail' | 'service' | 'media' | 'other';
 type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
@@ -64,7 +65,7 @@ const TIER_ORDER: Record<TierKey, number> = { starter: 0, growth: 1, enterprise:
 const VERIFICATION_BADGE: Record<VerificationStatus, { label: string; classes: string }> = {
   unverified: { label: 'Unverified', classes: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400' },
   pending: { label: 'Pending Review', classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
-  verified: { label: 'Verified ✓', classes: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
+  verified: { label: 'Verified', classes: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
   rejected: { label: 'Rejected', classes: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' },
 };
 
@@ -214,7 +215,9 @@ function BusinessPage() {
               <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{business.business_name}</h2>
               {business.business_type && <p className="text-sm capitalize text-neutral-500 dark:text-neutral-400">{business.business_type}</p>}
             </div>
-            <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${badge.classes}`}>{badge.label}</span>
+            <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${badge.classes}`}>
+              {badge.label}{verStatus === 'verified' && <Icon emoji="✓" size={11} />}
+            </span>
           </div>
 
           <div className="mt-3 rounded-lg bg-neutral-50 dark:bg-neutral-800 p-3">

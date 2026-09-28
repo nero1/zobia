@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface DiscoveryGuild {
   id: string;
@@ -55,7 +56,7 @@ export function GuildDiscoveryPanel() {
   return (
     <div className="rounded-xl border border-primary-200 bg-white dark:bg-neutral-800 p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('home.guildDiscovery.title')}</h2>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🏆" size={14} /> {t('home.guildDiscovery.title')}</h2>
         <Link to="/guild" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
           {t('home.guildDiscovery.seeAll')}
         </Link>

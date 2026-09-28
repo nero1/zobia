@@ -8,6 +8,7 @@
  */
 
 import type { RankName } from '@zobia/shared/types';
+import { Icon } from '@/components/ui/Icon';
 
 const RANK_ORDER: RankName[] = [
   'Beginner', 'Rookie', 'Hustler', 'Baller', 'Boss',
@@ -167,7 +168,7 @@ export function RewardBadge({ label, className = '' }: RewardBadgeProps) {
       title={`Reward unlocked: ${label}`}
       className={`inline-flex items-center gap-0.5 rounded-full border border-amber-400/60 bg-gradient-to-r from-amber-400/20 to-yellow-300/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-300 ${className}`}
     >
-      <span aria-hidden="true">✨</span>
+      <Icon emoji="✨" size={10} aria-hidden />
       {label}
     </span>
   );

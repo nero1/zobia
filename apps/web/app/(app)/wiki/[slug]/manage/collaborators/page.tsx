@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface CollaboratorRow {
   id: string;
@@ -203,8 +204,8 @@ export default function WikiCollaboratorsPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 space-y-8">
       <div>
-        <Link href={`/wiki/${slug}/manage`} className="mb-2 inline-block text-xs text-muted-foreground hover:text-foreground">
-          ← {t("wiki.dashboard.backToManage", "Back to manage")}
+        <Link href={`/wiki/${slug}/manage`} className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <Icon emoji="←" size={12} /> {t("wiki.dashboard.backToManage", "Back to manage")}
         </Link>
         <h1 className="text-2xl font-bold text-foreground">{t("wiki.dashboard.collaborators", "Collaborators")}</h1>
       </div>
@@ -295,9 +296,9 @@ export default function WikiCollaboratorsPage() {
                 <button
                   type="button"
                   onClick={() => copyInviteLink(inv.token)}
-                  className="flex-shrink-0 rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
+                  className="flex-shrink-0 inline-flex items-center gap-1 rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
                 >
-                  {copiedToken === inv.token ? t("wiki.manage.linkCopied", "Copied ✓") : t("wiki.manage.copyLink", "Copy link")}
+                  {copiedToken === inv.token ? <>{t("wiki.manage.linkCopied", "Copied")} <Icon emoji="✓" size={12} /></> : t("wiki.manage.copyLink", "Copy link")}
                 </button>
               )}
             </div>

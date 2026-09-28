@@ -6,12 +6,13 @@
  * capped for a grid preview with a "View more" link to /market/$section.
  */
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { MarketItemCard, type MarketItem } from '@/components/market/MarketItemCard';
+import { Icon } from '@/components/ui/Icon';
 
 interface MarketHome {
   sponsored: MarketItem[];
@@ -25,7 +26,7 @@ async function fetchHome(): Promise<MarketHome> {
   return data.data ?? { sponsored: [], featured: [], trending: [], platform: [] };
 }
 
-function Section({ title, items, section, view }: { title: string; items: MarketItem[]; section: string; view: 'grid' | 'list' }) {
+function Section({ title, items, section, view }: { title: ReactNode; items: MarketItem[]; section: string; view: 'grid' | 'list' }) {
   if (items.length === 0) return null;
   return (
     <section className="space-y-2">
@@ -49,12 +50,12 @@ function MarketHomePage() {
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-5 px-4 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('market.title', '🏪 Market')}</h1>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-1.5"><Icon emoji="🏪" size={18} /> {t('market.title', 'Market')}</h1>
           <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t('market.subtitle', 'Credits, cosmetics, boosts, and creator items — all in one place.')}</p>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
-          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>☰</button>
-          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>⊞</button>
+          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}><Icon emoji="☰" size={12} /></button>
+          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}><Icon emoji="⊞" size={12} /></button>
         </div>
       </div>
 
@@ -64,10 +65,10 @@ function MarketHomePage() {
         </div>
       ) : (
         <>
-          <Section title={t('market.sponsored', '🚀 Sponsored')} items={home.sponsored} section="sponsored" view={view} />
-          <Section title={t('market.featured', '⭐ Featured')} items={home.featured} section="featured" view={view} />
-          <Section title={t('market.trending', '🔥 Trending from Creators')} items={home.trending} section="trending" view={view} />
-          <Section title={t('market.platform', '🛒 Platform Store')} items={home.platform} section="platform" view={view} />
+          <Section title={<><Icon emoji="🚀" size={16} /> {t('market.sponsored', 'Sponsored')}</>} items={home.sponsored} section="sponsored" view={view} />
+          <Section title={<><Icon emoji="⭐" size={16} /> {t('market.featured', 'Featured')}</>} items={home.featured} section="featured" view={view} />
+          <Section title={<><Icon emoji="🔥" size={16} /> {t('market.trending', 'Trending from Creators')}</>} items={home.trending} section="trending" view={view} />
+          <Section title={<><Icon emoji="🛒" size={16} /> {t('market.platform', 'Platform Store')}</>} items={home.platform} section="platform" view={view} />
         </>
       )}
     </div>

@@ -17,6 +17,7 @@ import { TweetCard } from '@/components/tweets/TweetCard';
 import { mapTweet, type TweetRow } from '@/components/tweets/types';
 import { PUBLIC_PATHS, referralLink } from '@/lib/deeplinks/routes';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
+import { Icon } from '@/components/ui/Icon';
 
 function TweetDetailPage() {
   const { t } = useTranslation();
@@ -143,8 +144,8 @@ function TweetDetailPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 px-4 py-3 flex items-center justify-between">
-        <Link to="/tweets" className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">
-          ← {t('tweets.title')}
+        <Link to="/tweets" className="inline-flex items-center gap-1 text-sm font-semibold text-neutral-500 dark:text-neutral-400">
+          <Icon emoji="←" size={14} /> {t('tweets.title')}
         </Link>
         {tweet && (
           <button onClick={() => void handleShare()} className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">

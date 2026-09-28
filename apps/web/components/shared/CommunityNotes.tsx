@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { Icon } from "@/components/ui/Icon";
 
 export interface CommunityNote {
   id: string;
@@ -54,7 +55,7 @@ export function CommunityNotes({ notes, messageId, onVote }: CommunityNotesProps
                       : 'hover:bg-gray-200 text-gray-600'
                   }`}
                 >
-                  👍 {note.helpful_votes}
+                  <Icon emoji="👍" size={14} /> {note.helpful_votes}
                 </button>
                 <button
                   onClick={() => handleVote(note.id, false)}
@@ -64,7 +65,7 @@ export function CommunityNotes({ notes, messageId, onVote }: CommunityNotesProps
                       : 'hover:bg-gray-200 text-gray-600'
                   }`}
                 >
-                  👎 {note.not_helpful_votes}
+                  <Icon emoji="👎" size={14} /> {note.not_helpful_votes}
                 </button>
               </div>
             </div>

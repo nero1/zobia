@@ -26,6 +26,7 @@ import {
   type SlugPolicy,
   type SlugQuote,
 } from '@/lib/classroom/api';
+import { Icon } from '@/components/ui/Icon';
 
 const field = 'w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2 text-sm';
 const card = 'space-y-2 rounded-xl bg-white dark:bg-neutral-800 p-3';
@@ -148,8 +149,8 @@ export function CurriculumPanel({ home }: { home: ClassroomHome }) {
         <div key={m.id} className="flex items-center gap-2 rounded-xl bg-white dark:bg-neutral-800 p-3">
           <span className="w-5 text-sm font-bold text-neutral-400">{i + 1}</span>
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{m.title}</span>
-          <button type="button" onClick={() => move(i, -1)} className="px-1 text-neutral-400">↑</button>
-          <button type="button" onClick={() => move(i, 1)} className="px-1 text-neutral-400">↓</button>
+          <button type="button" onClick={() => move(i, -1)} className="px-1 text-neutral-400"><Icon emoji="↑" size={14} /></button>
+          <button type="button" onClick={() => move(i, 1)} className="px-1 text-neutral-400"><Icon emoji="↓" size={14} /></button>
           <button type="button" onClick={() => start(m)} className="text-xs text-primary-600">{t('classroom.feed.edit', 'Edit')}</button>
           <button type="button" onClick={() => confirm(t('classroom.module.deleteConfirm', 'Delete this module?')) && del.mutate(m.id)} className="text-xs text-danger-500">
             {t('classroom.module.delete', 'Delete')}
@@ -254,7 +255,13 @@ export function ReportsPanel({ roomId }: { roomId: string }) {
     onSettled: () => void qc.invalidateQueries({ queryKey: ['classroom', roomId, 'reports'] }),
   });
   const list = reports.data?.reports ?? [];
-  if (list.length === 0) return <p className="py-8 text-center text-sm text-neutral-500">{t('classroom.reports.empty', 'Nothing to review. 🎉')}</p>;
+  if (list.length === 0)
+    return (
+      <p className="flex items-center justify-center gap-1.5 py-8 text-center text-sm text-neutral-500">
+        {t('classroom.reports.empty', 'Nothing to review.')}
+        <Icon emoji="🎉" size={16} />
+      </p>
+    );
   return (
     <div className="space-y-2">
       {list.map((r) => (

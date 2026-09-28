@@ -16,6 +16,7 @@ import { useForumConfig } from "@/lib/hooks/useForumConfig";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { NotFoundGate } from "@/components/shared/NotFoundGate";
 import { CategoryList, type CategoryListItem } from "@/components/answers/CategoryList";
+import { Icon } from "@/components/ui/Icon";
 
 type Tab = "popular" | "trending" | "new" | "favorites";
 
@@ -58,7 +59,7 @@ function QuestionCard({ q, onVote, onFavorite }: {
           onClick={() => onVote(q.id, 1)}
           className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm transition-colors ${q.myVote === 1 ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
         >
-          ▲
+          <Icon emoji="▲" className="h-4 w-4" />
         </button>
         <span className="text-sm font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{q.voteScore}</span>
         <button
@@ -66,7 +67,7 @@ function QuestionCard({ q, onVote, onFavorite }: {
           onClick={() => onVote(q.id, -1)}
           className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm transition-colors ${q.myVote === -1 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
         >
-          ▼
+          <Icon emoji="▼" className="h-4 w-4" />
         </button>
       </div>
 
@@ -75,8 +76,8 @@ function QuestionCard({ q, onVote, onFavorite }: {
         <Link href={`/answers/${q.id}`} className="block">
           <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 hover:text-primary-600 dark:text-neutral-50 dark:hover:text-primary-400">
             {q.title}
-            {q.isLocked && <span className="ml-1.5 text-xs text-neutral-400">🔒</span>}
-            {q.bestAnswerId && <span className="ml-1.5 text-xs text-teal-600 dark:text-teal-400">✓ answered</span>}
+            {q.isLocked && <Icon emoji="🔒" className="ml-1.5 inline h-3 w-3 text-neutral-400" />}
+            {q.bestAnswerId && <span className="ml-1.5 inline-flex items-center gap-0.5 text-xs text-teal-600 dark:text-teal-400"><Icon emoji="✓" className="h-3 w-3" /> answered</span>}
           </h3>
           <p className="mt-1 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{q.body}</p>
         </Link>
@@ -92,7 +93,7 @@ function QuestionCard({ q, onVote, onFavorite }: {
             aria-label={q.isFavorited ? "Unfavorite" : "Favorite"}
             className={`ml-auto rounded-full px-1.5 py-0.5 transition-colors ${q.isFavorited ? "text-amber-500" : "text-neutral-300 hover:text-amber-400"}`}
           >
-            {q.isFavorited ? "★" : "☆"}
+            <Icon emoji={q.isFavorited ? "★" : "☆"} className="h-3.5 w-3.5" />
           </button>
         </div>
       </div>
@@ -241,7 +242,7 @@ export default function AnswersPage() {
             onClick={() => setTab(key)}
             className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-colors sm:text-sm ${tab === key ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
           >
-            <span className="mr-1">{icon}</span>{label}
+            <Icon emoji={icon} className="mr-1 inline h-3.5 w-3.5" />{label}
           </button>
         ))}
       </div>
@@ -263,7 +264,7 @@ export default function AnswersPage() {
           Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)
         ) : questions.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-16 dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-4xl">❓</span>
+            <Icon emoji="❓" className="h-10 w-10 text-4xl" />
             <p className="mt-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               {tab === "favorites" ? t("answers.empty.favorites", "No favorited questions yet.") : t("answers.empty.default", "No questions yet — be the first to ask!")}
             </p>

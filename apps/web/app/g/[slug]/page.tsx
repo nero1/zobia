@@ -17,6 +17,7 @@ import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import GameCoverActions from "@/components/games/GameCoverActions";
 import Link from "next/link";
 import GameCoverNav from "@/components/games/GameCoverNav";
+import { Icon } from "@/components/ui/Icon";
 
 export async function generateMetadata({
   params,
@@ -81,7 +82,7 @@ export default async function PublicGamePage({
           />
         ) : (
           <div className="text-6xl text-center mb-6" aria-hidden="true">
-            {game.cover_emoji}
+            <Icon emoji={game.cover_emoji} size={64} className="inline-block" />
           </div>
         )}
 
@@ -108,7 +109,7 @@ export default async function PublicGamePage({
             Win to earn
             {game.reward_credits_per_win > 0 ? ` +${game.reward_credits_per_win} credits` : ""}
             {game.reward_xp_per_win > 0 ? ` +${game.reward_xp_per_win} XP` : ""}
-            {game.reward_stars_per_win > 0 ? ` +${game.reward_stars_per_win} ⭐` : ""}
+            {game.reward_stars_per_win > 0 ? <> +{game.reward_stars_per_win} <Icon emoji="⭐" size={14} /></> : ""}
           </p>
         )}
 
@@ -116,7 +117,7 @@ export default async function PublicGamePage({
           <p className="mb-6 text-sm text-amber-500">
             Costs
             {game.play_cost_credits > 0 ? ` ${game.play_cost_credits} credits` : ""}
-            {game.play_cost_stars > 0 ? ` ${game.play_cost_stars} ⭐` : ""} per play
+            {game.play_cost_stars > 0 ? <> {game.play_cost_stars} <Icon emoji="⭐" size={14} /></> : ""} per play
           </p>
         )}
 
@@ -126,7 +127,7 @@ export default async function PublicGamePage({
 
         <div className="mt-4">
           <Link href="/games" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← More games
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> More games
           </Link>
         </div>
       </div>

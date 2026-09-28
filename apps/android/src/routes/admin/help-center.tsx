@@ -24,6 +24,7 @@ import {
   AdminBadge,
   adminInputClass,
 } from '@/components/admin/AdminUI';
+import { Icon } from '@/components/ui/Icon';
 
 interface Category {
   id: string;
@@ -84,7 +85,7 @@ function DocEditorOverlay({
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
       <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{d.id ? t('admin.helpCenter.editDoc', 'Edit Doc') : t('admin.helpCenter.newDoc', 'New Doc')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"><Icon emoji="✕" /></button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-3 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
         <select value={d.categoryId} onChange={(e) => setD({ ...d, categoryId: e.target.value })} className={adminInputClass}>

@@ -20,6 +20,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 interface Board { slug: string; name: string; }
 interface Thread {
@@ -121,17 +122,17 @@ function ThreadDetailPage() {
     return (
       <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
-        <Link to="/forum" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('bbforum.forum.title')}</Link>
+        <Link to="/forum" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 dark:text-primary-300"><Icon emoji="←" size={13} /> {t('bbforum.forum.title')}</Link>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-3 space-y-3">
-      {board && <Link to="/forum/$boardSlug" params={{ boardSlug: board.slug }} className="text-xs text-neutral-500 dark:text-neutral-400">← {board.name}</Link>}
+      {board && <Link to="/forum/$boardSlug" params={{ boardSlug: board.slug }} className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"><Icon emoji="←" size={12} /> {board.name}</Link>}
       <h1 className="text-base font-bold text-neutral-900 dark:text-neutral-100">
-        {thread.is_pinned && <span className="mr-1 text-amber-500">📌</span>}
-        {thread.is_locked && <span className="mr-1 text-neutral-400 dark:text-neutral-500">🔒</span>}
+        {thread.is_pinned && <span className="mr-1 text-amber-500"><Icon emoji="📌" size={13} /></span>}
+        {thread.is_locked && <span className="mr-1 text-neutral-400 dark:text-neutral-500"><Icon emoji="🔒" size={13} /></span>}
         {thread.title}
       </h1>
 
@@ -147,13 +148,13 @@ function ThreadDetailPage() {
         return (
           <div key={post.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
             <div className="mb-1.5 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-              <span>{post.author_avatar_emoji ?? '👤'}</span>
+              <span>{post.author_avatar_emoji ?? <Icon emoji="👤" size={14} />}</span>
               <span className="font-semibold text-neutral-700 dark:text-neutral-300">{post.author_display_name ?? post.author_username ?? 'Unknown'}</span>
               {post.is_op && <span className="rounded-full bg-primary-100 dark:bg-primary-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300">OP</span>}
               <span>·</span>
               <span>{timeAgo(post.created_at)}</span>
               {post.edited_at && <span className="italic text-neutral-400 dark:text-neutral-500">({t('bbforum.post.edited')})</span>}
-              <button onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)} className="ml-auto text-neutral-400 dark:text-neutral-500">⋯</button>
+              <button onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)} className="ml-auto text-neutral-400 dark:text-neutral-500"><Icon emoji="⋯" size={14} /></button>
             </div>
 
             {menuOpenId === post.id && (
@@ -195,13 +196,13 @@ function ThreadDetailPage() {
       })}
 
       {thread.is_locked ? (
-        <p className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-500 dark:text-neutral-400">🔒 {t('bbforum.locked')}</p>
+        <p className="flex items-center gap-1.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-500 dark:text-neutral-400"><Icon emoji="🔒" size={14} /> {t('bbforum.locked')}</p>
       ) : (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 space-y-2">
           {quoted && (
             <div className="flex items-start gap-2 rounded-lg border-l-4 border-primary-400 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400">
               <div className="min-w-0 flex-1"><span className="font-semibold">{t('bbforum.editor.quoting', { author: quoted.author })}</span> {quoted.snippet}</div>
-              <button onClick={() => setQuoted(null)} className="text-neutral-400 dark:text-neutral-500">✕</button>
+              <button onClick={() => setQuoted(null)} className="text-neutral-400 dark:text-neutral-500"><Icon emoji="✕" size={12} /></button>
             </div>
           )}
           <div className="flex gap-1 text-xs font-semibold">
@@ -214,7 +215,7 @@ function ThreadDetailPage() {
           <textarea value={replyBody} onChange={(e) => setReplyBody(e.target.value.slice(0, 20000))} rows={3} placeholder={t('bbforum.reply.placeholder')} className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
           <div className="flex items-center gap-2">
             <label className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-              {uploading ? t('bbforum.editor.uploading') : `📷 ${t('bbforum.editor.addImage')}`}
+              {uploading ? t('bbforum.editor.uploading') : <><Icon emoji="📷" size={12} className="inline" /> {t('bbforum.editor.addImage')}</>}
               <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUploadImage(f); }} />
             </label>
             {replyImageUrl && <button onClick={() => setReplyImageUrl(null)} className="text-xs font-semibold text-red-600 dark:text-red-300">{t('bbforum.editor.removeImage')}</button>}

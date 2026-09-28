@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useCurrentUserId } from "@/lib/hooks/useCurrentUserId";
 import { useNewMemberQuestDismissal } from "@/lib/hooks/useNewMemberQuestDismissal";
+import { Icon } from "@/components/ui/Icon";
 
 interface QuestStep { id: string; title: string; completed: boolean; }
 interface QuestState { steps: QuestStep[]; allComplete: boolean; }
@@ -69,7 +70,7 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
     <div className="rounded-xl border border-violet-200 bg-white shadow-sm dark:border-violet-800 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-violet-100 px-4 py-3 dark:border-violet-900">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🎯</span>
+          <Icon emoji="🎯" size={18} />
           <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-50">{t("home.newMemberQuest.title")}</h2>
         </div>
         <div className="flex items-center gap-3">

@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { PostBody } from "@/components/bbforum/PostBody";
 import { PostEditor } from "@/components/bbforum/PostEditor";
 import { REPORT_REASONS } from "@/lib/moderation/reportReasons";
+import { Icon } from "@/components/ui/Icon";
 
 export interface PostCardData {
   id: string;
@@ -149,7 +150,7 @@ export function PostCard({
           {reportOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReportOpen(false)}>
               <div className="relative w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => setReportOpen(false)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
+                <button onClick={() => setReportOpen(false)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close"><Icon emoji="✕" /></button>
                 <h2 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-50">Report post</h2>
                 <div className="space-y-1.5">
                   {REPORT_REASONS.map(({ label, type }) => (

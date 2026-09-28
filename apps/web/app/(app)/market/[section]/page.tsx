@@ -14,14 +14,15 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import type { MarketItem, MarketCategory, MarketSort } from "@/lib/market/types";
 import { MarketItemCard } from "@/components/market/MarketItemCard";
+import { Icon } from "@/components/ui/Icon";
 
 type ViewMode = "grid" | "list";
 
-const SECTION_TITLE: Record<string, string> = {
-  sponsored: "🚀 Sponsored",
-  featured: "⭐ Featured",
-  trending: "🔥 Trending from Creators",
-  platform: "🛒 Platform Store",
+const SECTION_TITLE: Record<string, { emoji: string; label: string }> = {
+  sponsored: { emoji: "🚀", label: "Sponsored" },
+  featured: { emoji: "⭐", label: "Featured" },
+  trending: { emoji: "🔥", label: "Trending from Creators" },
+  platform: { emoji: "🛒", label: "Platform Store" },
 };
 
 const CATEGORIES: { value: MarketCategory | "all"; label: string }[] = [
@@ -94,8 +95,12 @@ export default function MarketSectionPage() {
     <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
       <div className="flex items-center justify-between">
         <div>
-          <Link href="/market" className="text-sm text-neutral-500 hover:underline">← Market</Link>
-          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">{SECTION_TITLE[section] ?? section}</h1>
+          <Link href="/market" className="text-sm text-neutral-500 hover:underline"><Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Market</Link>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+            {SECTION_TITLE[section] ? (
+              <><Icon emoji={SECTION_TITLE[section].emoji} className="inline h-5 w-5 align-text-bottom" /> {SECTION_TITLE[section].label}</>
+            ) : section}
+          </h1>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5 dark:border-neutral-800 dark:bg-neutral-900">
           <button
@@ -103,14 +108,14 @@ export default function MarketSectionPage() {
             onClick={() => updateView("list")}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "list" ? "bg-blue-600 text-white" : "text-neutral-500"}`}
           >
-            ☰ {t("games.view.list")}
+            <Icon emoji="☰" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.list")}
           </button>
           <button
             type="button"
             onClick={() => updateView("grid")}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "grid" ? "bg-blue-600 text-white" : "text-neutral-500"}`}
           >
-            ⊞ {t("games.view.grid")}
+            <Icon emoji="⊞" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.grid")}
           </button>
         </div>
       </div>

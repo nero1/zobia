@@ -741,9 +741,15 @@ device-only preferences, none of which are sent to the server:
   `bg-neutral-*`/`text-neutral-*`/`border-neutral-*` class across the app
   already reads these variables, so no page needed per-theme markup.
 - **Icon Set** — Emoji (default) or a monochrome vector set (`lucide-react`)
-  via the shared `<Icon name="..." />` component. Currently covers each
-  app's primary navigation chrome (top bar, bottom tabs, drawer, profile
-  menu); the rest of the app's decorative emoji are unchanged.
+  via the shared `<Icon>` component (`name="..."` for nav chrome,
+  `emoji="..."` for everything else, looked up in
+  `shared/utils/emojiIconMap.ts`). Covers essentially every UI-chrome icon
+  across both apps — nav, admin panels, feeds, settings, wallet, messages,
+  profile, games HUB chrome, etc. Emoji that are actual content rather than
+  decoration (default-avatar picker, country flags, gift/sticker catalog
+  items, in-game emoji data like chess pieces or quiz answer keys) are
+  intentionally left as-is everywhere — the icon set only ever re-skins
+  chrome, never content.
 - **Text Size** — a `+`/`−` stepper (70%-200%, default 100%) that scales
   every `text-*` Tailwind class via a `--font-zoom` CSS variable. 100%
   already includes a platform-wide +30% base font-size increase applied to

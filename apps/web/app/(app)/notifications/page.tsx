@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { notificationsQueryKey } from "@/lib/notifications/useUnreadCount";
 import { useMarkNotificationsSeen } from "@/lib/notifications/useHasNewNotifications";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -123,79 +124,79 @@ function formatNotification(n: RawNotification): Notification {
 
   switch (n.type) {
     case "guild_war":
-      title = "⚔️ Guild War Update";
+      title = "Guild War Update";
       body = str("message", "Your guild has a war update.");
       break;
     case "guild_war_final_hour":
-      title = "⚔️ Final Hour!";
+      title = "Final Hour!";
       body = str("message", "Your guild's war is entering the final hour! Give it everything you've got.");
       break;
     case "guild_low_contribution":
-      title = "📉 Low Contribution Alert";
+      title = "Low Contribution Alert";
       body = `Your contribution score (${num("contributionScore")}) is below your guild's average (${num("guildAverage")}). Step it up!`;
       break;
     case "nemesis":
-      title = "🎯 Nemesis Update";
+      title = "Nemesis Update";
       body = str("message", "Your nemesis has made a move.");
       break;
     case "quest":
-      title = "📋 Quest Update";
+      title = "Quest Update";
       body = str("message", "You have a quest update.");
       break;
     case "gift":
-      title = "🎁 You received a gift!";
+      title = "You received a gift!";
       body = str("message", "Someone sent you a gift.");
       break;
     case "rank_up":
-      title = `🏅 Rank Up! You're now ${str("newRank", "a higher rank")}`;
+      title = `Rank Up! You're now ${str("newRank", "a higher rank")}`;
       body = str("message", "");
       break;
     case "friend_request":
-      title = "👋 New Friend Request";
+      title = "New Friend Request";
       body = `${str("senderUsername", "Someone")} wants to connect.`;
       break;
     case "mention":
-      title = "💬 You were mentioned";
+      title = "You were mentioned";
       body = str("message", "You were mentioned in a conversation.");
       break;
     case "announcement":
-      title = str("subject", "📢 Platform Announcement");
+      title = str("subject", "Platform Announcement");
       body = str("body", "");
       break;
     case "season":
-      title = "🌟 Season Update";
+      title = "Season Update";
       body = str("message", "There's a season update.");
       break;
     case "prestige_complete":
-      title = `🔥 Prestige ${num("prestigeCount")} Achieved!`;
+      title = `Prestige ${num("prestigeCount")} Achieved!`;
       body = str("title", "You have been reborn.");
       break;
     case "mystery_xp_drop":
-      title = "✨ Mystery XP Drop!";
+      title = "Mystery XP Drop!";
       body = `You earned ${num("xpAmount").toLocaleString()} bonus XP from a mystery drop.`;
       break;
     case "flash_xp_announced":
-      title = "⚡ Flash XP Coming Soon";
+      title = "Flash XP Coming Soon";
       body = str("message", `${str("name", "Double XP")} is happening soon — stay active!`);
       break;
     case "flash_xp_live":
-      title = `⚡ ${str("name", "Flash XP")} is LIVE!`;
+      title = `${str("name", "Flash XP")} is LIVE!`;
       body = str("message", `${num("multiplier", 2)}× XP is active now. Go earn!`);
       break;
     case "leaderboard_ripple":
-      title = "📊 Leaderboard Change";
+      title = "Leaderboard Change";
       body = str("message", "Your leaderboard rank has changed.");
       break;
     case "platform_council_invite":
-      title = "🏛️ Platform Council Invitation";
+      title = "Platform Council Invitation";
       body = "You've been invited to join the Platform Council based on your Legacy Score.";
       break;
     case "reengagement":
-      title = "👋 Welcome back!";
+      title = "Welcome back!";
       body = str("message", "Things have happened while you were away.");
       break;
     case "streak_risk":
-      title = "⚠️ Streak at Risk";
+      title = "Streak at Risk";
       body = `You have a ${num("streakDays")}-day streak. Log in today to keep it alive!`;
       break;
     default:
@@ -247,7 +248,7 @@ function NotificationItem({ notification, onRead }: { notification: Notification
       }`}
     >
       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">
-        {notificationIcon(notification.type)}
+        <Icon emoji={notificationIcon(notification.type)} size={20} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
@@ -269,7 +270,7 @@ function NotificationItem({ notification, onRead }: { notification: Notification
             href={notification.actionUrl}
             className="mt-1 inline-block text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
-            View →
+            View <Icon emoji="→" className="inline h-3 w-3 align-text-bottom" />
           </a>
         )}
       </div>
@@ -438,7 +439,7 @@ export default function NotificationsPage() {
 
       {notifications.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">🔔</span>
+          <Icon emoji="🔔" className="text-5xl" size={48} />
           <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">All caught up!</h2>
           <p className="mt-1 text-sm text-neutral-500">No notifications yet. Check back soon.</p>
         </div>

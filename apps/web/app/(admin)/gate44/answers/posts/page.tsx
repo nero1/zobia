@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 type PostType = "question" | "answer";
 
@@ -130,7 +131,7 @@ function ExternalLinkIcon({ href, title }: { href: string; title: string }) {
       title={title}
       className="inline-flex shrink-0 items-center text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400"
     >
-      🔗
+      <Icon emoji="🔗" size={14} />
     </a>
   );
 }
@@ -311,7 +312,11 @@ export default function AdminForumPostsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE[q.status] ?? ""}`}>{q.status.replace(/_/g, " ")}</span>
-                    {q.is_locked && <span className="ml-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">🔒 locked</span>}
+                    {q.is_locked && (
+                      <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+                        <Icon emoji="🔒" size={12} /> locked
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 tabular-nums">{q.vote_score}</td>
                   <td className="px-4 py-3 tabular-nums">{q.answer_count}</td>

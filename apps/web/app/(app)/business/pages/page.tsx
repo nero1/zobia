@@ -10,6 +10,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface BusinessPage {
   id: string;
@@ -125,7 +126,7 @@ export default function BusinessPagesListPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-3">
-        <Link href="/business" className="text-sm text-neutral-500 hover:underline">← Business</Link>
+        <Link href="/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={14} /> Business</Link>
         <span className="text-neutral-300">/</span>
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Business Pages</h1>
       </div>
@@ -197,14 +198,14 @@ export default function BusinessPagesListPage() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.avatar_url} alt="" className="h-10 w-10 flex-shrink-0 rounded-xl object-cover" />
                 ) : (
-                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-lg dark:bg-neutral-800">🏢</div>
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-neutral-100 text-lg dark:bg-neutral-800"><Icon emoji="🏢" size={20} /></div>
                 )}
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{p.name}</p>
                     <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${statusBadge(p.status)}`}>{p.status}</span>
                   </div>
-                  <p className="truncate text-xs text-neutral-400">/p/{p.slug} · 👁 {p.view_count} · 📝 {p.post_count}</p>
+                  <p className="truncate inline-flex items-center gap-1 text-xs text-neutral-400">/p/{p.slug} · <Icon emoji="👁" size={14} /> {p.view_count} · <Icon emoji="📝" size={14} /> {p.post_count}</p>
                 </div>
               </div>
               <div className="flex flex-shrink-0 gap-2">

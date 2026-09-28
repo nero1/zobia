@@ -18,6 +18,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -165,7 +166,7 @@ function DetailOverlay({
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
       <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.kyc.detail.title', 'Submission Review')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"><Icon emoji="✕" /></button>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
@@ -297,7 +298,7 @@ function DetailOverlay({
                       onClick={() => approve.mutate()}
                       className="flex-1 rounded-lg bg-success-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {approve.isPending ? '…' : t('admin.kyc.approve', '✓ Approve')}
+                      {approve.isPending ? '…' : <><Icon emoji="✓" size={14} /> {t('admin.kyc.approve', 'Approve')}</>}
                     </button>
                     <button
                       type="button"
@@ -305,7 +306,7 @@ function DetailOverlay({
                       onClick={() => setShowReject(true)}
                       className="flex-1 rounded-lg border border-danger-600 px-3 py-2.5 text-sm font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-50"
                     >
-                      {t('admin.kyc.reject', '✕ Reject')}
+                      <Icon emoji="✕" size={14} /> {t('admin.kyc.reject', 'Reject')}
                     </button>
                   </div>
                 ) : (
@@ -385,7 +386,7 @@ function AdminKycPage() {
         <div className="mb-3 flex items-center gap-2">
           <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300">
             {t('admin.kyc.filteredToUser', 'Filtered to one user')}
-            <button type="button" onClick={() => navigate({ to: '/admin/kyc', search: {} })} aria-label={t('nav.closeMenu')} className="rounded-full p-0.5 hover:bg-blue-200">✕</button>
+            <button type="button" onClick={() => navigate({ to: '/admin/kyc', search: {} })} aria-label={t('nav.closeMenu')} className="rounded-full p-0.5 hover:bg-blue-200"><Icon emoji="✕" /></button>
           </span>
         </div>
       )}
@@ -421,7 +422,7 @@ function AdminKycPage() {
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                 <span>{t('admin.kyc.tier', 'Tier')} {item.tier}</span>
                 <span className="capitalize">· {item.account_type}</span>
-                {item.ai_escalated && <span className="text-amber-600 dark:text-amber-300">⚠ {t('admin.kyc.escalated', 'escalated')}</span>}
+                {item.ai_escalated && <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-300"><Icon emoji="⚠" size={12} /> {t('admin.kyc.escalated', 'escalated')}</span>}
                 <span className="ml-auto">{fmtDate(item.submitted_at)}</span>
               </div>
               {item.ai_name_match_score !== null && (

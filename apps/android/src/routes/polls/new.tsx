@@ -11,6 +11,7 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 2000;
@@ -125,7 +126,7 @@ function PollsNewPage() {
                   aria-label={t('common.delete', 'Delete')}
                   className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-700"
                 >
-                  ✕
+                  <Icon emoji="✕" />
                 </button>
               )}
             </div>

@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { Icon } from '@/components/ui/Icon';
 
 type PackUnlockType = 'free' | 'coins' | 'earn';
 
@@ -94,31 +95,33 @@ function StickersPage() {
 
       {packs.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-          <span className="text-5xl">😶</span>
+          <Icon emoji="😶" size={44} />
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('stickers.empty', 'No sticker packs yet')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {packs.map((pack) => {
-            const badgeLabel = pack.unlockType === 'free' ? t('stickers.free', 'Free') : pack.unlockType === 'coins' ? `🪙 ${pack.coinPrice?.toLocaleString()} ${currency.softPlural}` : t('stickers.earn', 'Earn');
+            const badgeLabel = pack.unlockType === 'free' ? t('stickers.free', 'Free') : pack.unlockType === 'coins' ? (
+              <span className="inline-flex items-center gap-1"><Icon emoji="🪙" size={11} /> {pack.coinPrice?.toLocaleString()} {currency.softPlural}</span>
+            ) : t('stickers.earn', 'Earn');
             const badgeClasses = pack.unlockType === 'free' ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' : pack.unlockType === 'coins' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300';
             return (
               <div key={pack.id} className="flex flex-col rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 shadow-sm">
                 <div className="relative mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-3xl">
                   {pack.coverEmoji}
-                  {pack.owned && <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-teal-500 text-xs text-white">✓</span>}
+                  {pack.owned && <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-teal-500 text-white"><Icon emoji="✓" size={11} /></span>}
                 </div>
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{pack.name}</p>
                 <p className="mb-1.5 text-xs text-neutral-500 dark:text-neutral-400">{t('stickers.count', '{{count}} stickers', { count: pack.stickerCount })}</p>
                 <span className={`self-start rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClasses}`}>{badgeLabel}</span>
                 {pack.unlockType === 'earn' && pack.earnCondition && (
-                  <p className="mt-2 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/30 px-2 py-1.5 text-xs text-blue-700 dark:text-blue-300">🔒 {pack.earnCondition}</p>
+                  <p className="mt-2 flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 dark:bg-blue-900/30 px-2 py-1.5 text-xs text-blue-700 dark:text-blue-300"><Icon emoji="🔒" size={11} /> {pack.earnCondition}</p>
                 )}
                 <div className="mt-auto pt-3">
                   {pack.owned ? (
-                    <div className="rounded-xl bg-teal-50 dark:bg-teal-900/30 py-1.5 text-center text-xs font-semibold text-teal-700 dark:text-teal-300">✓ {t('stickers.owned', 'Owned')}</div>
+                    <div className="flex items-center justify-center gap-1 rounded-xl bg-teal-50 dark:bg-teal-900/30 py-1.5 text-center text-xs font-semibold text-teal-700 dark:text-teal-300"><Icon emoji="✓" size={11} /> {t('stickers.owned', 'Owned')}</div>
                   ) : pack.unlockType === 'earn' ? (
-                    <div className="rounded-xl bg-neutral-100 dark:bg-neutral-800 py-1.5 text-center text-xs font-semibold text-neutral-500 dark:text-neutral-400">🔒 {t('stickers.locked', 'Locked')}</div>
+                    <div className="flex items-center justify-center gap-1 rounded-xl bg-neutral-100 dark:bg-neutral-800 py-1.5 text-center text-xs font-semibold text-neutral-500 dark:text-neutral-400"><Icon emoji="🔒" size={11} /> {t('stickers.locked', 'Locked')}</div>
                   ) : (
                     <button
                       onClick={() => unlockMutation.mutate(pack.id)}

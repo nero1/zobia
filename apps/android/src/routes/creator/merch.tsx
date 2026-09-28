@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import type { AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 interface StoreState {
   id: string;
@@ -165,15 +166,15 @@ function CreatorMerchPage() {
   if (ineligible) {
     return (
       <div className="flex flex-col items-center py-16 px-6 text-center">
-        <span className="text-5xl">🔒</span>
+        <span className="flex justify-center"><Icon emoji="🔒" size={44} /></span>
         <p className="mt-4 font-semibold text-neutral-700 dark:text-neutral-300">
           {t('creator.merch.ineligibleTitle', 'Merch stores are for Elite+ creators and verified Business accounts')}
         </p>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           {t('creator.merch.ineligibleDesc', 'Reach Elite tier or verify your Business account to open a store.')}
         </p>
-        <Link to="/creator" className="mt-4 text-sm font-semibold text-primary-600 dark:text-primary-300">
-          ← {t('creator.title', 'Creator Dashboard')}
+        <Link to="/creator" className="mt-4 flex items-center gap-1 text-sm font-semibold text-primary-600 dark:text-primary-300">
+          <Icon emoji="←" size={14} /> {t('creator.title', 'Creator Dashboard')}
         </Link>
       </div>
     );
@@ -191,7 +192,7 @@ function CreatorMerchPage() {
         </div>
       )}
 
-      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🛍️ {t('creator.merch.title', 'My Merch Store')}</h1>
+      <h1 className="flex items-center gap-2 text-xl font-bold text-neutral-900 dark:text-neutral-100"><Icon emoji="🛍️" size={20} /> {t('creator.merch.title', 'My Merch Store')}</h1>
 
       <form onSubmit={handleSaveStore} className="space-y-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
         <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t('creator.merch.storeDetails', 'Store details')}</p>
@@ -335,8 +336,8 @@ function CreatorMerchPage() {
         </>
       )}
 
-      <Link to="/creator" className="block text-center text-sm text-primary-600 dark:text-primary-300">
-        ← {t('creator.title', 'Creator Dashboard')}
+      <Link to="/creator" className="flex items-center justify-center gap-1 text-center text-sm text-primary-600 dark:text-primary-300">
+        <Icon emoji="←" size={14} /> {t('creator.title', 'Creator Dashboard')}
       </Link>
     </div>
   );

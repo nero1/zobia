@@ -23,6 +23,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
+import { Icon } from '@/components/ui/Icon';
 
 interface CouncilMember {
   userId: string;
@@ -142,7 +143,7 @@ function IdeaCard({ idea, canVote, onVote, voting }: { idea: CouncilIdea; canVot
             idea.hasVoted ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
           }`}
         >
-          ▲ {idea.votes}
+          <Icon emoji="▲" size={12} /> {idea.votes}
         </button>
       </div>
     </div>
@@ -226,7 +227,7 @@ function CouncilPage() {
                 <Link to="/profile/$username" params={{ username: m.username }} className="flex-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                   @{m.username}
                 </Link>
-                <span className="text-sm font-bold text-amber-600 dark:text-amber-300">{m.legacyScore.toLocaleString()} ⚜️</span>
+                <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-600 dark:text-amber-300">{m.legacyScore.toLocaleString()} <Icon emoji="⚜️" size={13} /></span>
               </div>
             ))
           )}
@@ -289,7 +290,7 @@ function CouncilPage() {
             Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800" />)
           ) : (ideas ?? []).length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-              <span className="text-4xl">💡</span>
+              <span className="flex justify-center"><Icon emoji="💡" size={32} /></span>
               <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('council.noIdeas')}</p>
               <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('council.noIdeasHint')}</p>
             </div>

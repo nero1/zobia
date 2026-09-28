@@ -24,6 +24,7 @@ import { ProfileTweets } from '@/components/tweets/ProfileTweets';
 import { PhotoGallery } from '@/components/profile/PhotoGallery';
 import { ActivityFeed, useProfileActivityQuery } from '@/components/profile/ActivityFeed';
 import type { RankName } from '@zobia/shared/types';
+import { Icon } from '@/components/ui/Icon';
 type ProfileTab = 'tweets' | 'activities';
 
 interface TrackLevel {
@@ -171,7 +172,7 @@ function ProfilePage() {
 
           {isOwnProfile && (
             <Link to="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
-              🎨 {t('profile.theme.link', 'Theme')}
+              <Icon emoji="🎨" size={14} /> {t('profile.theme.link', 'Theme')}
             </Link>
           )}
 
@@ -181,7 +182,7 @@ function ProfilePage() {
               search={{ recipientId: profile.id, username: profile.username }}
               className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
             >
-              🎁 {t('profile.sendGift', 'Gift')}
+              <Icon emoji="🎁" size={14} /> {t('profile.sendGift', 'Gift')}
             </Link>
           )}
 
@@ -195,7 +196,7 @@ function ProfilePage() {
               {profile.plan === 'free' ? t('profile.freePlan') : t('profile.plan', { plan: profile.plan })}
             </span>
             {profile.isVerified && (
-              <span className="text-xs text-primary-600 dark:text-primary-300 font-medium">{t('profile.verified')}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-300 font-medium"><Icon emoji="✓" size={12} /> {t('profile.verified')}</span>
             )}
           </div>
         </div>
@@ -213,7 +214,7 @@ function ProfilePage() {
         </div>
         {!!profile.loginStreak && (
           <div className="px-4 py-4 text-center" title={profile.longestStreak ? `Longest: ${profile.longestStreak}` : undefined}>
-            <p className="text-lg font-bold text-orange-600">🔥 {profile.loginStreak}</p>
+            <p className="text-lg font-bold text-orange-600 inline-flex items-center gap-1"><Icon emoji="🔥" size={16} /> {profile.loginStreak}</p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('profile.streak', 'Day Streak')}</p>
           </div>
         )}
@@ -225,7 +226,7 @@ function ProfilePage() {
           <div className="mb-3 flex items-center justify-between">
             <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t('profile.progressionTracks')}</h3>
             <Link to="/leaderboards" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
-              🏆 {t('profile.leaderboard.view', 'View Leaderboard')} →
+              <Icon emoji="🏆" size={12} /> {t('profile.leaderboard.view', 'View Leaderboard')} →
             </Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -241,7 +242,7 @@ function ProfilePage() {
 
       {/* Photo gallery */}
       <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800">
-        <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm mb-3">📷 {t('profile.gallery.title', 'Photo Gallery')}</h3>
+        <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm mb-3 inline-flex items-center gap-1.5"><Icon emoji="📷" size={16} /> {t('profile.gallery.title', 'Photo Gallery')}</h3>
         <PhotoGallery userId={userId} />
       </div>
 

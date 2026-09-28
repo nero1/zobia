@@ -12,6 +12,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types — match the actual /api/admin/financial response shape
@@ -123,7 +124,7 @@ function SummaryCard({ label, value, icon, accent }: SummaryCardProps) {
   return (
     <div className={`rounded-xl border bg-white p-5 dark:bg-neutral-900 ${accent}`}>
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-xl">{icon}</span>
+        <Icon emoji={icon} className="text-xl" size={20} />
         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
       </div>
       <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{value}</p>
@@ -178,7 +179,7 @@ function AnomalyBanner({ alert }: { alert: AnomalyAlert }) {
   const icons = { critical: "🚨", warning: "⚠️", info: "ℹ️" };
   return (
     <div className={`flex items-start gap-3 rounded-xl border px-4 py-3 ${styles[alert.level]}`}>
-      <span className="text-lg">{icons[alert.level]}</span>
+      <Icon emoji={icons[alert.level]} className="text-lg" size={20} />
       <p className="text-sm">{alert.message}</p>
     </div>
   );

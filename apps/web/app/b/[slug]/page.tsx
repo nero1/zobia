@@ -26,6 +26,7 @@ import { getTheme, resolveLayout, DEFAULT_THEME_TOKENS } from "@/lib/blogs/theme
 import { BlogHomeLayout } from "@/components/blogs/layouts/BlogHomeLayout";
 import { GiftTiersSection } from "@/components/blogs/GiftTiersSection";
 import { listPublicGiftTiers } from "@/lib/blogs/service";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -108,7 +109,7 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
                 className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
                 title={`Send a site gift to @${blog.owner_username}`}
               >
-                🎁 Send @{blog.owner_username} a gift
+                <Icon emoji="🎁" className="inline-block align-text-bottom" size={12} /> Send @{blog.owner_username} a gift
               </Link>
             </div>
           </div>
@@ -139,7 +140,7 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
 
         <div className="mt-8">
           <Link href="/blogs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← More blogs
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> More blogs
           </Link>
         </div>
       </div>

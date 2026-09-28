@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface GameSave {
   id: string;
@@ -112,7 +113,7 @@ export default function SavedGamesPage() {
       <div className="mb-5 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">{t("games.savedGames.title", "Saved Games")}</h1>
         <Link href="/games" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← {t("games.title", "Games")}
+          <Icon emoji="←" className="inline h-4 w-4 align-text-bottom" /> {t("games.title", "Games")}
         </Link>
       </div>
 

@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // Mirrors lib/quests/sponsoredQuestPacing.ts SPONSORED_QUEST_DURATION_PRESETS
 // (kept as a plain client-safe constant here — that module pulls in
@@ -731,8 +732,8 @@ export default function AdminSponsoredQuestsPage() {
                       </span>
                     )}
                     {q.flag_status === "flagged" && (
-                      <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-medium">
-                        🚩 Flagged: {q.flag_category}
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-medium">
+                        <Icon emoji="🚩" className="h-3 w-3" /> Flagged: {q.flag_category}
                       </span>
                     )}
                   </div>
@@ -742,7 +743,7 @@ export default function AdminSponsoredQuestsPage() {
                     <p className="text-xs text-red-600 mt-1">Rejection reason: {q.moderation_reason}</p>
                   )}
                   {q.auto_paused && q.pause_reason && (
-                    <p className="text-xs text-amber-600 mt-1">⚠️ Auto-paused: {q.pause_reason}</p>
+                    <p className="flex items-center gap-1 text-xs text-amber-600 mt-1"><Icon emoji="⚠️" className="h-3 w-3" /> Auto-paused: {q.pause_reason}</p>
                   )}
                   {!q.auto_paused && q.pause_reason && (
                     <p className="text-xs text-neutral-500 mt-1">Paused: {q.pause_reason}</p>
@@ -763,9 +764,9 @@ export default function AdminSponsoredQuestsPage() {
                 </div>
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-neutral-500">
-                <span>📋 {q.application_count}/{q.max_applications} applications</span>
-                <span>✅ {q.approved_count} approved</span>
-                <span>⏰ Deadline: {formatDate(q.deadline)}</span>
+                <span className="inline-flex items-center gap-1"><Icon emoji="📋" className="h-3.5 w-3.5" /> {q.application_count}/{q.max_applications} applications</span>
+                <span className="inline-flex items-center gap-1"><Icon emoji="✅" className="h-3.5 w-3.5" /> {q.approved_count} approved</span>
+                <span className="inline-flex items-center gap-1"><Icon emoji="⏰" className="h-3.5 w-3.5" /> Deadline: {formatDate(q.deadline)}</span>
                 <span>Created: {formatDate(q.created_at)}</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
@@ -821,9 +822,9 @@ export default function AdminSponsoredQuestsPage() {
                 ) : (
                   <button
                     onClick={() => { setFlagTarget(q); setFlagCategory("spam"); setFlagReason(""); }}
-                    className="px-3 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100"
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100"
                   >
-                    🚩 Flag
+                    <Icon emoji="🚩" className="h-3.5 w-3.5" /> Flag
                   </button>
                 )}
                 <button

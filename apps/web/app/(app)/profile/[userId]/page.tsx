@@ -19,6 +19,7 @@ import { XpLevelBadge } from "@/components/shared/UserBadges";
 import { ProfileTweets } from "@/components/tweets/ProfileTweets";
 import { PhotoGallery } from "@/components/profile/PhotoGallery";
 import { ActivityFeed, useProfileActivity } from "@/components/profile/ActivityFeed";
+import { Icon } from "@/components/ui/Icon";
 import type { RankName } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -317,7 +318,7 @@ function ProfilePageInner() {
       : "😕";
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <span className="mb-3 text-5xl">{icon}</span>
+        <Icon emoji={icon} size={44} className="mb-3 text-5xl" />
         <p className="text-base font-semibold text-neutral-700 dark:text-neutral-300">
           {privacyCode === "PROFILE_PRIVATE" ? "This profile is private"
             : privacyCode === "ACCOUNT_RESTRICTED" ? "This account has been restricted"
@@ -325,7 +326,7 @@ function ProfilePageInner() {
             : "Profile not found"}
         </p>
         <p className="mt-1 max-w-xs text-sm text-neutral-500">{error ?? "The profile you're looking for doesn't exist or isn't available."}</p>
-        <Link href="/" className="mt-4 text-sm text-blue-600 hover:underline">← Back to Home</Link>
+        <Link href="/" className="mt-4 flex items-center gap-1 text-sm text-blue-600 hover:underline"><Icon emoji="←" size={14} /> Back to Home</Link>
       </div>
     );
   }
@@ -362,26 +363,28 @@ function ProfilePageInner() {
                 <VerifiedBadge show={profile.isVerified} size="md" />
               </h1>
               {profile.prestige > 0 && (
-                <span className="text-base" title={`Prestige ${profile.prestige}`}>
-                  {"⭐".repeat(Math.min(profile.prestige, 5))}
+                <span className="flex items-center text-base" title={`Prestige ${profile.prestige}`}>
+                  {Array.from({ length: Math.min(profile.prestige, 5) }).map((_, i) => (
+                    <Icon key={i} emoji="⭐" size={14} />
+                  ))}
                 </span>
               )}
             </div>
             <p className="text-sm" style={{ color: themeTokens.muted }}>@{profile.username}</p>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: themeTokens.muted }}>
-              {profile.city && <span>📍 {profile.city}</span>}
+              {profile.city && <span className="inline-flex items-center gap-1"><Icon emoji="📍" size={12} /> {profile.city}</span>}
               <span>Playing since {formatYear(profile.joinedAt)}</span>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-2">
               {profile.legacyScore > 0 && (
                 <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
-                  <span>⚜️</span>
+                  <Icon emoji="⚜️" size={14} />
                   <span>Legacy Score: <span className="font-semibold text-neutral-700 dark:text-neutral-300">{profile.legacyScore.toLocaleString()}</span></span>
                 </div>
               )}
               {profile.connectionBadge && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                  🔗 {profile.connectionBadge}
+                  <Icon emoji="🔗" size={12} /> {profile.connectionBadge}
                 </span>
               )}
               {!!profile.loginStreak && profile.loginStreak > 0 && (
@@ -389,7 +392,7 @@ function ProfilePageInner() {
                   className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300"
                   title={profile.longestStreak ? `Longest streak: ${profile.longestStreak} days` : undefined}
                 >
-                  🔥 {profile.loginStreak}-day streak
+                  <Icon emoji="🔥" size={12} /> {profile.loginStreak}-day streak
                 </span>
               )}
             </div>
@@ -451,7 +454,7 @@ function ProfilePageInner() {
                   href={`/gifts?recipientId=${encodeURIComponent(userId)}&username=${encodeURIComponent(profile.username)}`}
                   className="rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/30"
                 >
-                  🎁 Gift
+                  <Icon emoji="🎁" size={14} className="inline mr-1" />Gift
                 </Link>
               </>
             )}
@@ -460,7 +463,7 @@ function ProfilePageInner() {
                 href={`/profile/${userId}/stats`}
                 className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
-                📊 Stats
+                <Icon emoji="📊" size={14} className="inline mr-1" />Stats
               </Link>
             )}
           </div>
@@ -475,7 +478,7 @@ function ProfilePageInner() {
             href={`/leaderboards?scope=global&track=main`}
             className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
           >
-            🏆 {t("profile.leaderboard.view", "View Leaderboard")} →
+            <Icon emoji="🏆" size={12} className="inline mr-1" />{t("profile.leaderboard.view", "View Leaderboard")} →
           </Link>
         </div>
         <div className="space-y-3">
@@ -489,7 +492,7 @@ function ProfilePageInner() {
       {profile.isCreator && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">
-            🎨 Creator
+            <Icon emoji="🎨" size={14} className="inline mr-1" />Creator
             {profile.creatorCategory && (
               <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300 capitalize">
                 {profile.creatorCategory}
@@ -510,7 +513,7 @@ function ProfilePageInner() {
                   <span>{room.coverEmoji}</span>
                   <span className="min-w-0 flex-1 truncate">{room.name}</span>
                   {room.memberCount !== undefined && (
-                    <span className="shrink-0 text-xs text-neutral-500">👥 {room.memberCount.toLocaleString()}</span>
+                    <span className="shrink-0 inline-flex items-center gap-1 text-xs text-neutral-500"><Icon emoji="👥" size={12} /> {room.memberCount.toLocaleString()}</span>
                   )}
                 </Link>
               ))}
@@ -526,13 +529,13 @@ function ProfilePageInner() {
           )}
           <div className="flex flex-wrap items-center gap-3">
             {profile.subscriberCount !== null && (
-              <span className="text-sm text-neutral-500">
-                👥 <span className="font-semibold text-neutral-700 dark:text-neutral-300">{profile.subscriberCount.toLocaleString()}</span> members
+              <span className="inline-flex items-center gap-1 text-sm text-neutral-500">
+                <Icon emoji="👥" size={14} /> <span className="font-semibold text-neutral-700 dark:text-neutral-300">{profile.subscriberCount.toLocaleString()}</span> members
               </span>
             )}
             {profile.totalEarningsKobo !== null && profile.totalEarningsKobo > 0 && (
-              <span className="text-sm text-neutral-500">
-                💰 ₦{(profile.totalEarningsKobo / 100).toLocaleString()} earned
+              <span className="inline-flex items-center gap-1 text-sm text-neutral-500">
+                <Icon emoji="💰" size={14} /> ₦{(profile.totalEarningsKobo / 100).toLocaleString()} earned
               </span>
             )}
           </div>
@@ -557,7 +560,7 @@ function ProfilePageInner() {
       {/* Public Achievements Wall (PRD §15) */}
       {profile.achievements && profile.achievements.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">🏆 Achievements</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500"><Icon emoji="🏆" size={14} className="inline mr-1" />Achievements</h2>
           <div className="flex flex-wrap gap-2">
             {profile.achievements.map((a) => (
               <span
@@ -575,7 +578,7 @@ function ProfilePageInner() {
       {/* Photo gallery — see components/profile/PhotoGallery.tsx */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">
-          📷 {t("profile.gallery.title", "Photo Gallery")}
+          <Icon emoji="📷" size={14} className="inline mr-1" />{t("profile.gallery.title", "Photo Gallery")}
         </h2>
         <PhotoGallery userId={userId} />
       </div>

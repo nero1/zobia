@@ -27,6 +27,7 @@ import { SlugPanel } from "@/components/classroom/studio/SlugPanel";
 import { MembersPanel } from "@/components/classroom/studio/MembersPanel";
 import { ReportsPanel } from "@/components/classroom/studio/ReportsPanel";
 import { CurriculumPanel } from "@/components/classroom/studio/CurriculumPanel";
+import { Icon } from "@/components/ui/Icon";
 import type { ClassroomHomePayload } from "@/components/classroom/types";
 
 type Tab = "stats" | "lessons" | "members" | "reports" | "sessions" | "url" | "settings";
@@ -71,16 +72,16 @@ export default function ClassroomStudioDetailPage({ params }: { params: Promise<
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
-      <Link href="/classroom/studio" className="text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
-        ← {t("classroom.nav.studio", "Classroom Studio")}
+      <Link href="/classroom/studio" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+        <Icon emoji="←" size={14} /> {t("classroom.nav.studio", "Classroom Studio")}
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <span className="text-4xl">{c.coverEmoji}</span>
           <div>
             <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{c.name}</h1>
-            <Link href={`/c/${c.slug ?? c.id}`} className="text-sm text-violet-600 hover:underline dark:text-violet-400">
-              /c/{c.slug ?? c.id} ↗
+            <Link href={`/c/${c.slug ?? c.id}`} className="inline-flex items-center gap-0.5 text-sm text-violet-600 hover:underline dark:text-violet-400">
+              /c/{c.slug ?? c.id} <Icon emoji="↗" size={12} />
             </Link>
           </div>
         </div>

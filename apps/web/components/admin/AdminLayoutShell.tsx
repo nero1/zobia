@@ -13,6 +13,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";
+import { Icon } from "@/components/ui/Icon";
 
 const adminNavItems = [
   { href: "/gate44",                    label: "Dashboard",          icon: "◼" },
@@ -96,7 +97,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         onClick={onNavigate}
         className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-800 dark:text-blue-400 dark:hover:bg-blue-950 dark:hover:text-blue-200"
       >
-        <span className="text-base leading-none">←</span>
+        <Icon emoji="←" className="text-base leading-none" />
         User Area
       </Link>
 
@@ -120,7 +121,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             )}
             aria-current={isActive ? "page" : undefined}
           >
-            <span className="text-base leading-none">{item.icon}</span>
+            <Icon emoji={item.icon} className="text-base leading-none" />
             {item.label}
           </Link>
         );
@@ -162,12 +163,12 @@ function AdminStatusBar() {
     <>
       {maintenance?.enabled && (
         <div role="status" className="flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-xs font-semibold text-white">
-          🚧 Maintenance mode is ON — only admins and moderators can access Zobia right now.
+          <Icon emoji="🚧" size={16} /> Maintenance mode is ON — only admins and moderators can access Zobia right now.
         </div>
       )}
       {magicWordSet === false && (
         <div role="alert" className="flex items-center justify-center gap-2 bg-red-600 px-4 py-1.5 text-xs font-semibold text-white">
-          ⚠️ You haven&apos;t set a Secret Magic Word — you could be locked out permanently if your
+          <Icon emoji="⚠️" size={16} /> You haven&apos;t set a Secret Magic Word — you could be locked out permanently if your
           login is ever locked.{" "}
           <Link href="/gate44/settings/security" className="underline underline-offset-2">
             Set it now
@@ -222,7 +223,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
             aria-label="Close menu"
             className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
           >
-            <span aria-hidden="true" className="text-xl leading-none">✕</span>
+            <Icon emoji="✕" aria-hidden className="text-xl leading-none" />
           </button>
         </div>
 
@@ -236,7 +237,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
                 type="submit"
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-danger-600 transition-colors hover:bg-danger-50 dark:text-danger-400 dark:hover:bg-danger-950"
               >
-                <span className="text-base leading-none">→</span>
+                <Icon emoji="→" className="text-base leading-none" />
                 Log out
               </button>
             </form>
@@ -349,7 +350,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
               type="submit"
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-danger-600 transition-colors hover:bg-danger-50 dark:text-danger-400 dark:hover:bg-danger-950"
             >
-              <span className="text-base leading-none">→</span>
+              <Icon emoji="→" className="text-base leading-none" />
               Log out
             </button>
           </form>
@@ -380,7 +381,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
             aria-label="Open admin menu"
             className="mr-3 rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 lg:hidden"
           >
-            <span aria-hidden="true" className="block text-xl leading-none">☰</span>
+            <Icon emoji="☰" aria-hidden className="block text-xl leading-none" />
           </button>
 
           <h1 className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">

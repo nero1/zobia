@@ -12,6 +12,7 @@
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { deepLinkPathFor } from "@/lib/feed/deeplink";
+import { Icon } from "@/components/ui/Icon";
 import type { FeedContentType } from "@/lib/feed/types";
 
 export interface FeedItemView {
@@ -73,7 +74,7 @@ export function FeedItemCard({ item }: { item: FeedItemView }) {
         <img src={item.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
       ) : (
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-2xl dark:bg-neutral-800">
-          {CONTENT_TYPE_ICON[item.contentType] ?? "📄"}
+          <Icon emoji={CONTENT_TYPE_ICON[item.contentType] ?? "📄"} size={24} />
         </span>
       )}
       <div className="min-w-0 flex-1">

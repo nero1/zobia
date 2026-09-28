@@ -10,6 +10,7 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/Icon";
 
 function TwoFAForm() {
   const searchParams = useSearchParams();
@@ -111,7 +112,7 @@ export default function TwoFAPage() {
     <div className="flex min-h-screen items-center justify-center bg-neutral-100 px-4 dark:bg-neutral-950">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <span className="text-3xl">🔐</span>
+          <Icon emoji="🔐" className="inline-block text-3xl" size={32} />
           <h1 className="mt-2 text-xl font-bold text-neutral-900 dark:text-neutral-50">
             Two-factor authentication
           </h1>

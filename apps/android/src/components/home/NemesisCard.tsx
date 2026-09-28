@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface NemesisParty {
   userId: string;
@@ -93,7 +94,7 @@ export function NemesisCard() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('home.nemesis.title')}</h2>
       {error && <p className="mb-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
       <div className="flex items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl">🧑</div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl"><Icon emoji="🧑" size={24} /></div>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
             <span className="font-semibold text-primary-600 dark:text-primary-300">{t('home.nemesis.you')}</span>
@@ -118,7 +119,7 @@ export function NemesisCard() {
         disabled={challenge.isPending}
         className="mt-4 w-full rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
       >
-        {challenge.isPending ? t('home.nemesis.challenging') : t('home.nemesis.challenge')}
+        {challenge.isPending ? t('home.nemesis.challenging') : <><Icon emoji="⚔️" size={14} /> {t('home.nemesis.challenge')}</>}
       </button>
     </div>
   );

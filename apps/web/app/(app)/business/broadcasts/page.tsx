@@ -14,6 +14,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface Allowance {
   quota: number | null;
@@ -66,7 +67,7 @@ function ComposeModal({
           aria-label="Close"
           className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          ✕
+          <Icon emoji="✕" className="h-4 w-4" />
         </button>
         <div className="p-6 pt-5">
           <h2 className="mb-4 text-lg font-bold text-neutral-900 dark:text-neutral-50">
@@ -202,7 +203,7 @@ export default function BusinessBroadcastsPage() {
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Link href="/business" className="text-sm text-neutral-500 hover:underline">← Business</Link>
+          <Link href="/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" className="h-3.5 w-3.5" /> Business</Link>
           <span className="text-neutral-300">/</span>
           <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">{t("business.broadcasts.title", "Broadcasts")}</h1>
         </div>

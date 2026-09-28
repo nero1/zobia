@@ -25,6 +25,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
+import { Icon } from "@/components/ui/Icon";
 
 type Step = "credentials" | "totp" | "locked";
 
@@ -236,7 +237,7 @@ function LoginContent() {
           {step === "totp" && (
             <form onSubmit={handleTotpSubmit} className="space-y-4">
               <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
-                🔐 Open your authenticator app and enter the 6-digit code for{" "}
+                <Icon emoji="🔐" size={16} className="inline-block align-[-2px]" /> Open your authenticator app and enter the 6-digit code for{" "}
                 <strong>{email}</strong>.
               </div>
               <Input
@@ -264,7 +265,7 @@ function LoginContent() {
                 }}
                 className="mt-2 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
               >
-                ← Back
+                <Icon emoji="←" size={14} className="inline-block align-[-1px]" /> Back
               </button>
             </form>
           )}
@@ -297,7 +298,7 @@ function LoginContent() {
                 }}
                 className="mt-2 w-full text-center text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
               >
-                ← Back
+                <Icon emoji="←" size={14} className="inline-block align-[-1px]" /> Back
               </button>
             </form>
           )}

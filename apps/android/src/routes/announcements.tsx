@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useMarkAnnouncementsSeen } from '@/lib/notifications/useHasNewSince';
+import { Icon } from '@/components/ui/Icon';
 
 interface AnnouncementMessage {
   id: string;
@@ -135,7 +136,7 @@ function AnnouncementsPage() {
 
       {(messages?.length ?? 0) === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">📭</span>
+          <Icon emoji="📭" size={48} />
           <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('announcements.noMessages')}</h2>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('announcements.noMessagesHint')}</p>
         </div>

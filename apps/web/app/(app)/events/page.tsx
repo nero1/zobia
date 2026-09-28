@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,7 +157,7 @@ function GiftDropCard({ drop, onPurchase, purchasing }: GiftDropCardProps) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xl">🎁</span>
+            <Icon emoji="🎁" className="text-xl" size={20} />
             <h2 className="text-sm font-semibold text-amber-700 dark:text-amber-300">Monthly Gift Drop</h2>
           </div>
           <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-50">{drop.name}</p>
@@ -170,12 +171,12 @@ function GiftDropCard({ drop, onPurchase, purchasing }: GiftDropCardProps) {
       <div className="mt-4 flex items-center gap-3">
         {(drop.coinCost ?? 0) > 0 && (
           <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            {(drop.coinCost ?? 0).toLocaleString()} 🪙
+            {(drop.coinCost ?? 0).toLocaleString()} <Icon emoji="🪙" className="inline h-4 w-4 align-text-bottom" />
           </span>
         )}
         {drop.owned ? (
           <span className="rounded-full bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-            Owned ✓
+            Owned <Icon emoji="✓" className="inline h-4 w-4 align-text-bottom" />
           </span>
         ) : (
           <button
@@ -451,7 +452,7 @@ export default function EventsPage() {
 
       {activeEvents.length === 0 && upcomingEvents.length === 0 && !data?.giftDrop && (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">📅</span>
+          <Icon emoji="📅" className="text-5xl" size={48} />
           <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">No events right now</h2>
           <p className="mt-1 text-sm text-neutral-500">Check back soon for upcoming events and drops!</p>
         </div>

@@ -19,6 +19,7 @@ import { OnlineRing } from "@/components/ui/OnlineRing";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useFeatureAccess } from "@/lib/hooks/useFeatureFlags";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,7 +162,7 @@ function TrackBar({ label, emoji, level, xp }: TrackDisplay) {
   const pct = Math.min(100, Math.round(((xp % xpPerLevel) / xpPerLevel) * 100));
   return (
     <div className="flex items-center gap-3">
-      <span className="w-5 text-center text-base">{emoji}</span>
+      <span className="w-5 flex justify-center"><Icon emoji={emoji} size={16} /></span>
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center justify-between">
           <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{label}</span>
@@ -241,7 +242,7 @@ export default function MyProfilePage() {
     return (
       <div className="flex flex-col items-center justify-center py-24">
         <p className="text-neutral-500">{error ?? "Profile not found"}</p>
-        <Link href="/" className="mt-3 text-sm text-blue-600 hover:underline">← Home</Link>
+        <Link href="/" className="mt-3 flex items-center gap-1 text-sm text-blue-600 hover:underline"><Icon emoji="←" size={14} /> Home</Link>
       </div>
     );
   }
@@ -270,7 +271,7 @@ export default function MyProfilePage() {
               className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full text-4xl"
               style={{ boxShadow: `0 0 0 3px ${ringColor}` }}
             >
-              {me.avatar_emoji ?? "🙂"}
+              {me.avatar_emoji ?? <Icon emoji="🙂" size={32} />}
             </div>
           </OnlineRing>
 
@@ -281,7 +282,7 @@ export default function MyProfilePage() {
               </h1>
               {me.is_verified && (
                 <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
-                  ✓ Verified
+                  <Icon emoji="✓" size={12} className="inline mr-0.5" />Verified
                 </span>
               )}
               {me.is_creator && (
@@ -290,8 +291,10 @@ export default function MyProfilePage() {
                 </span>
               )}
               {me.prestige_count > 0 && (
-                <span className="text-amber-500" title={`Prestige ${me.prestige_count}`}>
-                  {"★".repeat(Math.min(me.prestige_count, 10))}
+                <span className="flex items-center text-amber-500" title={`Prestige ${me.prestige_count}`}>
+                  {Array.from({ length: Math.min(me.prestige_count, 10) }).map((_, i) => (
+                    <Icon key={i} emoji="★" size={14} />
+                  ))}
                 </span>
               )}
             </div>
@@ -314,8 +317,8 @@ export default function MyProfilePage() {
                 {me.xp_total.toLocaleString()} XP
               </span>
               {me.legacy_score > 0 && (
-                <span className="text-xs text-amber-600">
-                  ⚜️ {me.legacy_score.toLocaleString()} Legacy
+                <span className="inline-flex items-center gap-1 text-xs text-amber-600">
+                  <Icon emoji="⚜️" size={12} /> {me.legacy_score.toLocaleString()} Legacy
                 </span>
               )}
               {me.login_streak > 0 && (
@@ -323,7 +326,7 @@ export default function MyProfilePage() {
                   className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300"
                   title={me.longest_streak ? `Longest streak: ${me.longest_streak} days` : undefined}
                 >
-                  🔥 {me.login_streak}-day streak
+                  <Icon emoji="🔥" size={12} /> {me.login_streak}-day streak
                 </span>
               )}
             </div>
@@ -347,7 +350,7 @@ export default function MyProfilePage() {
             names/usernames above have room to breathe on mobile. */}
         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
           <Link href="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
-            🎨 Theme
+<Icon emoji="🎨" size={12} className="inline mr-1" />Theme
           </Link>
           <Link
             href="/settings"
@@ -379,24 +382,24 @@ export default function MyProfilePage() {
           href={`/guilds/${guild.id}`}
           className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800"
         >
-          <span className="text-2xl">{guild.crest_emoji ?? "🛡️"}</span>
+          <span className="text-2xl">{guild.crest_emoji ?? <Icon emoji="🛡️" size={20} />}</span>
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-neutral-900 dark:text-neutral-50">{guild.name}</p>
             <p className="text-xs capitalize text-neutral-500">{guild.tier?.replace(/_/g, " ")} Guild</p>
           </div>
-          <span className="text-xs text-neutral-400">→</span>
+          <Icon emoji="→" size={14} className="text-neutral-400" />
         </Link>
       ) : (
         <Link
           href="/guild-discovery"
           className="flex items-center gap-3 rounded-xl border border-dashed border-neutral-300 bg-white p-4 shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
         >
-          <span className="text-2xl">🛡️</span>
+          <Icon emoji="🛡️" size={20} className="text-2xl" />
           <div className="min-w-0 flex-1">
             <p className="font-medium text-neutral-700 dark:text-neutral-300">Join a Guild</p>
             <p className="text-xs text-neutral-500">Earn XP boosts and compete in wars</p>
           </div>
-          <span className="text-xs text-neutral-400">→</span>
+          <Icon emoji="→" size={14} className="text-neutral-400" />
         </Link>
       )}
 
@@ -405,12 +408,12 @@ export default function MyProfilePage() {
         href="/rooms"
         className="flex items-center gap-3 rounded-xl border border-dashed border-neutral-300 bg-white p-4 shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:hover:bg-neutral-800"
       >
-        <span className="text-2xl">🚪</span>
+        <Icon emoji="🚪" size={20} className="text-2xl" />
         <div className="min-w-0 flex-1">
           <p className="font-medium text-neutral-700 dark:text-neutral-300">Find Rooms</p>
           <p className="text-xs text-neutral-500">Discover audio rooms to join</p>
         </div>
-        <span className="text-xs text-neutral-400">→</span>
+        <Icon emoji="→" size={14} className="text-neutral-400" />
       </Link>
 
       {/* ── Six track bars ───────────────────────────────────────────── */}
@@ -448,22 +451,22 @@ export default function MyProfilePage() {
       {/* ── Games ───────────────────────────────────────────────────── */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🎮 Games</h2>
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🎮" size={14} className="inline mr-1" />Games</h2>
           <Link href="/games" className="text-xs text-blue-600 hover:underline dark:text-blue-400">
             View all →
           </Link>
         </div>
         <div className="flex gap-2">
           <Link href="/games" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
-            <span className="text-2xl">🕹️</span>
+            <Icon emoji="🕹️" size={20} className="text-2xl" />
             <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Discover Games</span>
           </Link>
           <Link href="/games/leaderboards" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
-            <span className="text-2xl">🏆</span>
+            <Icon emoji="🏆" size={20} className="text-2xl" />
             <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Leaderboards</span>
           </Link>
           <Link href="/games/challenges" className="flex-1 flex flex-col items-center gap-1 rounded-xl border border-neutral-100 bg-neutral-50 p-3 text-center hover:bg-neutral-100 dark:border-neutral-800 dark:bg-neutral-800 dark:hover:bg-neutral-700 transition-colors">
-            <span className="text-2xl">⚔️</span>
+            <Icon emoji="⚔️" size={20} className="text-2xl" />
             <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">Challenges</span>
           </Link>
         </div>
@@ -483,7 +486,7 @@ export default function MyProfilePage() {
             href={action.href}
             className="flex flex-col items-center gap-1.5 rounded-xl border border-neutral-200 bg-white p-3 text-center shadow-sm transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800"
           >
-            <span className="text-2xl">{action.emoji}</span>
+            <Icon emoji={action.emoji} size={20} className="text-2xl" />
             <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{action.label}</span>
           </Link>
         ))}

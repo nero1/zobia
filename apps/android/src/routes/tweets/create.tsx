@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth/store';
 import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import type { TweetVideoProvider } from '@/components/tweets/types';
+import { Icon } from '@/components/ui/Icon';
 
 interface InsufficientFundsInfo {
   costCredits: number;
@@ -150,7 +151,7 @@ function CreateTweetPage() {
       <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.title')}</h1>
         <div className="rounded-xl bg-white dark:bg-neutral-800 shadow-card p-8 text-center">
-          <p className="mb-3 text-3xl">🔒</p>
+          <p className="mb-3 flex justify-center"><Icon emoji="🔒" size={28} /></p>
           <p className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">
             {t('tweets.create.levelGateTitle', { minLevel: lengthPolicy.minLevel })}
           </p>
@@ -211,7 +212,7 @@ function CreateTweetPage() {
             }}
           />
           <label htmlFor="tweet-image-input" className="cursor-pointer rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-            {uploading ? t('tweets.create.uploading') : t('tweets.create.addImage')}
+            {uploading ? t('tweets.create.uploading') : <><Icon emoji="📷" size={12} /> {t('tweets.create.addImage')}</>}
           </label>
           {imageUrl && (
             <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
@@ -238,7 +239,7 @@ function CreateTweetPage() {
             onClick={() => setShowVideoPicker((v) => !v)}
             className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400"
           >
-            {t('tweets.create.addVideo')}
+            <Icon emoji="🎬" size={12} /> {t('tweets.create.addVideo')}
           </button>
         ) : (
           <div className="space-y-2">
@@ -274,16 +275,16 @@ function CreateTweetPage() {
             <button
               type="button"
               onClick={() => { setVideoProvider('youtube'); setShowVideoPicker(false); }}
-              className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
             >
-              ▶️ YouTube
+              <Icon emoji="▶️" size={14} /> YouTube
             </button>
             <button
               type="button"
               onClick={() => { setVideoProvider('tiktok'); setShowVideoPicker(false); }}
-              className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
             >
-              🎵 TikTok
+              <Icon emoji="🎵" size={14} /> TikTok
             </button>
           </div>
         )}
@@ -307,7 +308,7 @@ function CreateTweetPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowVideoHelp(false)}>
           <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setShowVideoHelp(false)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close">
-              ✕
+              <Icon emoji="✕" size={16} />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.videoHelpTitle')}</h2>
             <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
@@ -324,7 +325,7 @@ function CreateTweetPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setInsufficientFunds(null)}>
           <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5" onClick={(e) => e.stopPropagation()}>
             <button onClick={() => setInsufficientFunds(null)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close">
-              ✕
+              <Icon emoji="✕" size={16} />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.insufficientTitle')}</h2>
             <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">

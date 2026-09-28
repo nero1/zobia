@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useRef } from 'react';
+import { Icon } from '@/components/ui/Icon';
 
 const RANK_COLORS: Record<string, string> = {
   Beginner: '#9CA3AF',
@@ -97,7 +98,7 @@ export function LevelUpCelebration({ data, onDone }: { data: LevelUpCelebrationD
           className="mb-4 flex h-24 w-24 items-center justify-center rounded-full text-5xl"
           style={{ backgroundColor: `${ringColor}22`, boxShadow: `0 0 0 4px ${ringColor}` }}
         >
-          🎉
+          <Icon emoji="🎉" size={40} />
         </div>
         <p className="text-sm font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">Level Up!</p>
         <h2 className="mt-1 text-3xl font-black text-neutral-900 dark:text-neutral-100">

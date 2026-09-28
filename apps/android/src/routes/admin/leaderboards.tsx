@@ -12,6 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { AdminCard, AdminCardSkeleton, AdminEmptyState, AdminErrorState, AdminToast, AdminBadge, adminInputClass, fmtNumber } from '@/components/admin/AdminUI';
+import { Icon } from '@/components/ui/Icon';
 
 interface LeaderboardEntry {
   rank: number;
@@ -29,11 +30,11 @@ async function fetchLeaderboard(): Promise<LeaderboardEntry[]> {
   return data?.entries ?? [];
 }
 
-function rankLabel(rank: number): string {
-  if (rank === 1) return '🥇';
-  if (rank === 2) return '🥈';
-  if (rank === 3) return '🥉';
-  return String(rank);
+function RankLabel({ rank }: { rank: number }) {
+  if (rank === 1) return <Icon emoji="🥇" size={18} />;
+  if (rank === 2) return <Icon emoji="🥈" size={18} />;
+  if (rank === 3) return <Icon emoji="🥉" size={18} />;
+  return <>{rank}</>;
 }
 
 function OverrideModal({
@@ -165,7 +166,7 @@ function AdminLeaderboardsPage() {
           filtered.map((entry) => (
             <AdminCard key={entry.user_id} onClick={() => setSelected(entry)}>
               <div className="flex items-center gap-3">
-                <span className="w-7 shrink-0 text-center text-base font-bold text-neutral-400 dark:text-neutral-500">{rankLabel(entry.rank)}</span>
+                <span className="flex w-7 shrink-0 items-center justify-center text-center text-base font-bold text-neutral-400 dark:text-neutral-500"><RankLabel rank={entry.rank} /></span>
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">{entry.avatar_emoji ?? '👤'}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">

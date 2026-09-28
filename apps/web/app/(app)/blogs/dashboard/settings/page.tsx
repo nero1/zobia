@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_MENU_CONFIG, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
+import { Icon } from "@/components/ui/Icon";
 
 interface BlogRow {
   id: string;
@@ -237,8 +238,8 @@ export default function BlogSettingsPage() {
                   {item.type === "url" ? item.externalUrl : `${item.type}: ${item.targetId ?? "—"}`}
                 </div>
               </div>
-              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↑</button>
-              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↓</button>
+              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30"><Icon emoji="↑" className="h-3.5 w-3.5" /></button>
+              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30"><Icon emoji="↓" className="h-3.5 w-3.5" /></button>
               <button onClick={() => removeMenuItem(item.id)} className="rounded-lg bg-red-950/40 px-2 py-1 text-xs text-red-400 hover:bg-red-950/70">{t("blogs.settings.menuRemove", "Remove")}</button>
             </div>
           ))}

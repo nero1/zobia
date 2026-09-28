@@ -24,6 +24,7 @@ import {
   getStoredReferralCode,
   clearStoredReferralCode,
 } from "@/lib/referral/clientStore";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -464,9 +465,9 @@ export default function OnboardingPage() {
   const usernameIndicator = {
     idle: null,
     checking: <span className="text-xs text-neutral-400">{t("onboarding.step1.usernameChecking")}</span>,
-    ok: <span className="text-xs text-green-600">{t("onboarding.step1.usernameAvailable")}</span>,
-    taken: <span className="text-xs text-red-500">{t("onboarding.step1.usernameTaken")}</span>,
-    invalid: <span className="text-xs text-red-500">{t("onboarding.step1.usernameInvalid")}</span>,
+    ok: <span className="text-xs text-green-600"><Icon emoji="✓" className="inline h-3 w-3 align-[-1px]" /> {t("onboarding.step1.usernameAvailable")}</span>,
+    taken: <span className="text-xs text-red-500"><Icon emoji="✗" className="inline h-3 w-3 align-[-1px]" /> {t("onboarding.step1.usernameTaken")}</span>,
+    invalid: <span className="text-xs text-red-500"><Icon emoji="✗" className="inline h-3 w-3 align-[-1px]" /> {t("onboarding.step1.usernameInvalid")}</span>,
   }[usernameStatus];
 
   const filteredCities = citySearch
@@ -479,7 +480,7 @@ export default function OnboardingPage() {
   if (welcomeXP) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-950 text-center">
-        <div className="animate-bounce text-7xl">🎉</div>
+        <div className="animate-bounce"><Icon emoji="🎉" className="text-7xl" size={64} /></div>
         <h1 className="mt-6 text-3xl font-black text-white">{t("onboarding.xpDrop.title")}</h1>
         <p className="mt-3 text-lg text-amber-400 font-semibold">{t("onboarding.xpDrop.xpEarned")}</p>
         <div className="mt-4 h-3 w-64 overflow-hidden rounded-full bg-neutral-800">
@@ -654,7 +655,7 @@ export default function OnboardingPage() {
                   </div>
                 )}
                 {city
-                  ? <p className="mt-1 text-xs text-green-600">{t("onboarding.step1.citySelected", { city })}</p>
+                  ? <p className="mt-1 text-xs text-green-600"><Icon emoji="✓" className="inline h-3 w-3 align-[-1px]" /> {t("onboarding.step1.citySelected", { city })}</p>
                   : cityError && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{cityError}</p>
                 }
               </div>
@@ -763,7 +764,7 @@ export default function OnboardingPage() {
                       key={quest.id}
                       className="flex items-center gap-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/40 dark:bg-amber-900/20"
                     >
-                      <span className="text-2xl">{quest.icon ?? "🎯"}</span>
+                      <span className="text-2xl"><Icon emoji={quest.icon ?? "🎯"} className="inline-block" size={22} /></span>
                       <div className="flex-1 min-w-0">
                         <p className="truncate text-sm font-semibold text-neutral-900 dark:text-white">
                           {quest.title}
@@ -773,7 +774,7 @@ export default function OnboardingPage() {
                       <div className="shrink-0 text-right">
                         <p className="text-xs font-bold text-amber-600">+{quest.xp_reward} XP</p>
                         {quest.coin_reward > 0 && (
-                          <p className="text-xs text-neutral-400">{quest.coin_reward} 🪙</p>
+                          <p className="text-xs text-neutral-400">{quest.coin_reward} <Icon emoji="🪙" className="inline h-3 w-3" /></p>
                         )}
                       </div>
                     </div>
@@ -938,7 +939,7 @@ export default function OnboardingPage() {
                         {guild.memberCount} members
                       </span>
                       {joinedGuildId === guild.id && (
-                        <span className="absolute right-2 top-2 text-xs text-amber-500">✓ Joined</span>
+                        <span className="absolute right-2 top-2 text-xs text-amber-500"><Icon emoji="✓" className="inline h-3 w-3 align-[-1px]" /> Joined</span>
                       )}
                       {joiningGuildId === guild.id && (
                         <span className="absolute right-2 top-2 text-xs text-neutral-400">…</span>
@@ -1044,7 +1045,7 @@ export default function OnboardingPage() {
                   onClick={() => { setError(null); setStep(1); }}
                   className="flex-1 rounded-xl border border-neutral-200 py-3.5 text-sm font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  {t("onboarding.step2.backBtn")}
+                  <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("onboarding.step2.backBtn")}
                 </button>
                 <button
                   type="button"

@@ -21,6 +21,7 @@ import { sanitizeForumPostContent } from "@/lib/security/htmlSanitizer";
 import { ThreadPostsSection } from "@/components/bbforum/ThreadPostsSection";
 import type { PostCardData } from "@/components/bbforum/PostCard";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
+import { Icon } from "@/components/ui/Icon";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -116,8 +117,8 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
 
       <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
-          {thread.is_pinned && <span className="mr-1.5 text-amber-500">📌</span>}
-          {thread.is_locked && <span className="mr-1.5 text-neutral-400">🔒</span>}
+          {thread.is_pinned && <span className="mr-1.5 text-amber-500"><Icon emoji="📌" size={18} /></span>}
+          {thread.is_locked && <span className="mr-1.5 text-neutral-400"><Icon emoji="🔒" size={18} /></span>}
           {thread.title}
         </h1>
         {viewer && (viewer.userId === thread.author_id || viewer.isAdmin || viewer.isModerator) && (
@@ -131,7 +132,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
 
       {showPotBanner && (
         <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-          💰 This thread is paying <strong>{thread.pot_per_claim_credits} Credits</strong> to each of the first{" "}
+          <Icon emoji="💰" className="inline-block align-text-bottom" size={16} /> This thread is paying <strong>{thread.pot_per_claim_credits} Credits</strong> to each of the first{" "}
           <strong>{thread.pot_max_claims}</strong> repliers.{" "}
           {potRemaining > 0 ? `${potRemaining} spot${potRemaining === 1 ? "" : "s"} left — reply to claim yours!` : "All spots claimed."}
         </div>

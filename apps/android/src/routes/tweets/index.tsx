@@ -13,6 +13,7 @@ import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 import { TweetCard } from '@/components/tweets/TweetCard';
 import { mapTweet, type TweetRow } from '@/components/tweets/types';
+import { Icon } from '@/components/ui/Icon';
 
 type TabKey = 'foryou' | 'friends' | 'following' | 'mentions';
 const TABS: TabKey[] = ['foryou', 'friends', 'following', 'mentions'];
@@ -160,7 +161,7 @@ function TweetsPage() {
 
       {status === 'success' && tweets.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🐦</div>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700"><Icon emoji="🐦" size={28} /></div>
           <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t(`tweets.empty.${tab}`)}</p>
           <Link to="/tweets/create" className="mt-4 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white">
             {t('tweets.compose')}

@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const W = 320;
 const H = 480;
@@ -266,7 +267,7 @@ export default function PlatformJumper({
 
         {over && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 rounded-2xl">
-            <div className="text-5xl mb-3">😵</div>
+            <Icon emoji="😵" size={40} className="mb-3 text-white" />
             <div className="text-white font-bold text-2xl">Game Over!</div>
             <div className="text-emerald-400 font-bold text-lg mt-1">Height: {score}</div>
           </div>
@@ -282,7 +283,7 @@ export default function PlatformJumper({
           onPointerUp={() => { leftRef.current = false; }}
           onPointerLeave={() => { leftRef.current = false; }}
         >
-          ◀
+          <Icon emoji="◀" />
         </button>
         <button
           type="button"
@@ -291,7 +292,7 @@ export default function PlatformJumper({
           onPointerUp={() => { rightRef.current = false; }}
           onPointerLeave={() => { rightRef.current = false; }}
         >
-          ▶
+          <Icon emoji="▶" />
         </button>
       </div>
     </div>

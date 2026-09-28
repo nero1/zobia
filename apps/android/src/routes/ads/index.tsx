@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 import { useFeatureFlags } from '@/lib/hooks/useManifest';
+import { Icon } from '@/components/ui/Icon';
 
 interface Eligibility {
   eligible: boolean;
@@ -78,7 +79,7 @@ function AdsHubPage() {
       <div className="grid grid-cols-2 gap-2">
         {FEATURES.map((f) => (
           <div key={f.titleKey} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card">
-            <span className="text-xl">{f.emoji}</span>
+            <Icon emoji={f.emoji} size={24} />
             <p className="mt-1 text-xs font-semibold text-neutral-900 dark:text-neutral-100">{t(f.titleKey)}</p>
             <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{t(f.bodyKey)}</p>
           </div>

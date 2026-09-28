@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface GalleryMoment {
   id: string;
@@ -98,7 +99,7 @@ export function PhotoGallery({ userId }: { userId: string }) {
             aria-label={t("action.close", "Close")}
             className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
           >
-            ✕
+            <Icon emoji="✕" />
           </button>
         </div>
       )}

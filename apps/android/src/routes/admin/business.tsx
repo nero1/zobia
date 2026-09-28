@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -313,7 +314,9 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
               </div>
               <p className="mb-0.5 text-xs text-neutral-400 dark:text-neutral-500">/p/{p.slug}</p>
               <p className="mb-0.5 text-xs text-neutral-500 dark:text-neutral-400">{p.business_name} · @{p.owner_username}</p>
-              <p className="mb-1.5 text-xs text-neutral-500 dark:text-neutral-400">👁 {p.view_count.toLocaleString()} · 📝 {p.post_count.toLocaleString()} · {fmtDate(p.created_at)}</p>
+              <p className="mb-1.5 inline-flex flex-wrap items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+                <Icon emoji="👁" /> {p.view_count.toLocaleString()} · <Icon emoji="📝" /> {p.post_count.toLocaleString()} · {fmtDate(p.created_at)}
+              </p>
               {p.status_reason && <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">{p.status_reason}</p>}
               <div className="flex flex-wrap gap-1.5">
                 {p.status === 'active' ? (

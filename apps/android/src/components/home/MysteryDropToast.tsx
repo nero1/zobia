@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface MysteryDropNotification {
   xpAmount: number;
@@ -32,13 +33,13 @@ export function MysteryDropToast() {
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-3 shadow-sm">
-      <span className="text-2xl">⚡</span>
+      <Icon emoji="⚡" size={24} />
       <div className="flex-1">
         <p className="text-sm font-bold text-yellow-900">{t('home.mysteryDrop.title')}</p>
         <p className="text-xs text-yellow-700">{t('home.mysteryDrop.body', { xp: drop.xpAmount.toLocaleString() })}</p>
       </div>
       <button type="button" onClick={() => setDismissed(true)} className="text-yellow-500" aria-label={t('action.close')}>
-        ✕
+        <Icon emoji="✕" size={16} />
       </button>
     </div>
   );

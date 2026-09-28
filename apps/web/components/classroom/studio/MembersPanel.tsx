@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
+import { Icon } from "@/components/ui/Icon";
 import type { ClassroomHomePayload, ClassroomMemberView } from "@/components/classroom/types";
 
 type Filter = "all" | "moderators" | "paid" | "muted";
@@ -153,14 +154,14 @@ export function MembersPanel({ home }: { home: ClassroomHomePayload }) {
       )}
       {total > 50 && (
         <div className="flex items-center justify-between text-xs text-neutral-500">
-          <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))} className="disabled:opacity-40">
-            ← {t("classroom.common.previous", "Previous")}
+          <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 50))} className="inline-flex items-center gap-1 disabled:opacity-40">
+            <Icon emoji="←" size={12} /> {t("classroom.common.previous", "Previous")}
           </button>
           <span>
             {offset + 1}–{Math.min(offset + 50, total)} / {total}
           </span>
-          <button type="button" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)} className="disabled:opacity-40">
-            {t("classroom.common.next", "Next")} →
+          <button type="button" disabled={offset + 50 >= total} onClick={() => setOffset(offset + 50)} className="inline-flex items-center gap-1 disabled:opacity-40">
+            {t("classroom.common.next", "Next")} <Icon emoji="→" size={12} />
           </button>
         </div>
       )}

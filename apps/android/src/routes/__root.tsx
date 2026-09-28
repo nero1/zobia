@@ -414,7 +414,13 @@ function AppShell() {
         <TopBar title={getTitle()} showBack={showBack} />
         <OfflineBanner />
         <main className="flex-1 overflow-y-auto">
-          <div className="page-slide-in h-full">
+          {/* site-container caps width on tablets/foldables (see globals.css
+              --content-max-w, themed per active site theme) — a no-op on
+              typical phone viewports, which never approach 40-54rem. Routes
+              keep full control of their own internal padding (many use
+              deliberately edge-to-edge/full-bleed card sections), so this
+              only bounds overall width, it doesn't add horizontal padding. */}
+          <div className="page-slide-in site-container h-full">
             <Outlet />
           </div>
         </main>

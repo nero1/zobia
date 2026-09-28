@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -456,7 +457,7 @@ export default function AdminSeasonsPage() {
           Array.from({ length: 4 }).map((_, i) => <CardSkeleton key={i} />)
         ) : seasons.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-4xl">🏆</span>
+            <Icon emoji="🏆" className="h-10 w-10 text-4xl" />
             <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">
               No seasons yet
             </p>

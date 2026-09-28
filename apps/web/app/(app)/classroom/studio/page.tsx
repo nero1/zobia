@@ -22,6 +22,7 @@ import { ClassroomShareButton } from "@/components/classroom/ClassroomShareButto
 import { CreatorPayoutPanel } from "@/components/creator/CreatorPayoutPanel";
 import { DailyBars } from "@/components/classroom/DailyBars";
 import { StatsTierNote } from "@/components/classroom/StatsTierNote";
+import { Icon } from "@/components/ui/Icon";
 import type { StudioClassroomRow, StudioSummary } from "@/components/classroom/types";
 
 type StudioData = StudioSummary & {
@@ -156,8 +157,8 @@ export default function ClassroomStudioPage() {
                     </span>
                   </Link>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link href={`/classroom/studio/${c.id}`} className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700">
-                      ⚙️ {t("classroom.home.manage", "Manage")}
+                    <Link href={`/classroom/studio/${c.id}`} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-violet-700">
+                      <Icon emoji="⚙️" size={14} /> {t("classroom.home.manage", "Manage")}
                     </Link>
                     <ClassroomShareButton roomId={c.id} slug={c.slug} name={c.name} />
                     <BoostContentButton contentType="classroom" contentId={c.id} title={c.name} />

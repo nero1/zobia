@@ -15,6 +15,7 @@ import { useRef, useCallback, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
+import { Icon } from '@/components/ui/Icon';
 
 interface ReactionSummary {
   emoji: string;
@@ -170,7 +171,7 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
             onClick={() => setShowReactions((v) => !v)}
             className="flex items-center gap-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
           >
-            <span>😊</span>
+            <Icon emoji="😊" size={14} />
             <span>{t('moments.react')}</span>
           </button>
           {showReactions && (
@@ -286,7 +287,7 @@ function MomentsPage() {
 
       {status === 'success' && moments.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🎬</div>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl"><Icon emoji="🎬" size={28} /></div>
           <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t('moments.empty')}</p>
           <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{t('moments.emptyHint')}</p>
           <Link to="/moments/create" className="mt-4 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white">

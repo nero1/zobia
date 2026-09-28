@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { TweetCard } from "@/components/tweets/TweetCard";
 import { type Tweet, mapTweetRow } from "@/components/tweets/types";
+import { Icon } from "@/components/ui/Icon";
 
 type TabKey = "foryou" | "friends" | "following" | "mentions";
 const TABS: TabKey[] = ["foryou", "friends", "following", "mentions"];
@@ -186,8 +187,8 @@ export default function TweetsPage() {
         </div>
       ) : tweets.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-12 text-center dark:border-neutral-700 dark:bg-neutral-900">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl dark:bg-neutral-800">
-            🐦
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-800">
+            <Icon emoji="🐦" size={30} className="text-3xl" />
           </div>
           <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{t(`tweets.empty.${authorIdFilter ? "profile" : tab}`)}</h3>
           <Link

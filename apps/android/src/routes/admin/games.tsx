@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { GAME_CATEGORIES, type GameCategory } from '@zobia/shared/types';
 import { KNOWN_ENGINE_KEYS } from '@zobia/shared/utils';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -239,7 +240,7 @@ function StatsOverlay({ stats, onClose }: { stats: GameStats; onClose: () => voi
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
       <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{stats.name} — {t('admin.games.stats', 'Stats')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"><Icon emoji="✕" /></button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-2.5 p-4">
         {[
@@ -387,7 +388,13 @@ function AdminGamesPage() {
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">/{g.slug}</p>
                   <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                     {fmtNumber(g.play_count)} {t('admin.games.plays', 'plays')} · {fmtNumber(g.players)} {t('admin.games.players', 'players')} ·{' '}
-                    {g.reward_credits_per_win}c/{g.reward_xp_per_win}xp{g.reward_stars_per_win ? `/${g.reward_stars_per_win}⭐` : ''}
+                    {g.reward_credits_per_win}c/{g.reward_xp_per_win}xp
+                    {g.reward_stars_per_win ? (
+                      <>
+                        /{g.reward_stars_per_win}
+                        <Icon emoji="⭐" size={11} className="inline" />
+                      </>
+                    ) : null}
                   </p>
                 </div>
               </div>

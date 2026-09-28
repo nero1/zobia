@@ -19,6 +19,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface SeasonRow {
   id: string;
@@ -156,8 +157,8 @@ function SeasonsPage() {
             <div>
               <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('seasons.seasonPass', 'Season Pass')}</h2>
               {passData?.pass.is_paid ? (
-                <span className="mt-1 inline-block rounded-full bg-amber-100 dark:bg-amber-900/40 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
-                  {t('seasons.paidPass', 'Paid Pass')} ⭐
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/40 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                  {t('seasons.paidPass', 'Paid Pass')} <Icon emoji="⭐" size={12} />
                 </span>
               ) : (
                 <span className="mt-1 inline-block rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-0.5 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
@@ -171,9 +172,11 @@ function SeasonsPage() {
                 disabled={upgradeMutation.isPending}
                 className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
-                {upgradeMutation.isPending
-                  ? t('seasons.upgrading', 'Processing…')
-                  : `🪙 ${season.pass_price_coins.toLocaleString()}`}
+                {upgradeMutation.isPending ? (
+                  t('seasons.upgrading', 'Processing…')
+                ) : (
+                  <span className="inline-flex items-center gap-1"><Icon emoji="🪙" size={14} /> {season.pass_price_coins.toLocaleString()}</span>
+                )}
               </button>
             )}
           </div>
@@ -195,8 +198,8 @@ function SeasonsPage() {
           <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {leaderboard.map((entry) => (
               <div key={entry.userId} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="w-6 shrink-0 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400">
-                  {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : `#${entry.rank}`}
+                <span className="flex w-6 shrink-0 items-center justify-center text-xs font-bold text-neutral-500 dark:text-neutral-400">
+                  {entry.rank <= 3 ? <Icon emoji={['🥇', '🥈', '🥉'][entry.rank - 1]} size={16} /> : `#${entry.rank}`}
                 </span>
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-sm">{entry.avatarEmoji}</span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">@{entry.username}</span>

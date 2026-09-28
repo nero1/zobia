@@ -28,6 +28,7 @@ import { QuizzesPanel } from "@/components/classroom/QuizzesPanel";
 import { EventsPanel } from "@/components/classroom/EventsPanel";
 import { LeaderboardPanel } from "@/components/classroom/LeaderboardPanel";
 import type { ClassroomHomePayload } from "@/components/classroom/types";
+import { Icon } from "@/components/ui/Icon";
 
 type Tab = "community" | "classroom" | "calendar" | "leaderboard" | "about";
 
@@ -114,7 +115,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
 
   const lockedPrompt = (
     <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center dark:border-neutral-700 dark:bg-neutral-900">
-      <span className="text-4xl">🔒</span>
+      <Icon emoji="🔒" size={40} />
       <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-300">
         {t("classroom.home.membersOnly", "Enrol in this classroom to join the community, climb the leaderboard and access every lesson.")}
       </p>
@@ -124,7 +125,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
   return (
     <div className="mx-auto max-w-4xl space-y-4 p-4 sm:p-6">
       <Link href="/classroom" className="text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
-        ← {t("classroom.home.back", "All classrooms")}
+        <Icon emoji="←" size={14} className="inline align-[-2px]" /> {t("classroom.home.back", "All classrooms")}
       </Link>
 
       {/* Header */}
@@ -176,7 +177,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                 <EnrollButton roomId={roomId} feeNgn={classroom.enrolmentFeeNgn} onEnrolled={refreshAll} />
               ) : viewer.isEnrolled ? (
                 <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                  ✓ {t("classroom.card.enrolled", "Enrolled")}
+                  <Icon emoji="✓" size={12} className="inline align-[-1px]" /> {t("classroom.card.enrolled", "Enrolled")}
                 </span>
               ) : null}
               {insider && classroom.chatRoomEnabled && (
@@ -184,7 +185,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                   href={`/rooms/${roomId}`}
                   className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
                 >
-                  💬 {t("classroom.home.openRoom", "Open Room")}
+                  <Icon emoji="💬" size={14} className="inline align-[-2px]" /> {t("classroom.home.openRoom", "Open Room")}
                 </Link>
               )}
               <ClassroomShareButton roomId={roomId} slug={classroom.slug} name={classroom.name} signedIn={signedIn} />
@@ -194,7 +195,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                   href={`/classroom/studio/${roomId}`}
                   className="rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  ⚙️ {t("classroom.home.manage", "Manage")}
+                  <Icon emoji="⚙️" size={14} className="inline align-[-2px]" /> {t("classroom.home.manage", "Manage")}
                 </Link>
               )}
             </div>
@@ -257,7 +258,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
             }`}
           >
             {tb.label}
-            {tb.locked && " 🔒"}
+            {tb.locked && <Icon emoji="🔒" size={12} className="ml-1 inline align-[-1px]" />}
           </button>
         ))}
       </nav>

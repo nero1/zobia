@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiError, get } from '@/lib/classroom/api';
+import { Icon } from '@/components/ui/Icon';
 
 function ClassroomLinkPage() {
   const { slug } = Route.useParams();
@@ -37,7 +38,7 @@ function ClassroomLinkPage() {
   if (error) {
     return (
       <div className="space-y-2 p-6 text-center">
-        <p className="text-4xl">🏫</p>
+        <p className="flex justify-center"><Icon emoji="🏫" size={40} /></p>
         <p className="text-sm text-neutral-600 dark:text-neutral-300">{error}</p>
         <Link to="/classroom" className="text-sm font-medium text-primary-600">
           {t('classroom.home.back', 'All classrooms')}

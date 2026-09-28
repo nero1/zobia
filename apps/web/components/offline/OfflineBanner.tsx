@@ -18,6 +18,7 @@
 import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 type ConnectionState = "online" | "offline" | "reconnected";
 
@@ -79,7 +80,7 @@ export function OfflineBanner() {
     >
       {state === "offline" && (
         <>
-          <span aria-hidden="true">●</span>
+          <Icon emoji="●" size={10} />
           <span>{t("offline.banner")}</span>
           <button
             type="button"
@@ -87,13 +88,13 @@ export function OfflineBanner() {
             aria-label={t("offline.dismiss")}
             className="ml-1 rounded p-0.5 leading-none opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-neutral-500"
           >
-            <span aria-hidden="true">✕</span>
+            <Icon emoji="✕" size={12} />
           </button>
         </>
       )}
       {state === "reconnected" && (
         <>
-          <span aria-hidden="true">✓</span>
+          <Icon emoji="✓" size={12} />
           <span>{t("offline.reconnected")}</span>
         </>
       )}

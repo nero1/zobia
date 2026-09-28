@@ -8,6 +8,7 @@
  */
 
 import { Link } from '@tanstack/react-router';
+import { Icon } from '@/components/ui/Icon';
 import type { WikiSummary } from '@/lib/wiki/api';
 
 export function WikiCard({ wiki }: { wiki: WikiSummary }) {
@@ -21,7 +22,7 @@ export function WikiCard({ wiki }: { wiki: WikiSummary }) {
         {wiki.avatar_url ? (
           <img src={wiki.avatar_url} alt="" className="h-full w-full object-cover" />
         ) : (
-          '📖'
+          <Icon emoji="📖" />
         )}
       </div>
       <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm truncate">{wiki.name}</p>

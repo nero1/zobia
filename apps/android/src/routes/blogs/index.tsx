@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface BlogSummary {
   id: string;
@@ -90,7 +91,7 @@ function BlogsPage() {
           subscribedOnly ? 'bg-primary-600 text-white' : 'bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
         }`}
       >
-        <span aria-hidden="true">🔔</span>
+        <Icon emoji="🔔" className="inline h-3.5 w-3.5" />
         {t('blogs.tab.subscribed', 'Subscribed')}
       </button>
 
@@ -114,7 +115,7 @@ function BlogsPage() {
         <div className="grid grid-cols-2 gap-3">
           {blogs.map((b) => (
             <Link key={b.id} to="/blogs/$slug" params={{ slug: b.slug }} className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card active:scale-95 transition-transform">
-              <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl mb-2">📝</div>
+              <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl mb-2"><Icon emoji="📝" size={32} /></div>
               <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm truncate">{b.title}</p>
               {b.tagline && <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5 truncate">{b.tagline}</p>}
               <div className="flex items-center gap-2 mt-2">

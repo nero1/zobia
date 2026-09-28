@@ -22,6 +22,7 @@ import { QuestionMiniList, type QuestionMiniListItem } from "@/components/answer
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { REPORT_REASONS } from "@/lib/moderation/reportReasons";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -384,14 +385,14 @@ export default function QuestionDetailPage() {
             <span>·</span>
             <span>{timeAgo(node.createdAt)}</span>
             {node.isBestAnswer && (
-              <span className="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">✓ Best Answer</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300"><Icon emoji="✓" className="h-3 w-3" /> Best Answer</span>
             )}
           </div>
           <p className="whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">{node.body}</p>
           <div className="mt-2 flex items-center gap-3 text-xs">
-            <button onClick={() => handleVoteAnswer(node.id, 1)} className={`rounded px-1.5 py-0.5 ${node.myVote === 1 ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>▲</button>
+            <button onClick={() => handleVoteAnswer(node.id, 1)} className={`rounded px-1.5 py-0.5 ${node.myVote === 1 ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}><Icon emoji="▲" className="h-3.5 w-3.5" /></button>
             <span className="font-semibold tabular-nums text-neutral-600 dark:text-neutral-400">{node.voteScore}</span>
-            <button onClick={() => handleVoteAnswer(node.id, -1)} className={`rounded px-1.5 py-0.5 ${node.myVote === -1 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>▼</button>
+            <button onClick={() => handleVoteAnswer(node.id, -1)} className={`rounded px-1.5 py-0.5 ${node.myVote === -1 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}><Icon emoji="▼" className="h-3.5 w-3.5" /></button>
             <button onClick={() => setReplyingTo(replyingTo === node.id ? null : node.id)} className="font-semibold text-neutral-500 hover:text-primary-600 dark:hover:text-primary-400">
               {t("answers.reply", "Reply")}
             </button>
@@ -451,7 +452,7 @@ export default function QuestionDetailPage() {
     return (
       <div className="mx-auto max-w-2xl p-6 text-center">
         <p className="text-sm text-neutral-500">{error}</p>
-        <Link href="/answers" className="mt-3 inline-block text-sm font-semibold text-primary-600 hover:underline">← {t("answers.title", "Answers")}</Link>
+        <Link href="/answers" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 hover:underline"><Icon emoji="←" className="h-3.5 w-3.5" /> {t("answers.title", "Answers")}</Link>
       </div>
     );
   }
@@ -459,7 +460,7 @@ export default function QuestionDetailPage() {
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
       <Link href="/answers" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-        ← {t("answers.title", "Answers")}
+        <Icon emoji="←" className="h-3.5 w-3.5" /> {t("answers.title", "Answers")}
       </Link>
 
       {loading && !question ? (
@@ -472,14 +473,14 @@ export default function QuestionDetailPage() {
           <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
             <div className="flex gap-3">
               <div className="flex flex-col items-center gap-1 pt-0.5">
-                <button onClick={() => handleVoteQuestion(1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === 1 ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>▲</button>
+                <button onClick={() => handleVoteQuestion(1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === 1 ? "bg-primary-100 text-primary-700 dark:bg-primary-900 dark:text-primary-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}><Icon emoji="▲" className="h-4 w-4" /></button>
                 <span className="text-sm font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{question.voteScore}</span>
-                <button onClick={() => handleVoteQuestion(-1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === -1 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>▼</button>
+                <button onClick={() => handleVoteQuestion(-1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === -1 ? "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}><Icon emoji="▼" className="h-4 w-4" /></button>
               </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
                   {question.title}
-                  {question.isLocked && <span className="ml-2 text-sm text-neutral-400">🔒 {t("answers.locked", "Locked")}</span>}
+                  {question.isLocked && <span className="ml-2 inline-flex items-center gap-1 text-sm text-neutral-400"><Icon emoji="🔒" className="h-3.5 w-3.5" /> {t("answers.locked", "Locked")}</span>}
                 </h1>
                 <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{question.body}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
@@ -488,7 +489,7 @@ export default function QuestionDetailPage() {
                   <span>·</span>
                   <span>{timeAgo(question.createdAt)}</span>
                   <button onClick={() => void handleFavorite()} className={`rounded-full px-1.5 py-0.5 ${question.isFavorited ? "text-amber-500" : "text-neutral-300 hover:text-amber-400"}`}>
-                    {question.isFavorited ? "★" : "☆"} {question.favoriteCount}
+                    <Icon emoji={question.isFavorited ? "★" : "☆"} className="inline h-3.5 w-3.5" /> {question.favoriteCount}
                   </button>
                   <button onClick={() => void handleShare()} className="font-medium text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400">
                     {shareCopied ? t("answers.linkCopied", "Link copied") : t("answers.share", "Share")}
@@ -604,7 +605,7 @@ export default function QuestionDetailPage() {
       {bypassPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setBypassPrompt(null)}>
           <div className="relative w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setBypassPrompt(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
+            <button onClick={() => setBypassPrompt(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close"><Icon emoji="✕" className="h-4 w-4" /></button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">{t("answers.bypass.title", "Reach Level {{level}} or spend Credits", { level: bypassPrompt.minLevel })}</h2>
             <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
               {t("answers.bypass.message", "You need Level {{level}} to comment for free. Spend {{cost}} {{currency}} to post this comment now?", { level: bypassPrompt.minLevel, cost: bypassPrompt.bypassCostCredits, currency: currencyName })}
@@ -628,7 +629,7 @@ export default function QuestionDetailPage() {
       {reportTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReportTarget(null)}>
           <div className="relative w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setReportTarget(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
+            <button onClick={() => setReportTarget(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close"><Icon emoji="✕" className="h-4 w-4" /></button>
             <h2 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-50">{t("answers.report.title", "Report content")}</h2>
             <div className="space-y-1.5">
               {REPORT_REASONS.map(({ label, type }) => (

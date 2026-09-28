@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const CONFIG: Record<string, { rows: number; cols: number; mines: number }> = {
   easy:   { rows: 8,  cols: 8,  mines: 10 },
@@ -136,8 +137,10 @@ export default function MinesweeperGame({ onReady, onGameOver, onScore, difficul
   return (
     <div className="flex flex-col items-center gap-3 select-none">
       <div className="flex w-full max-w-xs items-center justify-between text-sm px-1">
-        <span>💣 {mines - flags}</span>
-        <span className={over ? "text-red-400" : won ? "text-emerald-400 font-bold" : "text-foreground"}>{over ? "Boom! 💥" : won ? "Cleared! 🎉" : "Reveal safely"}</span>
+        <span className="flex items-center gap-1"><Icon emoji="💣" size={16} /> {mines - flags}</span>
+        <span className={`flex items-center gap-1 ${over ? "text-red-400" : won ? "text-emerald-400 font-bold" : "text-foreground"}`}>
+          {over ? <>Boom! <Icon emoji="💥" size={16} /></> : won ? <>Cleared! <Icon emoji="🎉" size={16} /></> : "Reveal safely"}
+        </span>
         <span className="text-muted-foreground">Score: {score}</span>
       </div>
       <div

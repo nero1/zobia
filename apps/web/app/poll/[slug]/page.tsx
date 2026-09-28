@@ -20,6 +20,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { PollVoteCard } from "@/components/polls/PollVoteCard";
 import { PollShareButton } from "@/components/polls/PollShareButton";
 import { FundTreasuryModal } from "@/components/polls/FundTreasuryModal";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -79,12 +80,12 @@ export default async function PublicPollPage({ params }: { params: Promise<{ slu
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       <div className="mx-auto max-w-2xl px-4 py-8">
         <Link href="/polls" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← Polls
+          <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Polls
         </Link>
 
         <header className="mt-4">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <span>📊 Poll</span>
+            <span><Icon emoji="📊" className="inline h-3.5 w-3.5 align-text-bottom" /> Poll</span>
             {poll.status === "closed" && <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-neutral-300">Closed</span>}
           </div>
           <h1 className="mt-2 text-3xl font-bold text-foreground">{poll.title}</h1>
@@ -101,7 +102,7 @@ export default async function PublicPollPage({ params }: { params: Promise<{ slu
 
         {treasuryActive && treasury && (
           <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
-            🎁 Powered by a reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who vote!
+            <Icon emoji="🎁" className="inline-block align-text-bottom" size={16} /> Powered by a reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who vote!
           </div>
         )}
 
@@ -111,7 +112,7 @@ export default async function PublicPollPage({ params }: { params: Promise<{ slu
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <div className="text-sm text-muted-foreground">
-            {poll.voterCount} {poll.voterCount === 1 ? "voter" : "voters"} · {totalVotes} {totalVotes === 1 ? "vote" : "votes"} · 👁 {poll.viewCount} views
+            {poll.voterCount} {poll.voterCount === 1 ? "voter" : "voters"} · {totalVotes} {totalVotes === 1 ? "vote" : "votes"} · <Icon emoji="👁" className="inline h-3.5 w-3.5 align-text-bottom" /> {poll.viewCount} views
           </div>
           <PollShareButton slug={poll.slug} />
         </div>

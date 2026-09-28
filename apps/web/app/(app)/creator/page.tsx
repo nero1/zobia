@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { CreatorPayoutPanel } from "@/components/creator/CreatorPayoutPanel";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types (mirrors GET /api/creator/dashboard and GET/POST /api/creator/payouts)
@@ -77,14 +78,14 @@ function formatNgn(kobo: number): string {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(kobo / 100);
 }
 
-const STREAM_LABEL: Record<string, string> = {
-  gift: "🎁 Gifts",
-  subscription: "🔁 Subscriptions",
-  dropEntry: "🎟️ Drop Entries",
-  classroomEnrolment: "📚 Classroom",
-  sponsoredQuest: "🏆 Sponsored Quests",
-  merch: "🛍️ Merch",
-  creatorFund: "💰 Creator Fund",
+const STREAM_LABEL: Record<string, { emoji: string; label: string }> = {
+  gift: { emoji: "🎁", label: "Gifts" },
+  subscription: { emoji: "🔁", label: "Subscriptions" },
+  dropEntry: { emoji: "🎟️", label: "Drop Entries" },
+  classroomEnrolment: { emoji: "📚", label: "Classroom" },
+  sponsoredQuest: { emoji: "🏆", label: "Sponsored Quests" },
+  merch: { emoji: "🛍️", label: "Merch" },
+  creatorFund: { emoji: "💰", label: "Creator Fund" },
 };
 
 // ---------------------------------------------------------------------------
@@ -174,7 +175,7 @@ export default function CreatorPage() {
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
           {error ?? "Access denied"}
         </div>
-        <Link href="/home" className="mt-3 inline-block text-sm text-blue-600 hover:underline">← Home</Link>
+        <Link href="/home" className="mt-3 inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"><Icon emoji="←" className="h-3.5 w-3.5" /> Home</Link>
       </div>
     );
   }
@@ -186,12 +187,12 @@ export default function CreatorPage() {
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Creator Dashboard</h1>
 
       <div className="flex flex-wrap gap-2 text-sm">
-        <Link href="/creator/merch" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🛍️ Merch Store</Link>
-        <Link href="/creator/wallet" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">👛 Wallet</Link>
-        <Link href="/creator/bank-account" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🏦 Bank Account</Link>
-        <Link href="/creator/broadcasts" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">📣 Broadcasts</Link>
-        <Link href="/classroom/studio" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">📚 {t("classroom.nav.studio", "Classroom Studio")}</Link>
-        <Link href="/market" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🏪 Market</Link>
+        <Link href="/creator/merch" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="🛍️" className="h-3.5 w-3.5" /> Merch Store</Link>
+        <Link href="/creator/wallet" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="👛" className="h-3.5 w-3.5" /> Wallet</Link>
+        <Link href="/creator/bank-account" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="🏦" className="h-3.5 w-3.5" /> Bank Account</Link>
+        <Link href="/creator/broadcasts" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="📣" className="h-3.5 w-3.5" /> Broadcasts</Link>
+        <Link href="/classroom/studio" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="📚" className="h-3.5 w-3.5" /> {t("classroom.nav.studio", "Classroom Studio")}</Link>
+        <Link href="/market" className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"><Icon emoji="🏪" className="h-3.5 w-3.5" /> Market</Link>
       </div>
 
       {toast && (
@@ -217,7 +218,13 @@ export default function CreatorPage() {
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {streamEntries.map(([key, value]) => (
               <div key={key} className="flex items-center justify-between px-5 py-3 text-sm">
-                <span className="text-neutral-700 dark:text-neutral-300">{STREAM_LABEL[key] ?? key}</span>
+                <span className="inline-flex items-center gap-1.5 text-neutral-700 dark:text-neutral-300">
+                  {STREAM_LABEL[key] ? (
+                    <>
+                      <Icon emoji={STREAM_LABEL[key].emoji} className="h-3.5 w-3.5" /> {STREAM_LABEL[key].label}
+                    </>
+                  ) : key}
+                </span>
                 <span className="font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">{formatNgn(value)}</span>
               </div>
             ))}
@@ -265,7 +272,7 @@ export default function CreatorPage() {
                     <span className="w-5 text-center text-xs font-bold text-neutral-400">#{i + 1}</span>
                     <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-xl dark:bg-neutral-800">{g.avatar_emoji}</span>
                     <span className="flex-1 text-sm font-medium text-neutral-900 dark:text-neutral-100">@{g.username}</span>
-                    <span className="text-sm font-bold text-amber-600">{g.total_coins.toLocaleString()} 🪙</span>
+                    <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-600">{g.total_coins.toLocaleString()} <Icon emoji="🪙" className="h-3.5 w-3.5" /></span>
                   </Link>
                 ))}
               </div>

@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -170,7 +171,7 @@ function QueueTab() {
               className="rounded-full p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800"
               aria-label="Clear user filter"
             >
-              ✕
+              <Icon emoji="✕" size={12} />
             </button>
           </span>
         )}
@@ -212,7 +213,7 @@ function QueueTab() {
                   <td className="px-4 py-2.5">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(item.status)}`}>
                       {item.status.replace("_", " ")}
-                      {item.ai_escalated && " ⚠"}
+                      {item.ai_escalated && <Icon emoji="⚠" size={12} className="ml-1 inline-block align-[-1px]" />}
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-xs text-neutral-500">
@@ -300,7 +301,7 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
       >
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">Submission review</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"><Icon emoji="✕" size={16} /></button>
         </div>
 
         {loading || !detail ? (
@@ -381,7 +382,7 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
                       rel="noreferrer"
                       className="rounded-lg border border-neutral-200 p-2 text-center text-xs text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800/50"
                     >
-                      📄 {doc.docType.replace(/_/g, " ")}
+                      <Icon emoji="📄" size={14} className="inline-block align-[-2px]" /> {doc.docType.replace(/_/g, " ")}
                     </a>
                   ))}
                 </div>
@@ -403,14 +404,14 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
                       onClick={() => void approve()}
                       className="flex-1 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      ✓ Approve
+                      <Icon emoji="✓" size={14} className="inline-block align-[-2px]" /> Approve
                     </button>
                     <button
                       disabled={busy}
                       onClick={() => setShowReject(true)}
                       className="flex-1 rounded-lg border border-red-600 px-3 py-2 text-sm font-semibold text-red-500 disabled:opacity-50"
                     >
-                      ✕ Reject
+                      <Icon emoji="✕" size={14} className="inline-block align-[-2px]" /> Reject
                     </button>
                   </div>
                 ) : (

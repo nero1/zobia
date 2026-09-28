@@ -15,6 +15,7 @@ import { useRef, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useMarkAnnouncementsSeen } from "@/lib/notifications/useHasNewSince";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -127,7 +128,7 @@ function EmptyState() {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center py-16 text-center">
-      <span className="text-5xl">📭</span>
+      <Icon emoji="📭" className="h-12 w-12 text-5xl" />
       <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">{t("announcements.noMessages")}</h2>
       <p className="mt-1 text-sm text-neutral-500">
         {t("announcements.noMessagesHint")}

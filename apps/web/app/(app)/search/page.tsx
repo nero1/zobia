@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";
 import { authFetch } from "@/lib/api/authFetch";
+import { Icon } from "@/components/ui/Icon";
 
 // Kept in sync with app/api/search/route.ts's own definitions — not imported
 // directly from there to avoid pulling a server route module into the client
@@ -139,8 +140,8 @@ export default function SearchPage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img src={r.thumbnail_url} alt="" className="h-14 w-14 shrink-0 rounded-lg object-cover" />
             ) : (
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-2xl dark:bg-neutral-800">
-                {TYPE_ICON[r.type]}
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800">
+                <Icon emoji={TYPE_ICON[r.type]} size={24} />
               </div>
             )}
             <div className="min-w-0 flex-1">
@@ -209,7 +210,7 @@ export default function SearchPage() {
                       onChange={() => toggleType(type)}
                       className="h-3.5 w-3.5"
                     />
-                    {TYPE_ICON[type]} {t(`search.category.${type}`)}
+                    <Icon emoji={TYPE_ICON[type]} size={14} /> {t(`search.category.${type}`)}
                   </label>
                 ))}
               </div>
@@ -246,7 +247,7 @@ export default function SearchPage() {
         <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">{t("search.error")}</p>
       ) : results.length === 0 ? (
         <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-10 text-center dark:border-neutral-700 dark:bg-neutral-900">
-          <div className="mb-2 text-3xl">🔍</div>
+          <div className="mb-2"><Icon emoji="🔍" size={30} className="text-3xl" /></div>
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("search.noResults")}</p>
         </div>
       ) : (

@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 const CATEGORIES = [
   "Tap", "Arcade", "Puzzle", "Card", "Board", "Idle", "Word", "Action", "Casual",
@@ -224,7 +225,7 @@ export default function AdminGamesPage() {
             onClick={() => setViewMode("list")}
             className={`px-3 py-1.5 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-primary-foreground" : "bg-white text-neutral-600 hover:bg-neutral-50"}`}
           >
-            ☰ List
+            <Icon emoji="☰" size={14} className="inline-block align-[-2px]" /> List
           </button>
           <button
             type="button"
@@ -409,7 +410,7 @@ function StatsModal({ stats, onClose }: { stats: GameStats; onClose: () => void 
       <div className="w-full max-w-md rounded-2xl bg-neutral-50 p-5 shadow-xl dark:bg-neutral-800">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{stats.name} — Stats</h2>
-          <button onClick={onClose} aria-label="Close" className="rounded-full p-1.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700">✕</button>
+          <button onClick={onClose} aria-label="Close" className="rounded-full p-1.5 text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"><Icon emoji="✕" size={16} /></button>
         </div>
         <div className="grid grid-cols-2 gap-3">
           <StatTile label="Total Plays" value={stats.plays.total_plays.toLocaleString()} />

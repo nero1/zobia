@@ -12,6 +12,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface WalletData {
   hasWallet: boolean;
@@ -132,7 +133,7 @@ export default function WalletAddressPage() {
       {/* Critical warning */}
       <div className="mb-6 rounded-lg border-2 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20 p-4">
         <div className="flex items-start gap-2">
-          <span className="text-lg flex-shrink-0">⚠️</span>
+          <Icon emoji="⚠️" className="h-4 w-4 flex-shrink-0" />
           <div className="text-sm text-red-800 dark:text-red-300">
             <p className="font-bold mb-1">Important — Read Before Proceeding</p>
             <p>
@@ -260,7 +261,7 @@ export default function WalletAddressPage() {
       {showPinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <div className="text-2xl mb-3">🔐</div>
+            <Icon emoji="🔐" className="mb-3 h-6 w-6" />
             <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50 mb-2">
               Protect Your Account
             </h3>

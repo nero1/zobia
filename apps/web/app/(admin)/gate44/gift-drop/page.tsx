@@ -17,6 +17,7 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -424,7 +425,7 @@ export default function AdminGiftDropPage() {
         </div>
       ) : drops.length === 0 ? (
         <div className="rounded-xl border border-dashed border-neutral-300 py-16 text-center dark:border-neutral-700">
-          <p className="text-4xl">🎁</p>
+          <Icon emoji="🎁" className="text-4xl" size={40} />
           <p className="mt-3 text-sm font-medium text-neutral-500">No gift drops scheduled yet.</p>
           <p className="text-xs text-neutral-400">
             Monthly mystery gift drops are announced 24 h in advance and available for 48 h only.

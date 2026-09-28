@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const EMOJIS = ["🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦅","🦉","🐺","🦄","🐴","🐝"];
 const GRID_MAP: Record<string, { cols: number; pairs: number }> = {
@@ -117,7 +118,7 @@ export default function MemoryMatchGame({ onReady, onGameOver, onScore, difficul
         ))}
       </div>
 
-      {done && <div className="text-center text-emerald-400 font-bold">All pairs found! 🎉</div>}
+      {done && <div className="text-center text-emerald-400 font-bold flex items-center justify-center gap-1">All pairs found! <Icon emoji="🎉" size={18} /></div>}
     </div>
   );
 }

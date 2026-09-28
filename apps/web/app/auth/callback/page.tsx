@@ -22,6 +22,7 @@
 import { Suspense, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 function CallbackContent() {
   const { t } = useTranslation();
@@ -50,7 +51,7 @@ function CallbackContent() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">
       <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="mb-4 text-5xl">📱</div>
+        <div className="mb-4"><Icon emoji="📱" className="text-5xl" size={48} /></div>
         <h1 className="mb-2 text-xl font-black text-neutral-900 dark:text-white">
           {t("authCallback.title")}
         </h1>

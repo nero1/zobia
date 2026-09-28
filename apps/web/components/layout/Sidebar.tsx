@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -26,6 +27,7 @@ import { useUserProfile } from "@/lib/auth/hooks";
 interface PrimaryNavItem {
   href: string;
   label: string;
+  icon: IconName;
   /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
   flagKey?: keyof FeatureFlags;
   /**
@@ -38,39 +40,39 @@ interface PrimaryNavItem {
 }
 
 const primaryNavItems: PrimaryNavItem[] = [
-  { href: "/home", label: "Home" },
-  { href: "/search", label: "Search" },
-  { href: "/moments", label: "Moments", flagKey: "moments" },
-  { href: "/tweets", label: "Tweets", flagKey: "tweets" },
-  { href: "/answers", label: "Answers", flagKey: "forum" },
-  { href: "/forum", label: "Forum", flagKey: "bbforum" },
-  { href: "/quests", label: "Quests" },
-  { href: "/games", label: "Games", flagKey: "games" },
-  { href: "/blogs", label: "Blogs", flagKey: "blogs" },
-  { href: "/polls", label: "Polls", flagKey: "polls" },
-  { href: "/quizzes", label: "Quizzes", flagKey: "quizzes" },
-  { href: "/business", label: "Business", flagKey: "businessAccounts" },
-  { href: "/ads", label: "Ads", flagKey: "adsSystem" },
-  { href: "/rooms", label: "Rooms", flagKey: "rooms" },
-  { href: "/guilds", label: "Guilds" },
-  { href: "/messages", label: "Messages" },
-  { href: "/friends", label: "Friends" },
-  { href: "/gifts", label: "Gifts", flagKey: "gifts" },
-  { href: "/wallet", label: "Wallet" },
-  { href: "/notifications", label: "Notifications" },
-  { href: "/events", label: "Events" },
-  { href: "/announcements", label: "Announcements" },
-  { href: "/elder", label: "Elder" },
-  { href: "/referrals", label: "Referrals" },
-  { href: "/classroom", label: "Classroom", flagKey: "classrooms" },
-  { href: "/leaderboards", label: "Leaderboards", flagKey: "rankings" },
-  { href: "/council", label: "Council", flagKey: "platformCouncil", requiresCouncilMembership: true },
+  { href: "/home", label: "Home", icon: "home" },
+  { href: "/search", label: "Search", icon: "search" },
+  { href: "/moments", label: "Moments", icon: "moments", flagKey: "moments" },
+  { href: "/tweets", label: "Tweets", icon: "tweets", flagKey: "tweets" },
+  { href: "/answers", label: "Answers", icon: "answers", flagKey: "forum" },
+  { href: "/forum", label: "Forum", icon: "forum", flagKey: "bbforum" },
+  { href: "/quests", label: "Quests", icon: "quests" },
+  { href: "/games", label: "Games", icon: "games", flagKey: "games" },
+  { href: "/blogs", label: "Blogs", icon: "blogs", flagKey: "blogs" },
+  { href: "/polls", label: "Polls", icon: "polls", flagKey: "polls" },
+  { href: "/quizzes", label: "Quizzes", icon: "quizzes", flagKey: "quizzes" },
+  { href: "/business", label: "Business", icon: "business", flagKey: "businessAccounts" },
+  { href: "/ads", label: "Ads", icon: "ads", flagKey: "adsSystem" },
+  { href: "/rooms", label: "Rooms", icon: "rooms", flagKey: "rooms" },
+  { href: "/guilds", label: "Guilds", icon: "guilds" },
+  { href: "/messages", label: "Messages", icon: "messages" },
+  { href: "/friends", label: "Friends", icon: "friends" },
+  { href: "/gifts", label: "Gifts", icon: "gifts", flagKey: "gifts" },
+  { href: "/wallet", label: "Wallet", icon: "wallet" },
+  { href: "/notifications", label: "Notifications", icon: "notifications" },
+  { href: "/events", label: "Events", icon: "events" },
+  { href: "/announcements", label: "Announcements", icon: "announcements" },
+  { href: "/elder", label: "Elder", icon: "elder" },
+  { href: "/referrals", label: "Referrals", icon: "referrals" },
+  { href: "/classroom", label: "Classroom", icon: "classroom", flagKey: "classrooms" },
+  { href: "/leaderboards", label: "Leaderboards", icon: "leaderboards", flagKey: "rankings" },
+  { href: "/council", label: "Council", icon: "council", flagKey: "platformCouncil", requiresCouncilMembership: true },
 ];
 
-const secondaryNavItems = [
-  { href: "/profile", label: "Profile" },
-  { href: "/settings", label: "Settings" },
-] as const;
+const secondaryNavItems: { href: string; label: string; icon: IconName }[] = [
+  { href: "/profile", label: "Profile", icon: "profile" },
+  { href: "/settings", label: "Settings", icon: "settings" },
+];
 
 // ---------------------------------------------------------------------------
 // Sidebar nav link
@@ -79,12 +81,14 @@ const secondaryNavItems = [
 function SidebarLink({
   href,
   label,
+  icon,
   isActive,
   isOffForUsers,
   hasNewDot,
 }: {
   href: string;
   label: string;
+  icon: IconName;
   isActive: boolean;
   isOffForUsers?: boolean;
   hasNewDot?: boolean;
@@ -102,50 +106,19 @@ function SidebarLink({
       aria-current={isActive ? "page" : undefined}
     >
       <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
-        {navIcon(label)}
+        <Icon name={icon} />
         {hasNewDot && (
           <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />
         )}
       </span>
       {label}
       {isOffForUsers && (
-        <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+        <span title="Disabled for regular users" className="ml-auto">
+          <Icon emoji="⚠️" className="text-xs text-amber-500" size={14} />
+        </span>
       )}
     </Link>
   );
-}
-
-function navIcon(label: string): string {
-  const map: Record<string, string> = {
-    Admin: "🛡️",
-    Home: "🏠",
-    Quests: "🎯",
-    Games: "🎮",
-    Rooms: "🚪",
-    Guilds: "🏰",
-    Messages: "💬",
-    Friends: "👥",
-    Gifts: "🎁",
-    Notifications: "🔔",
-    Events: "📅",
-    Wallet: "🪙",
-    Announcements: "📬",
-    Elder: "🎓",
-    Referrals: "🔗",
-    Classroom: "🏫",
-    Leaderboards: "🏆",
-    Rankings: "🏆",
-    Moments: "⚡",
-    Tweets: "🐦",
-    Answers: "❓",
-    Forum: "🗨️",
-    Business: "🏢",
-    Ads: "📢",
-    Search: "🔍",
-    Profile: "👤",
-    Settings: "⚙️",
-  };
-  return map[label] ?? "•";
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +178,7 @@ export function Sidebar() {
             <SidebarLink
               href="/gate44"
               label="Admin"
+              icon="admin"
               isActive={pathname?.startsWith("/gate44") ?? false}
             />
           )}
@@ -212,6 +186,7 @@ export function Sidebar() {
             <SidebarLink
               href="/watch56"
               label="Moderation"
+              icon="moderation"
               isActive={pathname?.startsWith("/watch56") ?? false}
             />
           )}
@@ -220,6 +195,7 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               label={item.label}
+              icon={item.icon}
               isActive={pathname?.startsWith(item.href) ?? false}
               isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
               hasNewDot={newDotHrefs[item.href]}
@@ -235,6 +211,7 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 label={item.label}
+                icon={item.icon}
                 isActive={pathname?.startsWith(item.href) ?? false}
               />
             ))}

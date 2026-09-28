@@ -13,6 +13,7 @@ import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency, currencyLabel } from '@/lib/hooks/useCurrency';
 import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
+import { Icon } from '@/components/ui/Icon';
 
 const MAX_CONTENT = 500;
 const MAX_CAPTION = 200;
@@ -138,7 +139,7 @@ function CreateMomentPage() {
           className="flex w-full items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-4 py-3"
         >
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('moments.create.optional')}</h2>
-          <span className="text-xs text-neutral-400 dark:text-neutral-500">{optionalExpanded ? '▲' : '▼'}</span>
+          <span className="text-xs text-neutral-400 dark:text-neutral-500"><Icon emoji={optionalExpanded ? '▲' : '▼'} size={11} /></span>
         </button>
         {optionalExpanded && (
           <div className="space-y-4 p-4">
@@ -156,7 +157,7 @@ function CreateMomentPage() {
                   htmlFor="moment-image-input"
                   className="cursor-pointer rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400"
                 >
-                  {uploading ? t('moments.create.uploading') : t('moments.create.addImage')}
+                  {uploading ? t('moments.create.uploading') : <><Icon emoji="📷" size={12} /> {t('moments.create.addImage')}</>}
                 </label>
                 {imageUrl && (
                   <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
@@ -241,7 +242,7 @@ function CreateMomentPage() {
               className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500"
               aria-label="Close"
             >
-              ✕
+              <Icon emoji="✕" />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">
               {t('moments.create.insufficientTitle', { currency: `${currency.softPlural}/${currency.premiumPlural}` })}

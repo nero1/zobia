@@ -15,13 +15,14 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
 import type { ClassroomHomePayload, ModuleView } from "@/components/classroom/types";
+import { Icon } from "@/components/ui/Icon";
 
 export function LessonsPanel({ home, levelName }: { home: ClassroomHomePayload; levelName: (level: number) => string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const roomId = home.classroom.id;
   const [openId, setOpenId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<React.ReactNode>(null);
   const [error, setError] = useState<string | null>(null);
   const insider = home.viewer.can.viewMemberContent;
 
@@ -35,7 +36,7 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHomePayload; 
       if (!m.completed && data.pointsAwarded) {
         setNotice(
           data.leveledUp
-            ? t("classroom.lessons.leveledUp", "Lesson complete! +{{points}} points — you levelled up 🎉", { points: data.pointsAwarded })
+            ? <>{t("classroom.lessons.leveledUp", "Lesson complete! +{{points}} points — you levelled up", { points: data.pointsAwarded })} <Icon emoji="🎉" size={14} className="inline align-[-2px]" /></>
             : t("classroom.lessons.completedPoints", "Lesson complete! +{{points}} points", { points: data.pointsAwarded })
         );
         setTimeout(() => setNotice(null), 3500);
@@ -48,7 +49,7 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHomePayload; 
   if (home.modules.length === 0) {
     return (
       <div className="py-12 text-center">
-        <span className="text-4xl">📚</span>
+        <Icon emoji="📚" size={40} />
         <p className="mt-2 text-sm text-neutral-500">{t("classroom.card.noModules", "No modules yet.")}</p>
       </div>
     );
@@ -99,7 +100,7 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHomePayload; 
                       : "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
                 }`}
               >
-                {m.completed ? "✓" : m.locked ? "🔒" : i + 1}
+                {m.completed ? <Icon emoji="✓" size={14} /> : m.locked ? <Icon emoji="🔒" size={14} /> : i + 1}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-neutral-900 dark:text-neutral-50">{m.title}</span>
@@ -125,7 +126,7 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHomePayload; 
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900"
                   >
-                    ▶ {t("classroom.lessons.watchVideo", "Watch lesson video")}
+                    <Icon emoji="▶" size={14} /> {t("classroom.lessons.watchVideo", "Watch lesson video")}
                   </a>
                 )}
                 {m.contentHtml ? (

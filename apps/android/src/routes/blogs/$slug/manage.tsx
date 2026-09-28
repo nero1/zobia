@@ -17,6 +17,7 @@ import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { DEFAULT_MENU_CONFIG, type BlogMenuConfig, type BlogMenuItem } from '@/lib/blogs/menu';
+import { Icon } from '@/components/ui/Icon';
 
 interface PostRow {
   id: string;
@@ -210,8 +211,8 @@ function ManageBlogPage() {
           {menuConfig.items.map((item, i) => (
             <div key={item.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2">
               <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">{item.label}</span>
-              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30">↑</button>
-              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30">↓</button>
+              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30"><Icon emoji="↑" className="inline h-3 w-3" /></button>
+              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30"><Icon emoji="↓" className="inline h-3 w-3" /></button>
               <button onClick={() => removeMenuItem(item.id)} className="rounded bg-red-100 dark:bg-red-900/40 px-2 py-1 text-xs text-red-700 dark:text-red-300">{t('blogs.settings.menuRemove', 'Remove')}</button>
             </div>
           ))}

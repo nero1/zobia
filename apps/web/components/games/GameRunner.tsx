@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { getEngine } from "@/components/games/engineRegistry";
 import type { GameDifficulty } from "@/components/games/types";
 import { authFetch as sharedAuthFetch } from "@/lib/api/authFetch";
+import { Icon } from "@/components/ui/Icon";
 
 type Phase = "pregame" | "starting" | "playing" | "submitting" | "result" | "error";
 
@@ -393,7 +394,7 @@ export default function GameRunner({
               onClick={() => setShowHowTo(true)}
               className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card py-3 text-sm font-medium text-foreground hover:bg-accent transition-colors"
             >
-              <span>❓</span> How to Play
+              <Icon emoji="❓" size={16} /> How to Play
             </button>
           )}
 
@@ -402,9 +403,9 @@ export default function GameRunner({
             <button
               type="button"
               onClick={() => void resumeSavedGame()}
-              className="w-full py-3.5 rounded-2xl border-2 border-primary text-primary font-bold text-base hover:bg-primary/10 active:scale-95 transition-all"
+              className="w-full inline-flex items-center justify-center gap-1.5 py-3.5 rounded-2xl border-2 border-primary text-primary font-bold text-base hover:bg-primary/10 active:scale-95 transition-all"
             >
-              ▶ {t("games.resumeSaved", "Resume Saved Game")} {existingSave.score > 0 ? `(${existingSave.score})` : ""}
+              <Icon emoji="▶️" size={16} /> {t("games.resumeSaved", "Resume Saved Game")} {existingSave.score > 0 ? `(${existingSave.score})` : ""}
             </button>
           )}
 
@@ -412,9 +413,13 @@ export default function GameRunner({
           <button
             type="button"
             onClick={startFresh}
-            className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 active:scale-95 transition-all"
+            className="w-full inline-flex items-center justify-center gap-1.5 py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 active:scale-95 transition-all"
           >
-            {existingSave ? t("games.startNew", "Start New Game") : "Play →"}
+            {existingSave ? t("games.startNew", "Start New Game") : (
+              <>
+                Play <Icon emoji="→" size={18} />
+              </>
+            )}
           </button>
         </div>
       )}
@@ -435,7 +440,15 @@ export default function GameRunner({
               onClick={() => setPaused(p => !p)}
               className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent transition-colors"
             >
-              {paused ? "▶ Resume" : "⏸ Pause"}
+              {paused ? (
+                <>
+                  <Icon emoji="▶️" size={12} /> Resume
+                </>
+              ) : (
+                <>
+                  <Icon emoji="⏸" size={12} /> Pause
+                </>
+              )}
             </button>
 
             {/* Live score */}
@@ -450,7 +463,7 @@ export default function GameRunner({
               className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-accent transition-colors"
               title={soundEnabled ? "Mute sounds" : "Unmute sounds"}
             >
-              {soundEnabled ? "🔊" : "🔇"}
+              <Icon emoji={soundEnabled ? "🔊" : "🔇"} size={14} />
             </button>
           </div>
 
@@ -461,17 +474,17 @@ export default function GameRunner({
               <button
                 type="button"
                 onClick={() => setPaused(false)}
-                className="py-3 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90"
+                className="inline-flex items-center justify-center gap-1.5 py-3 rounded-xl bg-primary text-primary-foreground font-bold text-base hover:opacity-90"
               >
-                ▶ Resume
+                <Icon emoji="▶️" size={16} /> Resume
               </button>
               {howToPlay && (
                 <button
                   type="button"
                   onClick={() => setShowHowTo(true)}
-                  className="py-2 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-accent"
+                  className="inline-flex items-center justify-center gap-1.5 py-2 rounded-xl border border-border text-sm font-medium text-foreground hover:bg-accent"
                 >
-                  ❓ How to Play
+                  <Icon emoji="❓" size={14} /> How to Play
                 </button>
               )}
               {canSave && (
@@ -479,9 +492,13 @@ export default function GameRunner({
                   type="button"
                   onClick={() => void doSave()}
                   disabled={savingSlot}
-                  className="py-2 rounded-xl border border-emerald-600 text-sm font-semibold text-emerald-500 hover:bg-emerald-950/30 disabled:opacity-60"
+                  className="inline-flex items-center justify-center gap-1.5 py-2 rounded-xl border border-emerald-600 text-sm font-semibold text-emerald-500 hover:bg-emerald-950/30 disabled:opacity-60"
                 >
-                  {savingSlot ? t("games.saving", "Saving…") : `💾 ${t("games.saveAndQuit", "Save & Quit")}`}
+                  {savingSlot ? t("games.saving", "Saving…") : (
+                    <>
+                      <Icon emoji="💾" size={14} /> {t("games.saveAndQuit", "Save & Quit")}
+                    </>
+                  )}
                 </button>
               )}
               {saveError && <p className="text-xs text-red-400">{saveError}</p>}
@@ -542,13 +559,19 @@ export default function GameRunner({
           <div className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t("games.gameOver", "Game Over")}</div>
           <div className="text-3xl font-black text-foreground">Score: {result.score}</div>
           {result.isNewBest && (
-            <div className="text-sm font-semibold text-amber-400">🏆 New personal best!</div>
+            <div className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-400">
+              <Icon emoji="🏆" size={14} /> New personal best!
+            </div>
           )}
           {(result.reward.credits > 0 || result.reward.xp > 0 || result.reward.stars > 0) && (
-            <div className="text-sm text-emerald-400 font-medium">
+            <div className="inline-flex items-center gap-1 text-sm text-emerald-400 font-medium">
               {result.reward.credits > 0 ? `+${result.reward.credits} credits ` : ""}
               {result.reward.xp > 0 ? `+${result.reward.xp} XP ` : ""}
-              {result.reward.stars > 0 ? `+${result.reward.stars} ⭐` : ""}
+              {result.reward.stars > 0 && (
+                <>
+                  {`+${result.reward.stars} `}<Icon emoji="⭐" size={14} />
+                </>
+              )}
             </div>
           )}
           {result.challengeRoundId && (
@@ -561,8 +584,10 @@ export default function GameRunner({
               {rating.saved > 0 ? (
                 <div className="flex flex-col items-center gap-1">
                   <span className="text-xs text-muted-foreground">Your rating</span>
-                  <span className="text-amber-400 text-xl tracking-wide">
-                    {"★".repeat(rating.saved)}{"☆".repeat(5 - rating.saved)}
+                  <span className="flex gap-0.5 text-amber-400">
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <Icon key={i} emoji={i < rating.saved ? "★" : "☆"} size={18} />
+                    ))}
                   </span>
                   <span className="text-xs text-emerald-400">Thanks for rating!</span>
                 </div>
@@ -586,7 +611,7 @@ export default function GameRunner({
                             : "text-neutral-600"
                         }`}
                       >
-                        ★
+                        <Icon emoji="★" size={22} />
                       </button>
                     ))}
                   </div>
@@ -660,7 +685,7 @@ export default function GameRunner({
               onClick={() => setShowHowTo(false)}
               className="absolute right-4 top-4 text-muted-foreground hover:text-foreground text-xl leading-none"
             >
-              ✕
+              <Icon emoji="✕" size={18} />
             </button>
             <h2 className="text-lg font-bold text-foreground mb-4">How to Play</h2>
             <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{howToPlay}</p>

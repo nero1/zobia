@@ -9,6 +9,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getBoardBySlug, listThreadsInBoard } from "@/lib/bbforum/repo";
 import { NewThreadForm } from "@/components/bbforum/NewThreadForm";
+import { Icon } from "@/components/ui/Icon";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -49,7 +50,7 @@ export default async function BoardPage({ params }: { params: Promise<{ boardSlu
         <span className="text-neutral-900 dark:text-neutral-100">{board.name}</span>
       </div>
       <h1 className="mb-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
-        <span className="mr-1.5">{board.icon_emoji}</span>{board.name}
+        <span className="mr-1.5"><Icon emoji={board.icon_emoji} size={22} /></span>{board.name}
       </h1>
       {board.description && <p className="mb-6 text-sm text-neutral-500">{board.description}</p>}
 
@@ -63,8 +64,8 @@ export default async function BoardPage({ params }: { params: Promise<{ boardSlu
             <Link key={t.id} href={`/f/${t.slug}`} className="flex items-center gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/60">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">
-                  {t.is_pinned && <span className="mr-1 text-amber-500">📌</span>}
-                  {t.is_locked && <span className="mr-1 text-neutral-400">🔒</span>}
+                  {t.is_pinned && <span className="mr-1 text-amber-500"><Icon emoji="📌" size={14} /></span>}
+                  {t.is_locked && <span className="mr-1 text-neutral-400"><Icon emoji="🔒" size={14} /></span>}
                   {t.title}
                 </p>
                 <p className="text-xs text-neutral-400">{t.reply_count} replies · {t.view_count} views · last reply {timeAgo(t.last_reply_at)}</p>

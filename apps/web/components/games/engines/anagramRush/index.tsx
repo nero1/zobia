@@ -9,6 +9,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface WordEntry { word: string; category: string }
 
@@ -259,7 +260,9 @@ export default function AnagramRushGame({
         <p className="text-red-400 text-sm font-semibold">Word was: <span className="font-black">{word.word}</span></p>
       )}
       {flash === "correct" && (
-        <p className="text-emerald-400 text-sm font-bold">✅ Correct!</p>
+        <p className="text-emerald-400 text-sm font-bold flex items-center justify-center gap-1">
+          <Icon emoji="✅" size={16} /> Correct!
+        </p>
       )}
 
       {/* Scrambled tiles */}
@@ -287,9 +290,9 @@ export default function AnagramRushGame({
           type="button"
           onClick={removeLast}
           disabled={answered || answer.length === 0}
-          className="flex-1 rounded-xl py-2.5 border-2 border-border bg-card text-foreground font-semibold text-sm hover:bg-accent disabled:opacity-40 transition-all"
+          className="flex-1 rounded-xl py-2.5 border-2 border-border bg-card text-foreground font-semibold text-sm hover:bg-accent disabled:opacity-40 transition-all flex items-center justify-center gap-1"
         >
-          ⌫ Undo
+          <Icon emoji="⌫" size={16} /> Undo
         </button>
         <button
           type="button"

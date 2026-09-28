@@ -9,6 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 type TabKey = "pending" | "resolved" | "escalated";
 
@@ -88,7 +89,7 @@ function ReportCard({
         <span className="text-neutral-400">reported</span>
         <span className="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">{targetLabel}</span>
         {postHref && (
-          <a href={postHref} target="_blank" rel="noopener noreferrer" title="Open post" className="text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400">🔗</a>
+          <a href={postHref} target="_blank" rel="noopener noreferrer" title="Open post" className="text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400"><Icon emoji="🔗" size={14} /></a>
         )}
         {report.content_author_id && (
           <a href={`/profile/${report.content_author_id}`} target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-primary-600 hover:underline dark:hover:text-primary-400">
@@ -225,8 +226,8 @@ export default function AdminForumQueuePage() {
           Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)
         ) : reports.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-4xl">✓</span>
-            <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">Queue is clear ✓</p>
+            <Icon emoji="✓" className="text-4xl" size={40} />
+            <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">Queue is clear <Icon emoji="✓" size={16} className="inline-block align-[-2px]" /></p>
             <p className="mt-1 text-sm text-neutral-500">No {tab} reports at this time.</p>
           </div>
         ) : (

@@ -19,6 +19,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { FeedTab } from "@/lib/feed/types";
+import { Icon } from "@/components/ui/Icon";
 import { LogoTabIcon } from "./LogoTabIcon";
 
 export type HomeTabKey = "logo" | FeedTab;
@@ -105,7 +106,7 @@ export function HomeTabs({ active, onChange }: { active: HomeTabKey; onChange: (
               : "text-neutral-600 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
           }`}
         >
-          <span aria-hidden="true">{TAB_ICON[feedTab]}</span>
+          <span aria-hidden="true"><Icon emoji={TAB_ICON[feedTab]} size={16} /></span>
           <span className="hidden md:inline">{t(feedTabFullNameKey(feedTab))}</span>
           <span className="md:hidden">{TAB_ACRONYM[feedTab]}</span>
         </button>

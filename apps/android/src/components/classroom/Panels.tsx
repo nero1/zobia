@@ -12,6 +12,7 @@ import { Browser } from '@capacitor/browser';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiError, get, send, type ClassroomEvent, type ClassroomHome, type LeaderboardEntry, type MemberStanding, type ModuleView } from '@/lib/classroom/api';
+import { Icon } from '@/components/ui/Icon';
 
 const openLink = (url: string) => void Browser.open({ url, presentationStyle: 'popover' });
 
@@ -34,7 +35,13 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHome; levelNa
     onError: (e) => setNotice(apiError(e).message),
   });
 
-  if (home.modules.length === 0) return <p className="py-8 text-center text-sm text-neutral-500">📚 {t('classroom.card.noModules', 'No modules yet.')}</p>;
+  if (home.modules.length === 0)
+    return (
+      <p className="flex items-center justify-center gap-1.5 py-8 text-center text-sm text-neutral-500">
+        <Icon emoji="📚" size={16} />
+        {t('classroom.card.noModules', 'No modules yet.')}
+      </p>
+    );
   const pct = home.progress && home.progress.total > 0 ? Math.round((home.progress.completed / home.progress.total) * 100) : 0;
 
   return (
@@ -55,7 +62,7 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHome; levelNa
         <div key={m.id} className="rounded-xl bg-white dark:bg-neutral-800 p-3">
           <button type="button" onClick={() => setOpenId(openId === m.id ? null : m.id)} className="flex w-full items-start gap-3 text-left">
             <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ${m.completed ? 'bg-teal-500 text-white' : m.locked ? 'bg-neutral-200 text-neutral-500' : 'bg-primary-100 text-primary-700'}`}>
-              {m.completed ? '✓' : m.locked ? '🔒' : i + 1}
+              {m.completed ? <Icon emoji="✓" size={12} /> : m.locked ? <Icon emoji="🔒" size={12} /> : i + 1}
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold">{m.title}</span>
@@ -72,8 +79,9 @@ export function LessonsPanel({ home, levelName }: { home: ClassroomHome; levelNa
           {openId === m.id && !m.locked && (
             <div className="mt-2 space-y-2">
               {m.videoUrl && (
-                <button type="button" onClick={() => openLink(m.videoUrl!)} className="rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white">
-                  ▶ {t('classroom.lessons.watchVideo', 'Watch lesson video')}
+                <button type="button" onClick={() => openLink(m.videoUrl!)} className="inline-flex items-center gap-1.5 rounded-lg bg-neutral-900 px-3 py-1.5 text-sm font-semibold text-white">
+                  <Icon emoji="▶" size={12} />
+                  {t('classroom.lessons.watchVideo', 'Watch lesson video')}
                 </button>
               )}
               {m.contentHtml && (
@@ -287,7 +295,12 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
           </div>
         </div>
       )}
-      {list.length === 0 && !events.isPending && <p className="py-8 text-center text-sm text-neutral-500">📅 {t('classroom.events.empty', 'No live sessions scheduled yet.')}</p>}
+      {list.length === 0 && !events.isPending && (
+        <p className="flex items-center justify-center gap-1.5 py-8 text-center text-sm text-neutral-500">
+          <Icon emoji="📅" size={16} />
+          {t('classroom.events.empty', 'No live sessions scheduled yet.')}
+        </p>
+      )}
       {list.map((e) => (
         <div key={e.id} className="rounded-xl bg-white dark:bg-neutral-800 p-3">
           <div className="flex items-start justify-between gap-2">
@@ -295,7 +308,12 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
               <p className="font-semibold">{e.title}</p>
               <p className="text-xs text-neutral-500">{new Date(e.startsAt).toLocaleString()}</p>
             </div>
-            {e.status === 'live' && <span className="rounded-full bg-danger-100 px-2 text-[11px] font-bold text-danger-700">● {t('classroom.events.live', 'Live now')}</span>}
+            {e.status === 'live' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-danger-100 px-2 text-[11px] font-bold text-danger-700">
+                <Icon emoji="●" size={8} />
+                {t('classroom.events.live', 'Live now')}
+              </span>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {e.status !== 'ended' && e.meetingUrl && (
@@ -305,8 +323,9 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
             )}
             {e.status !== 'ended' && !e.meetingUrl && e.hasMeetingUrl && !isMember && <span className="text-neutral-500">{t('classroom.events.membersOnlyLink', 'Enrol to get the meeting link')}</span>}
             {e.recordingUrl ? (
-              <button type="button" onClick={() => openLink(e.recordingUrl!)} className="rounded-lg border border-primary-600 px-3 py-1.5 font-semibold text-primary-700">
-                🎬 {t('classroom.events.recording', 'Watch / download recording')}
+              <button type="button" onClick={() => openLink(e.recordingUrl!)} className="inline-flex items-center gap-1.5 rounded-lg border border-primary-600 px-3 py-1.5 font-semibold text-primary-700">
+                <Icon emoji="🎬" size={12} />
+                {t('classroom.events.recording', 'Watch / download recording')}
               </button>
             ) : e.hasRecording && !isMember ? (
               <span className="text-neutral-500">{t('classroom.events.membersOnlyRecording', 'Recording available to members')}</span>
@@ -379,7 +398,9 @@ export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerI
         <ol className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-xl bg-white dark:bg-neutral-800">
           {d.entries.map((e) => (
             <li key={e.userId} className={`flex items-center gap-3 px-3 py-2 ${e.userId === viewerId ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}>
-              <span className="w-7 text-center text-sm font-bold text-neutral-400">{e.rank <= 3 ? ['🥇', '🥈', '🥉'][e.rank - 1] : `#${e.rank}`}</span>
+              <span className="flex w-7 items-center justify-center text-sm font-bold text-neutral-400">
+                {e.rank <= 3 ? <Icon emoji={['🥇', '🥈', '🥉'][e.rank - 1]!} size={16} /> : `#${e.rank}`}
+              </span>
               <span className="text-xl">{e.avatarEmoji}</span>
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.displayName}</span>
               <span className="text-sm font-bold text-primary-600">{period === 'all' ? e.points : `+${e.points}`}</span>

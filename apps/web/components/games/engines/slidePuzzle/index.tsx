@@ -7,6 +7,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const SIZE_MAP: Record<string, number> = { easy: 3, medium: 4, hard: 5 };
 
@@ -89,7 +90,11 @@ export default function SlidePuzzleGame({ onReady, onGameOver, onScore, difficul
     <div className="flex flex-col items-center gap-3 select-none">
       <div className="flex w-full max-w-xs items-center justify-between text-sm px-1">
         <span className="text-muted-foreground">Moves: <span className="text-foreground font-semibold">{moves}</span></span>
-        {done && <span className="text-emerald-400 font-bold">Solved! 🎉</span>}
+        {done && (
+          <span className="text-emerald-400 font-bold inline-flex items-center gap-1">
+            Solved! <Icon emoji="🎉" size={16} />
+          </span>
+        )}
       </div>
       <div
         className="grid gap-1.5 w-full max-w-xs"

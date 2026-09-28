@@ -11,6 +11,7 @@
 
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@/components/ui/Icon';
 
 // ---------------------------------------------------------------------------
 // Stat card
@@ -112,7 +113,7 @@ export function AdminCardSkeleton() {
 export function AdminEmptyState({ icon = '📭', title, hint }: { icon?: string; title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center py-16 text-center">
-      <span className="text-4xl">{icon}</span>
+      <Icon emoji={icon} size={36} className="text-4xl" />
       <h3 className="mt-3 text-base font-semibold text-neutral-900 dark:text-neutral-100">{title}</h3>
       {hint && <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{hint}</p>}
     </div>

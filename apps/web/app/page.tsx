@@ -9,6 +9,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { MaintenancePage } from "@/components/maintenance/MaintenancePage";
 import { loadManifest } from "@/lib/manifest";
+import { Icon } from "@/components/ui/Icon";
 
 export const metadata: Metadata = {
   title: "Zobia Social – Connect, Engage, Belong",
@@ -29,7 +30,7 @@ interface FeatureCardProps {
 function FeatureCard({ icon, title, description }: FeatureCardProps) {
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="mb-4 text-3xl">{icon}</div>
+      <div className="mb-4"><Icon emoji={icon} className="text-3xl" size={28} /></div>
       <h3 className="mb-2 text-lg font-semibold text-neutral-900 dark:text-neutral-50">
         {title}
       </h3>

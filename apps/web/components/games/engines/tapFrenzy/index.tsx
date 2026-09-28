@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const DURATIONS: Record<string, number> = { easy: 20, medium: 15, hard: 10 };
 
@@ -115,7 +116,7 @@ export default function TapFrenzyGame({ onReady, onGameOver, onScore, difficulty
           />
         ))}
         <div className="flex flex-col items-center gap-2 pointer-events-none">
-          <span className="text-6xl">{done ? "🏁" : "👆"}</span>
+          <Icon emoji={done ? "🏁" : "👆"} size={48} className="text-white" />
           <span className="text-white font-bold text-lg">
             {done ? "Time's up!" : started ? "KEEP TAPPING!" : "TAP TO START"}
           </span>

@@ -10,6 +10,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 type Phase = "aim" | "power" | "result" | "done";
 
@@ -173,7 +174,7 @@ export default function PenaltyKickGame({
         <span className="text-2xl font-bold text-emerald-400">{goals * 100}</span>
         <div className="flex gap-1">
           {results.map((r, i) => (
-            <span key={i} className="text-lg">{r.goal ? "✅" : "❌"}</span>
+            <span key={i} className="text-lg"><Icon emoji={r.goal ? "✅" : "❌"} size={18} /></span>
           ))}
           {Array.from({ length: 5 - results.length }, (_, i) => (
             <span key={`empty-${i}`} className="text-lg opacity-30">⚽</span>
@@ -182,7 +183,7 @@ export default function PenaltyKickGame({
       </div>
 
       {/* Stadium emoji */}
-      <div className="text-2xl text-center">🏟️</div>
+      <div className="text-2xl text-center flex items-center justify-center"><Icon emoji="🏟️" size={24} /></div>
 
       {/* Goal grid 3×3 */}
       <div className="relative w-full">
@@ -263,14 +264,14 @@ export default function PenaltyKickGame({
           onClick={handleTap}
           className="w-full bg-primary text-primary-foreground rounded-xl py-4 font-bold text-lg active:scale-95 transition-all duration-150"
         >
-          {phase === "aim" ? "🎯 AIM!" : "⚽ SHOOT!"}
+          {phase === "aim" ? <span className="inline-flex items-center justify-center gap-1.5"><Icon emoji="🎯" size={20} /> AIM!</span> : "⚽ SHOOT!"}
         </button>
       )}
 
       {/* Done */}
       {phase === "done" && (
         <div className="flex flex-col items-center gap-2">
-          <span className="text-4xl animate-bounce">{goals >= 3 ? "🎉" : "😔"}</span>
+          <span className="text-4xl animate-bounce flex items-center justify-center"><Icon emoji={goals >= 3 ? "🎉" : "😔"} size={36} /></span>
           <span className={`font-bold text-xl ${goals >= 3 ? "text-emerald-400" : "text-red-400"}`}>
             {goals} / 5 Goals
           </span>

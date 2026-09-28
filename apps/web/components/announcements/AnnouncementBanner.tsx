@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -110,7 +111,7 @@ export function AnnouncementBanner({
         aria-label="Dismiss banner"
         className="ml-3 shrink-0 rounded p-1 opacity-80 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-white/50"
       >
-        ✕
+        <Icon emoji="✕" />
       </button>
     </div>
   );

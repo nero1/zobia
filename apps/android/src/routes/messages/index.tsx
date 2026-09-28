@@ -10,6 +10,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { Icon } from '@/components/ui/Icon';
 import { useMarkMessagesSeen } from '@/lib/notifications/useHasNewSince';
 
 interface UserSuggestion {
@@ -65,7 +66,7 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
       <div className="w-full max-h-[80vh] flex flex-col rounded-t-2xl bg-white dark:bg-neutral-800">
         <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-4">
           <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('messages.dialog.title')}</h2>
-          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label="Close">✕</button>
+          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label="Close"><Icon emoji="✕" /></button>
         </div>
         <div className="px-4 py-3">
           <input
@@ -184,7 +185,7 @@ function MessagesPage() {
             to="/messages/groups"
             className="rounded-full border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
           >
-            {t('messages.groups')}
+            <Icon emoji="👥" size={12} /> {t('messages.groups')}
           </Link>
           <button
             onClick={() => setShowNewMessage(true)}

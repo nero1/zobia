@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
 
 async function fetchGames(): Promise<GameSummary[]> {
@@ -48,7 +49,7 @@ function LeaderboardsPage() {
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('games.leaderboards', 'Leaderboards')}</h1>
-        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300">← {t('games.title', 'Games')}</Link>
+        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.title', 'Games')}</Link>
       </div>
 
       <select

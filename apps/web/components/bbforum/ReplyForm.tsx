@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PostEditor, type QuotedPreview } from "@/components/bbforum/PostEditor";
+import { Icon } from "@/components/ui/Icon";
 
 export function ReplyForm({
   threadSlug,
@@ -64,7 +65,7 @@ export function ReplyForm({
   }
 
   if (locked) {
-    return <p className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50">🔒 This thread is locked — no new replies.</p>;
+    return <p className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50"><Icon emoji="🔒" size={14} className="inline align-[-2px]" /> This thread is locked — no new replies.</p>;
   }
 
   if (!expanded) {

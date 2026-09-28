@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const W = 360;
 const H = 420;
@@ -195,7 +196,12 @@ export default function BreakoutGame({ onReady, onGameOver, onScore, difficulty 
     <div className="flex flex-col items-center gap-2 select-none">
       <div className="flex gap-4 text-sm font-semibold text-foreground">
         <span>Score: {score}</span>
-        <span className="text-muted-foreground">Lives: {"❤️".repeat(lives)}</span>
+        <span className="text-muted-foreground flex items-center gap-0.5">
+          Lives:{" "}
+          {Array.from({ length: lives }, (_, i) => (
+            <Icon key={i} emoji="❤️" size={14} />
+          ))}
+        </span>
       </div>
       <canvas
         ref={canvasRef}

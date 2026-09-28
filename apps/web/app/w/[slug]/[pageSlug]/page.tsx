@@ -21,6 +21,7 @@ import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { generateStructuredData } from "@/lib/seo/metadata";
 import { formatShortDate } from "@/lib/format/date";
 import { WikiEditCta } from "@/components/wiki/WikiEditCta";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -74,7 +75,7 @@ export default async function PublicWikiPagePage({ params }: { params: Promise<{
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       <div className="mx-auto max-w-2xl px-4 py-8">
         <Link href={`/w/${wiki.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← {wiki.name}
+          <Icon emoji="←" className="inline h-3.5 w-3.5 align-[-1px]" /> {wiki.name}
         </Link>
 
         <div className="mt-4 flex items-start justify-between gap-4 flex-wrap">
@@ -86,7 +87,7 @@ export default async function PublicWikiPagePage({ params }: { params: Promise<{
           {page.last_editor_username && <span>Last edited by @{page.last_editor_username}</span>}
           <span>{formatShortDate(page.updated_at)}</span>
           <span>{page.revision_count} revision{page.revision_count === 1 ? "" : "s"}</span>
-          <span>👁 {page.view_count} views</span>
+          <span><Icon emoji="👁" className="inline h-3.5 w-3.5 align-[-2px]" /> {page.view_count} views</span>
         </div>
 
         <div className="mt-6">

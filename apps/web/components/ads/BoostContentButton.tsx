@@ -31,6 +31,7 @@ import { useTranslation } from "react-i18next";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import type { BoostableContentType } from "@/lib/ads/repo";
+import { Icon } from "@/components/ui/Icon";
 
 interface BoostableResponse {
   boostable: boolean;
@@ -163,7 +164,7 @@ export function BoostContentButton({
           "rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
         }
       >
-        🚀 {t("ads.boost.button", "Boost")}
+        <Icon emoji="🚀" size={14} className="inline align-[-2px]" /> {t("ads.boost.button", "Boost")}
       </button>
 
       {open && (
@@ -180,11 +181,11 @@ export function BoostContentButton({
               aria-label={t("ads.boost.close", "Close")}
               className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
             >
-              ✕
+              <Icon emoji="✕" />
             </button>
 
             <h2 className="mb-1 pr-6 text-base font-bold text-neutral-900 dark:text-neutral-50">
-              🚀 {t("ads.boost.modalTitle", "Boost this content")}
+              <Icon emoji="🚀" size={16} className="inline align-[-2px]" /> {t("ads.boost.modalTitle", "Boost this content")}
             </h2>
 
             {result ? (

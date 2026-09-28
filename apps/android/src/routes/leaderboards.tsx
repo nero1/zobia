@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 type Scope = 'global' | 'city' | 'guild' | 'season';
 type Track = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'gaming' | 'knowledge' | 'explorer';
@@ -59,6 +60,12 @@ function rankMedal(rank: number): string {
   return '';
 }
 
+function RankMedal({ rank }: { rank: number }) {
+  const emoji = rankMedal(rank);
+  if (!emoji) return null;
+  return <Icon emoji={emoji} size={14} />;
+}
+
 async function fetchLeaderboard(scope: Scope, track: Track, page: number): Promise<LeaderboardResponse> {
   const params = new URLSearchParams({ scope, track, page: String(page), limit: String(PAGE_SIZE) });
   const { data: apiData } = await apiClient.get<Record<string, unknown>>(`/leaderboards?${params.toString()}`);
@@ -92,7 +99,7 @@ function EntryRow({ entry, highlight, showPlan }: { entry: LeaderboardEntry; hig
       className={`flex items-center gap-3 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0 ${highlight ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}
     >
       <div className="flex w-10 shrink-0 items-center gap-0.5 text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
-        <span>{rankMedal(entry.rank)}</span>
+        <RankMedal rank={entry.rank} />
         <span>{entry.rank}</span>
       </div>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">
@@ -110,8 +117,8 @@ function EntryRow({ entry, highlight, showPlan }: { entry: LeaderboardEntry; hig
           </span>
         )}
         {rankChange !== 0 && (
-          <p className={`text-xs font-semibold ${rankChange > 0 ? 'text-success-600 dark:text-success-300' : 'text-danger-500'}`}>
-            {rankChange > 0 ? `▲${rankChange}` : `▼${Math.abs(rankChange)}`}
+          <p className={`inline-flex items-center gap-0.5 text-xs font-semibold ${rankChange > 0 ? 'text-success-600 dark:text-success-300' : 'text-danger-500'}`}>
+            <Icon emoji={rankChange > 0 ? '▲' : '▼'} size={10} />{Math.abs(rankChange)}
           </p>
         )}
       </div>
@@ -205,7 +212,7 @@ function LeaderboardsPage() {
               onClick={() => setPage((p) => p - 1)}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
-              {t('leaderboards.prevPage')}
+              <Icon emoji="←" size={12} /> {t('leaderboards.prevPage')}
             </button>
             <span className="tabular-nums text-xs">{t('leaderboards.page', { page, total: totalPages })}</span>
             <button

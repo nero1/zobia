@@ -28,6 +28,7 @@ import type { AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { showRewarded } from '@/lib/ads/admob';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 function capHintKey(userId: string): string {
   return `zobia_ad_reward_cap_date:${userId}`;
@@ -121,7 +122,12 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
           ? t('wallet.rewardedAd.loading', 'Loading ad…')
           : phase === 'claiming'
             ? t('wallet.rewardedAd.claiming', 'Claiming…')
-            : t('wallet.rewardedAd.cta', '🎬 Watch an ad, earn Credits')}
+            : (
+              <span className="inline-flex items-center justify-center gap-1.5">
+                <Icon emoji="🎬" size={16} />
+                {t('wallet.rewardedAd.cta', 'Watch an ad, earn Credits')}
+              </span>
+            )}
       </button>
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>

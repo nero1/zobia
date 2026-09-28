@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
+import { Icon } from "@/components/ui/Icon";
 
 interface WikiPageDetail {
   id: string;
@@ -65,8 +66,8 @@ export default function WikiPageViewPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      <Link href={`/wiki/${slug}`} className="mb-3 inline-block text-xs text-muted-foreground hover:text-foreground">
-        ← {t("wiki.page.backToWiki", "Back to wiki")}
+      <Link href={`/wiki/${slug}`} className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+        <Icon emoji="←" size={12} /> {t("wiki.page.backToWiki", "Back to wiki")}
       </Link>
 
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">

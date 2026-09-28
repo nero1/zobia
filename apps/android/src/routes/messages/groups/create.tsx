@@ -11,6 +11,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface Friend {
   userId: string;
@@ -176,7 +177,7 @@ function CreateGroupPage() {
                   <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{f.displayName}</p>
                   <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">@{f.username}</p>
                 </div>
-                {selected.has(f.userId) && <span className="font-bold text-amber-500">✓</span>}
+                {selected.has(f.userId) && <span className="font-bold text-amber-500"><Icon emoji="✓" /></span>}
               </button>
             ))}
           </div>

@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface ThemeTokens {
   bg: string;
@@ -79,8 +80,8 @@ export default function ProfileThemePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
       <div>
-        <Link href="/settings" className="text-sm text-neutral-500 hover:underline">← Settings</Link>
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">🎨 Profile Theme</h1>
+        <Link href="/settings" className="flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={12} /> Settings</Link>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50"><Icon emoji="🎨" size={18} className="inline mr-1" />Profile Theme</h1>
         <p className="mt-1 text-sm text-neutral-500">Pick a color skin for your profile. More themes are sold on the <Link href="/market/platform?category=cosmetics_themes" className="text-blue-600 hover:underline">Market</Link>.</p>
       </div>
 
@@ -106,7 +107,7 @@ export default function ProfileThemePage() {
               <div className="p-3">
                 <p className="truncate text-sm font-semibold" style={{ color: theme.config.text }}>{theme.name}</p>
                 {theme.availability === "purchasable" && theme.credits_cost && (
-                  <p className="mt-1 text-xs" style={{ color: theme.config.muted }}>🪙 {theme.credits_cost.toLocaleString()}</p>
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs" style={{ color: theme.config.muted }}><Icon emoji="🪙" size={12} /> {theme.credits_cost.toLocaleString()}</p>
                 )}
                 <button
                   onClick={() =>

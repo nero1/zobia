@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 type Move = "rock" | "paper" | "scissors";
 type Outcome = "win" | "lose" | "draw";
@@ -121,7 +122,11 @@ export default function RockPaperScissorsGame({ onReady, onGameOver, onScore, di
           {lastOutcome && (
             <span className={`font-bold text-sm mt-1 ${outcomeColor[lastOutcome]}`}>{outcomeLabel[lastOutcome]}</span>
           )}
-          {streak > 1 && <span className="text-amber-400 text-xs mt-0.5">🔥 ×{streak} streak!</span>}
+          {streak > 1 && (
+            <span className="text-amber-400 text-xs mt-0.5 inline-flex items-center gap-0.5">
+              <Icon emoji="🔥" size={14} /> ×{streak} streak!
+            </span>
+          )}
         </div>
         <div className="text-center">
           <div className={`text-6xl transition-all duration-300 ${animating ? "animate-spin" : ""}`} style={{ animationDuration: "0.4s", animationIterationCount: "2" }}>
@@ -145,8 +150,8 @@ export default function RockPaperScissorsGame({ onReady, onGameOver, onScore, di
 
       {done && (
         <div className="text-center space-y-1">
-          <p className={`text-xl font-bold ${wins > losses ? "text-emerald-400" : wins < losses ? "text-red-400" : "text-amber-400"}`}>
-            {wins > losses ? "You Won! 🏆" : wins < losses ? "AI Wins!" : "It's a Draw!"}
+          <p className={`text-xl font-bold inline-flex items-center gap-1 justify-center ${wins > losses ? "text-emerald-400" : wins < losses ? "text-red-400" : "text-amber-400"}`}>
+            {wins > losses ? (<>You Won! <Icon emoji="🏆" size={20} /></>) : wins < losses ? "AI Wins!" : "It's a Draw!"}
           </p>
           <p className="text-muted-foreground text-sm">Score: {wins * 100 + streak * 20}</p>
         </div>

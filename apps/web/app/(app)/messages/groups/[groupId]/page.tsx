@@ -13,6 +13,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { authFetch } from "@/lib/api/authFetch";
@@ -217,7 +218,7 @@ function MembersPanel({
       <div className="max-h-[80vh] w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-4 dark:border-neutral-800">
           <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50">{t("messages.groupChat.members.title")}</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("action.close")}>✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("action.close")}><Icon emoji="✕" size={16} /></button>
         </div>
         <div className="max-h-[60vh] overflow-y-auto">
           {members === null ? (
@@ -646,7 +647,7 @@ export default function GroupConversationPage() {
           <MessageSkeleton />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
-            <span className="text-4xl">👥</span>
+            <Icon emoji="👥" className="text-4xl" size={36} />
             <p className="mt-2 text-sm">{t("messages.groupChat.noMessagesYet")}</p>
           </div>
         ) : (

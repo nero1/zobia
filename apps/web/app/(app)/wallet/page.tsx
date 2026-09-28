@@ -22,6 +22,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import RewardedAdButton from "@/components/ads/RewardedAdButton";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,7 +143,7 @@ function BalanceBox({
     <div className="min-w-[9.5rem] flex-1 basis-[9.5rem] rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
       <div className="mt-2 flex items-center gap-1.5">
-        <span className="shrink-0 text-xl">{emoji}</span>
+        <span className="shrink-0"><Icon emoji={emoji} size={20} className="text-xl" /></span>
         <span
           className={`font-bold tabular-nums text-neutral-900 dark:text-neutral-50 ${balanceFontSizeClass(value)}`}
           title={formatted}
@@ -211,7 +212,7 @@ function RankBadgesSummary({ rank }: { rank: RankSummary }) {
             {"★".repeat(Math.min(rank.prestigeCount, 5))}
           </span>
         )}
-        <span className="text-sm text-neutral-500">🏆 {t("profile.stats.badgeCount", { count: rank.badgeCount })}</span>
+        <span className="inline-flex items-center gap-1 text-sm text-neutral-500"><Icon emoji="🏆" size={14} /> {t("profile.stats.badgeCount", { count: rank.badgeCount })}</span>
       </div>
       <span className="shrink-0 text-xs font-semibold text-blue-600 dark:text-blue-400">{t("wallet.viewFullStats")}</span>
     </Link>
@@ -240,7 +241,7 @@ function EarningsSection({ earnings, fiat }: { earnings: EarningsData; fiat: Fia
           </Link>
         </div>
         <div className="mt-2 flex items-center gap-2">
-          <span className="text-2xl">💰</span>
+          <Icon emoji="💰" size={24} className="text-2xl" />
           <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
             {formatKoboClient(earnings.totalMonthNgn * 100, fiat)}
           </span>
@@ -250,8 +251,8 @@ function EarningsSection({ earnings, fiat }: { earnings: EarningsData; fiat: Fia
         {/* Withdrawal threshold progress */}
         <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
           <div className="flex items-center justify-between text-xs">
-            <span className={`font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
-              {met ? "✅ Ready to withdraw" : `${formatKoboClient(remainingKobo, fiat)} more to unlock withdrawal`}
+            <span className={`inline-flex items-center gap-1 font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
+              {met ? <><Icon emoji="✅" size={12} /> Ready to withdraw</> : `${formatKoboClient(remainingKobo, fiat)} more to unlock withdrawal`}
             </span>
             <span className="tabular-nums text-neutral-400">
               {formatKoboClient(earnings.availableEarningsKobo, fiat)} / {formatKoboClient(earnings.minPayoutKobo, fiat)}
@@ -337,7 +338,7 @@ function CoinPacks({ packs, onPurchase, purchasing, currency, fiat }: CoinPacksP
               </span>
             )}
             <div className="flex items-center gap-2">
-              <span className="text-2xl">🪙</span>
+              <Icon emoji="🪙" size={24} className="text-2xl" />
               <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
                 {pack.coins.toLocaleString()}
               </span>
@@ -425,13 +426,13 @@ function TransactionHistory({
             onClick={() => setTab("coins")}
             className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "coins" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
           >
-            🪙 {currency.softPlural}
+            <Icon emoji="🪙" size={12} className="inline mr-1" />{currency.softPlural}
           </button>
           <button
             onClick={() => setTab("stars")}
             className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${tab === "stars" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-700 dark:text-neutral-50" : "text-neutral-500"}`}
           >
-            ⭐ {currency.premiumPlural}
+            <Icon emoji="⭐" size={12} className="inline mr-1" />{currency.premiumPlural}
           </button>
         </div>
       </div>
@@ -455,8 +456,8 @@ function TransactionHistory({
                   })}
                 </p>
               </div>
-              <span className={`ml-3 shrink-0 font-bold tabular-nums ${tx.amount >= 0 ? "text-teal-600" : "text-red-500"}`}>
-                {tx.amount >= 0 ? "+" : ""}{tx.amount.toLocaleString()} {icon}
+              <span className={`ml-3 inline-flex shrink-0 items-center gap-1 font-bold tabular-nums ${tx.amount >= 0 ? "text-teal-600" : "text-red-500"}`}>
+                {tx.amount >= 0 ? "+" : ""}{tx.amount.toLocaleString()} <Icon emoji={icon} size={12} />
               </span>
             </div>
           ))}
@@ -633,7 +634,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
       <div className="flex items-center justify-between border-b border-amber-200 px-5 py-4 dark:border-amber-800">
         <h2 className="text-sm font-semibold text-amber-900 dark:text-amber-100">Send {currency.softPlural}</h2>
         <button onClick={onClose} className="text-sm text-amber-600 hover:text-amber-800 dark:text-amber-400">
-          ✕
+          <Icon emoji="✕" size={14} />
         </button>
       </div>
       <div className="p-5 space-y-4">
@@ -668,9 +669,9 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
 
         {preview && (
           <div className="rounded-lg bg-white px-4 py-3 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300 space-y-0.5">
-            <div className="flex justify-between"><span>Platform fee (5%)</span><span>−{preview.fee} 🪙</span></div>
+            <div className="flex justify-between"><span>Platform fee (5%)</span><span className="inline-flex items-center gap-0.5">−{preview.fee} <Icon emoji="🪙" size={12} /></span></div>
             <div className="flex justify-between font-semibold text-neutral-900 dark:text-neutral-100">
-              <span>Recipient receives</span><span>{preview.net} 🪙</span>
+              <span>Recipient receives</span><span className="inline-flex items-center gap-0.5">{preview.net} <Icon emoji="🪙" size={12} /></span>
             </div>
           </div>
         )}

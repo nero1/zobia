@@ -27,6 +27,7 @@ import { listBlogCategories } from "@/lib/blogs/repo";
 import { listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
 import { BlogPostLayout } from "@/components/blogs/layouts/BlogPostLayout";
 import { db } from "@/lib/db";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -126,7 +127,7 @@ export default async function PublicBlogPostPage({
         )}
         <BlogPostLayout blogSlug={blog.slug} layoutVariant={layoutVariant} tokens={theme?.config ?? { bg: "", card: "", accent: "", text: "", muted: "" }} featuredImageUrl={post.featured_image_url} categories={sidebarCategories} popular={sidebarPopular}>
         <Link href={`/b/${blog.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← {blog.title}
+          <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> {blog.title}
         </Link>
 
         {post.featured_image_url && (
@@ -148,7 +149,7 @@ export default async function PublicBlogPostPage({
             {/* This page renders server-side without an i18n context (see the
                rest of this file's hardcoded English strings) — kept consistent
                rather than introducing a one-off server-i18n path. */}
-            🎁 Reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who comment or share!
+            <Icon emoji="🎁" className="inline-block align-text-bottom" size={16} /> Reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who comment or share!
           </div>
         )}
 
@@ -185,7 +186,7 @@ export default async function PublicBlogPostPage({
           <>
             <div className="mt-6 flex items-center gap-2">
               <PostActions blogSlug={blog.slug} postSlug={post.slug} postId={post.id} initialLikeCount={post.like_count} />
-              <span className="text-xs text-muted-foreground">👁 {post.view_count} views</span>
+              <span className="text-xs text-muted-foreground inline-flex items-center gap-1"><Icon emoji="👁" size={14} /> {post.view_count} views</span>
             </div>
             <CommentsSection blogSlug={blog.slug} postSlug={post.slug} commentsEnabled={blog.comments_enabled} />
           </>

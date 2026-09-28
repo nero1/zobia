@@ -21,6 +21,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 import type { GameSummary, GameChallengeSummary } from '@zobia/shared/types';
 
 interface ChallengesPage {
@@ -75,7 +76,7 @@ function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
   const { label, urgent } = useCountdown(expiresAt);
   return (
     <span className={`text-xs font-medium ${urgent ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500'}`}>
-      ⏳ {t('games.challenges.expiresIn', 'Expires in {{time}}', { time: label })}
+<Icon emoji="⏳" size={12} /> {t('games.challenges.expiresIn', 'Expires in {{time}}', { time: label })}
     </span>
   );
 }
@@ -87,7 +88,7 @@ function WagerBadge({ amount }: { amount: number }) {
   if (amount <= 0) return null;
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-gold-50 dark:bg-gold-900/30 px-2 py-0.5 text-xs font-bold text-gold-700 dark:text-gold-300">
-      🪙 {amount.toLocaleString()} {t('games.credits', 'credits')}
+<Icon emoji="🪙" size={14} /> {amount.toLocaleString()} {t('games.credits', 'credits')}
     </span>
   );
 }
@@ -174,7 +175,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
         />
         {opponentSelected && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-success-600 dark:text-success-300">
-            ✓ {opponentSelected.displayName}
+<Icon emoji="✓" size={12} /> {opponentSelected.displayName}
           </span>
         )}
         {!opponentSelected && opponentSuggestions.length > 0 && (
@@ -336,7 +337,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
             onClick={() => remove.mutate()}
             className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-300 disabled:opacity-50"
           >
-            🗑 {t('games.challenges.delete', 'Delete')}
+<Icon emoji="🗑" size={14} /> {t('games.challenges.delete', 'Delete')}
           </button>
         )}
         {canArchive && (
@@ -346,7 +347,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
             onClick={() => archive.mutate()}
             className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400 disabled:opacity-50"
           >
-            🗄 {t('games.challenges.archive', 'Archive')}
+<Icon emoji="🗄" size={14} /> {t('games.challenges.archive', 'Archive')}
           </button>
         )}
       </div>
@@ -378,7 +379,7 @@ function ChallengesPage() {
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('games.challenges', 'Challenges')}</h1>
-        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300">← {t('games.title', 'Games')}</Link>
+        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.title', 'Games')}</Link>
       </div>
 
       <NewChallengeForm games={games ?? []} onCreated={() => undefined} />

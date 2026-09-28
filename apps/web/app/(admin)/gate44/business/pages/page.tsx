@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface AdminBusinessPage {
   id: string;
@@ -110,7 +111,7 @@ export default function AdminBusinessPagesPage() {
           <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Business Pages</h1>
           <p className="mt-0.5 text-sm text-neutral-500">{total} pages total</p>
         </div>
-        <Link href="/gate44/business" className="text-sm text-neutral-500 hover:underline">← Business Accounts</Link>
+        <Link href="/gate44/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={14} /> Business Accounts</Link>
       </div>
 
       {toast && (
@@ -165,7 +166,7 @@ export default function AdminBusinessPagesPage() {
                       <p className="text-xs text-neutral-400">@{p.owner_username}</p>
                     </td>
                     <td className="px-4 py-3 text-xs text-neutral-500">
-                      👁 {p.view_count.toLocaleString()} · 📝 {p.post_count.toLocaleString()}
+                      <Icon emoji="👁" size={12} className="inline-block align-[-1px]" /> {p.view_count.toLocaleString()} · <Icon emoji="📝" size={12} className="inline-block align-[-1px]" /> {p.post_count.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 text-xs text-neutral-500">{fmtDate(p.created_at)}</td>
                     <td className="px-4 py-3">
@@ -221,8 +222,8 @@ export default function AdminBusinessPagesPage() {
         <div className="flex items-center justify-between">
           <p className="text-xs text-neutral-500">Page {page} of {totalPages} · {total} pages</p>
           <div className="flex gap-2">
-            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-neutral-700">← Prev</button>
-            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-neutral-700">Next →</button>
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-neutral-700"><Icon emoji="←" size={14} /> Prev</button>
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-medium disabled:opacity-40 dark:border-neutral-700">Next <Icon emoji="→" size={14} /></button>
           </div>
         </div>
       )}

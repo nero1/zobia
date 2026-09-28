@@ -13,6 +13,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 const CURRENCIES = ["JAGA", "BNB", "SOL"] as const;
 type Currency = (typeof CURRENCIES)[number];
@@ -196,8 +197,8 @@ export default function AdminPaymentsPage() {
           <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Crypto price feed</h2>
           <p className="mt-1 text-xs text-neutral-500">
             Refresh interval: {crypto.refreshMinutes} minutes (lazy — refreshed on next read once stale, not on a fixed
-            schedule). Receiving addresses configured: BSC {crypto.receivingAddressesConfigured.bsc ? "✅" : "❌ set CRYPTO_RECEIVING_ADDRESS_BSC"},
-            Solana {crypto.receivingAddressesConfigured.solana ? "✅" : "❌ set CRYPTO_RECEIVING_ADDRESS_SOLANA"}.
+            schedule). Receiving addresses configured: BSC {crypto.receivingAddressesConfigured.bsc ? <Icon emoji="✅" size={12} className="inline-block align-[-1px]" /> : <><Icon emoji="❌" size={12} className="inline-block align-[-1px]" /> set CRYPTO_RECEIVING_ADDRESS_BSC</>},
+            Solana {crypto.receivingAddressesConfigured.solana ? <Icon emoji="✅" size={12} className="inline-block align-[-1px]" /> : <><Icon emoji="❌" size={12} className="inline-block align-[-1px]" /> set CRYPTO_RECEIVING_ADDRESS_SOLANA</>}.
           </p>
           <div className="mt-3 space-y-2">
             {crypto.prices.map((p) => (

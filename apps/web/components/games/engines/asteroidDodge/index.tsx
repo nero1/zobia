@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const W = 320;
 const H = 460;
@@ -239,7 +240,7 @@ export default function AsteroidDodge({
           onPointerUp={() => { leftRef.current = false; }}
           onPointerLeave={() => { leftRef.current = false; }}
         >
-          ◀
+          <Icon emoji="◀" size={20} />
         </button>
         <button
           type="button"
@@ -248,7 +249,7 @@ export default function AsteroidDodge({
           onPointerUp={() => { rightRef.current = false; }}
           onPointerLeave={() => { rightRef.current = false; }}
         >
-          ▶
+          <Icon emoji="▶" size={20} />
         </button>
       </div>
     </div>

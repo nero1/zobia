@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -478,7 +479,7 @@ function AdminSponsoredQuestsPage() {
                   <AdminBadge label={t('admin.sponsoredQuests.inDailyDecks', 'In daily decks')} color="blue" />
                 )}
                 {q.flag_status === 'flagged' && (
-                  <AdminBadge label={t('admin.sponsoredQuests.flaggedBadge', '🚩 Flagged: {{category}}', { category: q.flag_category })} color="red" />
+                  <AdminBadge label={t('admin.sponsoredQuests.flaggedBadge', 'Flagged: {{category}}', { category: q.flag_category })} color="red" />
                 )}
               </div>
               <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
@@ -487,14 +488,14 @@ function AdminSponsoredQuestsPage() {
                 <p className="mt-1 text-xs text-danger-600 dark:text-danger-300">{t('admin.sponsoredQuests.rejectionReason', 'Rejection reason')}: {q.moderation_reason}</p>
               )}
               {q.pause_reason && (
-                <p className={`mt-1 text-xs ${q.auto_paused ? 'text-amber-600 dark:text-amber-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
-                  {q.auto_paused ? '⚠️ ' : ''}{t('admin.sponsoredQuests.pausedNote', 'Paused')}: {q.pause_reason}
+                <p className={`mt-1 flex items-center gap-1 text-xs ${q.auto_paused ? 'text-amber-600 dark:text-amber-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
+                  {q.auto_paused && <Icon emoji="⚠️" size={12} />}{t('admin.sponsoredQuests.pausedNote', 'Paused')}: {q.pause_reason}
                 </p>
               )}
 
               <div className="mt-2 flex items-center justify-between">
-                <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                  📋 {q.application_count}/{q.max_applications} · ✅ {q.approved_count} · {fmtDate(q.deadline)}
+                <div className="flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400">
+                  <Icon emoji="📋" size={12} /> {q.application_count}/{q.max_applications} · <Icon emoji="✅" size={12} /> {q.approved_count} · {fmtDate(q.deadline)}
                 </div>
                 <div className="text-right">
                   <p className="font-bold text-neutral-900 dark:text-neutral-100">{fmtNumber(q.reward_coins)} {currency.softPlural}</p>
@@ -578,7 +579,7 @@ function AdminSponsoredQuestsPage() {
                     onClick={() => { setFlagTarget(q); setFlagCategory('spam'); setFlagReason(''); }}
                     className="rounded-lg bg-danger-50 dark:bg-danger-900/30 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300"
                   >
-                    {t('admin.sponsoredQuests.flag', '🚩 Flag')}
+                    <Icon emoji="🚩" size={12} /> {t('admin.sponsoredQuests.flag', 'Flag')}
                   </button>
                 )}
                 <button type="button" onClick={() => setDeleteTarget(q)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
@@ -636,7 +637,7 @@ function AdminSponsoredQuestsPage() {
         <AdminConfirmDialog
           title={t('admin.sponsoredQuests.flagTitle', 'Flag Sponsored Quest')}
           description={t('admin.sponsoredQuests.flagDescription', 'Flagging stops the quest from running until cleared.')}
-          confirmLabel={t('admin.sponsoredQuests.flag', '🚩 Flag')}
+          confirmLabel={t('admin.sponsoredQuests.flag', 'Flag')}
           cancelLabel={t('common.cancel')}
           danger
           pending={flagMutation.isPending}

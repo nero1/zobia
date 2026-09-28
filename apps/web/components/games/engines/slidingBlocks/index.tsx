@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface Block {
   id: string;
@@ -440,7 +441,7 @@ export default function SlidingBlocksGame({
               onClick={() => moveSelected(-1, 0)}
               className="w-10 h-8 bg-card border border-border rounded-lg text-foreground hover:bg-accent active:scale-95 transition-all duration-150 flex items-center justify-center text-sm"
             >
-              ▲
+              <Icon emoji="▲" size={16} />
             </button>
           )}
           <div className="flex gap-1">
@@ -450,7 +451,7 @@ export default function SlidingBlocksGame({
                 onClick={() => moveSelected(0, -1)}
                 className="w-10 h-8 bg-card border border-border rounded-lg text-foreground hover:bg-accent active:scale-95 transition-all duration-150 flex items-center justify-center text-sm"
               >
-                ◀
+                <Icon emoji="◀" size={16} />
               </button>
             )}
             <div className="w-10 h-8 flex items-center justify-center">
@@ -464,7 +465,7 @@ export default function SlidingBlocksGame({
                 onClick={() => moveSelected(0, 1)}
                 className="w-10 h-8 bg-card border border-border rounded-lg text-foreground hover:bg-accent active:scale-95 transition-all duration-150 flex items-center justify-center text-sm"
               >
-                ▶
+                <Icon emoji="▶" size={16} />
               </button>
             )}
           </div>
@@ -474,7 +475,7 @@ export default function SlidingBlocksGame({
               onClick={() => moveSelected(1, 0)}
               className="w-10 h-8 bg-card border border-border rounded-lg text-foreground hover:bg-accent active:scale-95 transition-all duration-150 flex items-center justify-center text-sm"
             >
-              ▼
+              <Icon emoji="▼" size={16} />
             </button>
           )}
         </div>

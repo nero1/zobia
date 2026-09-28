@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const SUITS = ["♠","♥","♦","♣"];
 const VALUES = ["A","2","3","4","5","6","7","8","9","10","J","Q","K"];
@@ -163,7 +164,7 @@ export default function BlackjackGame({ onReady, onGameOver, onScore, difficulty
     <div className="flex flex-col items-center gap-4 select-none w-full max-w-sm mx-auto">
       {/* Header */}
       <div className="flex w-full items-center justify-between text-sm px-1">
-        <span className="text-amber-400 font-bold">🪙 {chips}</span>
+        <span className="text-amber-400 font-bold flex items-center gap-1"><Icon emoji="🪙" size={16} /> {chips}</span>
         {bet > 0 && <span className="text-muted-foreground">Bet: {bet}</span>}
         <button type="button" onClick={() => onGameOver(chipsRef.current)} className="text-xs text-muted-foreground hover:text-foreground underline">Cash out</button>
       </div>

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,7 +82,7 @@ function ComposeModal({ allowance, onSend, onClose, sending }: ComposeModalProps
           aria-label="Close"
           className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          ✕
+          <Icon emoji="✕" className="h-4 w-4" />
         </button>
 
         <div className="p-6 pt-5">
@@ -205,7 +206,7 @@ function AccessDenied({ reason }: { reason?: string }) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center py-16 text-center">
-      <span className="text-5xl">🔒</span>
+      <Icon emoji="🔒" className="h-12 w-12 text-5xl" />
       <h2 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">
         {t("creator.broadcasts.accessDeniedTitle")}
       </h2>

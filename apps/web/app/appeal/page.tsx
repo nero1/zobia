@@ -18,6 +18,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { apiClient } from "@/lib/api/client";
 import { formatShortDateTime } from "@/lib/format/date";
+import { Icon } from "@/components/ui/Icon";
 
 interface TokenInfo {
   valid: boolean;
@@ -100,7 +101,7 @@ function AppealContent() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-neutral-50 p-6 dark:bg-neutral-950">
         <div className="w-full max-w-sm space-y-4 rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-elevated dark:border-neutral-800 dark:bg-neutral-900">
-          <div className="text-4xl">✅</div>
+          <div className="text-4xl"><Icon emoji="✅" className="inline-block" size={40} /></div>
           <h1 className="text-xl font-black text-neutral-900 dark:text-white">{t("appeal.success.title")}</h1>
           <p className="text-sm text-neutral-600 dark:text-neutral-400">
             {t("appeal.success.body", { email: contactEmail || tokenInfo.email || "" })}

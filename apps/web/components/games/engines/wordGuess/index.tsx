@@ -8,6 +8,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const WORD_POOL = [
   "APPLE","BRAIN","CHAIR","DANCE","EARTH","FLAME","GRACE","HEART","IRONY","JOKER",
@@ -186,7 +187,7 @@ export default function WordGuessGame({
       <div className="flex w-full items-center justify-between text-sm px-1">
         <span className="text-muted-foreground">Guesses: {guesses.length}/{MAX_GUESSES}</span>
         {hint && <span className="text-amber-400 text-xs">Hint: starts with <strong>{hint}</strong></span>}
-        {done && won && <span className="text-emerald-400 font-bold">🎉 You got it!</span>}
+        {done && won && <span className="text-emerald-400 font-bold inline-flex items-center gap-1"><Icon emoji="🎉" size={16} /> You got it!</span>}
         {done && !won && <span className="text-red-400 font-bold">Word: {target}</span>}
       </div>
 
@@ -232,7 +233,7 @@ export default function WordGuessGame({
                     "border-border bg-card text-foreground hover:bg-accent"
                   }`}
                 >
-                  {key}
+                  {isSpecial ? <Icon emoji={key} size={14} /> : key}
                 </button>
               );
             })}

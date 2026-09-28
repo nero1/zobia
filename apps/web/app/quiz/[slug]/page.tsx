@@ -21,6 +21,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { QuizTakeCard } from "@/components/quizzes/QuizTakeCard";
 import { QuizShareButton } from "@/components/quizzes/QuizShareButton";
 import { FundTreasuryModal } from "@/components/polls/FundTreasuryModal";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -75,12 +76,12 @@ export default async function PublicQuizPage({ params }: { params: Promise<{ slu
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       <div className="mx-auto max-w-2xl px-4 py-8">
         <Link href="/quizzes" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← Quizzes
+          <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Quizzes
         </Link>
 
         <header className="mt-4">
           <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            <span>📝 Quiz</span>
+            <span><Icon emoji="📝" className="inline h-3.5 w-3.5 align-text-bottom" /> Quiz</span>
             {quiz.status === "closed" && <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-neutral-300">Closed</span>}
           </div>
           <h1 className="mt-2 text-3xl font-bold text-foreground">{quiz.title}</h1>
@@ -101,7 +102,7 @@ export default async function PublicQuizPage({ params }: { params: Promise<{ slu
 
         {treasuryActive && treasury && (
           <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
-            🎁 Powered by a reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who PASS!
+            <Icon emoji="🎁" className="inline-block align-text-bottom" size={16} /> Powered by a reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who PASS!
           </div>
         )}
 
@@ -111,7 +112,7 @@ export default async function PublicQuizPage({ params }: { params: Promise<{ slu
 
         <div className="mt-4 flex items-center justify-between gap-3">
           <div className="text-sm text-muted-foreground">
-            {quiz.attemptCount} {quiz.attemptCount === 1 ? "attempt" : "attempts"} · 👁 {quiz.viewCount} views
+            {quiz.attemptCount} {quiz.attemptCount === 1 ? "attempt" : "attempts"} · <Icon emoji="👁" className="inline h-3.5 w-3.5 align-text-bottom" /> {quiz.viewCount} views
           </div>
           <QuizShareButton slug={quiz.slug} />
         </div>

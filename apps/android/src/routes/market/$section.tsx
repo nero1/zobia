@@ -10,15 +10,16 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { MarketItemCard, type MarketItem, type MarketCategory } from '@/components/market/MarketItemCard';
+import { Icon } from '@/components/ui/Icon';
 
 type MarketSort = 'price' | 'popularity' | 'rating';
 const PAGE_SIZE = 24;
 
-const SECTION_TITLE: Record<string, string> = {
-  sponsored: '🚀 Sponsored',
-  featured: '⭐ Featured',
-  trending: '🔥 Trending from Creators',
-  platform: '🛒 Platform Store',
+const SECTION_TITLE: Record<string, { emoji: string; label: string }> = {
+  sponsored: { emoji: '🚀', label: 'Sponsored' },
+  featured: { emoji: '⭐', label: 'Featured' },
+  trending: { emoji: '🔥', label: 'Trending from Creators' },
+  platform: { emoji: '🛒', label: 'Platform Store' },
 };
 
 const CATEGORIES: { value: MarketCategory | 'all'; label: string }[] = [
@@ -52,17 +53,20 @@ function MarketSectionPage() {
   });
 
   const items = data?.pages.flat() ?? [];
+  const sectionTitle = SECTION_TITLE[section];
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/market" className="text-xs text-neutral-500 dark:text-neutral-400">← Market</Link>
-          <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{SECTION_TITLE[section] ?? section}</h1>
+          <Link to="/market" className="text-xs text-neutral-500 dark:text-neutral-400 inline-flex items-center gap-1"><Icon emoji="←" size={11} /> Market</Link>
+          <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-1.5">
+            {sectionTitle ? <><Icon emoji={sectionTitle.emoji} size={16} /> {sectionTitle.label}</> : section}
+          </h1>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
-          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>☰</button>
-          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>⊞</button>
+          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}><Icon emoji="☰" size={12} /></button>
+          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}><Icon emoji="⊞" size={12} /></button>
         </div>
       </div>
 

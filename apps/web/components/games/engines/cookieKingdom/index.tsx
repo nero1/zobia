@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface Upgrade { id: string; name: string; emoji: string; cps: number; baseCost: number; count: number }
 interface FloatText { id: number; x: number; y: number; val: string }
@@ -105,7 +106,7 @@ export default function CookieKingdomGame({ onReady, onGameOver, onScore, diffic
     <div className="flex flex-col gap-3 w-full max-w-sm mx-auto select-none">
       {/* Stats */}
       <div className="text-center">
-        <div className="text-3xl font-black text-amber-400">{fmt(Math.floor(cookies))} <span className="text-lg">🍪</span></div>
+        <div className="text-3xl font-black text-amber-400 inline-flex items-center gap-1.5">{fmt(Math.floor(cookies))} <Icon emoji="🍪" size={20} /></div>
         <div className="text-xs text-muted-foreground">{cps.toFixed(1)} per second · {fmt(totalRef.current)} total</div>
       </div>
 
@@ -146,11 +147,11 @@ export default function CookieKingdomGame({ onReady, onGameOver, onScore, diffic
               className={`w-full flex items-center justify-between rounded-xl px-4 py-3 border transition-colors ${canAfford ? "border-amber-500/40 bg-amber-950/30 hover:bg-amber-950/50" : "border-neutral-700 bg-card opacity-50"}`}
             >
               <span className="flex items-center gap-2 text-sm">
-                <span className="text-xl">{up.emoji}</span>
+                <Icon emoji={up.emoji} size={20} className="text-xl" />
                 <span className="font-medium text-foreground">{up.name}</span>
                 <span className="text-xs text-muted-foreground">×{up.count}</span>
               </span>
-              <span className="text-xs font-bold text-amber-400">{fmt(c)} 🍪</span>
+              <span className="text-xs font-bold text-amber-400 inline-flex items-center gap-1">{fmt(c)} <Icon emoji="🍪" size={14} /></span>
             </button>
           );
         })}

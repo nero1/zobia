@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,14 +134,14 @@ function CurriculumBuilder({
                   disabled={i === 0}
                   className="text-xs text-neutral-400 disabled:opacity-20 hover:text-neutral-600"
                   aria-label="Move module up"
-                >▲</button>
+                ><Icon emoji="▲" size={12} /></button>
                 <button
                   type="button"
                   onClick={() => moveDown(i)}
                   disabled={i === modules.length - 1}
                   className="text-xs text-neutral-400 disabled:opacity-20 hover:text-neutral-600"
                   aria-label="Move module down"
-                >▼</button>
+                ><Icon emoji="▼" size={12} /></button>
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
@@ -155,7 +156,7 @@ function CurriculumBuilder({
                 onClick={() => removeModule(m.id)}
                 className="text-xs text-red-500 hover:text-red-700"
                 aria-label="Remove module"
-              >✕</button>
+              ><Icon emoji="✕" size={12} /></button>
             </div>
           ))}
         </div>
@@ -339,7 +340,7 @@ export default function CreateRoomPage() {
           onClick={() => router.back()}
           className="text-sm text-blue-600 hover:underline dark:text-blue-400"
         >
-          ← Back
+          <Icon emoji="←" size={12} className="inline mr-1" />Back
         </button>
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Create Room</h1>
       </div>
@@ -349,7 +350,7 @@ export default function CreateRoomPage() {
         {(["type", "details", "preview"] as const).map((s, i) => (
           <span key={s} className={`capitalize ${step === s ? "text-blue-600 dark:text-blue-400" : ""}`}>
             {i + 1}. {s === "type" ? "Room Type" : s === "details" ? "Details" : "Preview"}
-            {i < 2 && <span className="mx-2">→</span>}
+            {i < 2 && <Icon emoji="→" size={12} className="mx-2 inline" />}
           </span>
         ))}
       </div>
@@ -388,13 +389,13 @@ export default function CreateRoomPage() {
                         : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-800"
                     }`}
                   >
-                    <span className="text-3xl">{opt.emoji}</span>
+                    <Icon emoji={opt.emoji} size={28} className="text-3xl" />
                     <div className="flex-1">
                       <p className="font-semibold text-neutral-900 dark:text-neutral-100">{opt.label}</p>
                       <p className="mt-0.5 text-xs text-neutral-500">{opt.description}</p>
                     </div>
                     {roomType === opt.type && (
-                      <span className="text-sm text-blue-600">✓</span>
+                      <Icon emoji="✓" size={14} className="text-blue-600" />
                     )}
                   </button>
                 ))}
@@ -567,7 +568,7 @@ export default function CreateRoomPage() {
           {/* ClassRoom: full curriculum builder */}
           {roomType === "classroom" && (
             <div className="space-y-5 rounded-2xl border-2 border-teal-200 bg-teal-50/50 p-5 dark:border-teal-800 dark:bg-teal-950/20">
-              <h3 className="text-sm font-bold text-teal-800 dark:text-teal-200">📚 Curriculum Builder</h3>
+              <h3 className="text-sm font-bold text-teal-800 dark:text-teal-200"><Icon emoji="📚" size={14} className="inline mr-1" />Curriculum Builder</h3>
 
               <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-neutral-500" htmlFor="curriculum-title">
@@ -654,7 +655,7 @@ export default function CreateRoomPage() {
               onClick={() => setStep("type")}
               className="flex-1 rounded-xl border border-neutral-300 py-3 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
             >
-              ← Back
+              <Icon emoji="←" size={12} className="inline mr-1" />Back
             </button>
             <button
               type="button"
@@ -694,13 +695,13 @@ export default function CreateRoomPage() {
 
             {roomType === "vip" && priceCoin && (
               <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
-                👑 {parseInt(priceCoin, 10).toLocaleString()} {currency.softPlural.toLowerCase()}/month
+                <Icon emoji="👑" size={12} className="inline mr-1" />{parseInt(priceCoin, 10).toLocaleString()} {currency.softPlural.toLowerCase()}/month
               </p>
             )}
 
             {roomType === "drop" && (
               <p className="text-sm font-semibold text-orange-700 dark:text-orange-300">
-                ⚡ {entryFeeCoin ? `${parseInt(entryFeeCoin, 10).toLocaleString()} ${currency.softPlural.toLowerCase()} entry` : "Free entry"} · {dropDurationHours}h duration
+                <Icon emoji="⚡" size={12} className="inline mr-1" />{entryFeeCoin ? `${parseInt(entryFeeCoin, 10).toLocaleString()} ${currency.softPlural.toLowerCase()} entry` : "Free entry"} · {dropDurationHours}h duration
               </p>
             )}
 
@@ -708,7 +709,7 @@ export default function CreateRoomPage() {
               <div className="mt-3 space-y-2">
                 {curriculumTitle && (
                   <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">
-                    📚 {curriculumTitle}
+                    <Icon emoji="📚" size={12} className="inline mr-1" />{curriculumTitle}
                   </p>
                 )}
                 {modules.length > 0 && (
@@ -728,7 +729,7 @@ export default function CreateRoomPage() {
                   </p>
                 )}
                 {hasGraduation && (
-                  <p className="text-xs font-semibold text-teal-600">🎓 Graduation ceremony included</p>
+                  <p className="text-xs font-semibold text-teal-600"><Icon emoji="🎓" size={12} className="inline mr-1" />Graduation ceremony included</p>
                 )}
                 {enrolmentFee && (
                   <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">
@@ -747,7 +748,7 @@ export default function CreateRoomPage() {
               onClick={() => setStep("details")}
               className="flex-1 rounded-xl border border-neutral-300 py-3 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
             >
-              ← Edit
+              <Icon emoji="←" size={12} className="inline mr-1" />Edit
             </button>
             <button
               type="button"
@@ -755,7 +756,7 @@ export default function CreateRoomPage() {
               disabled={submitting}
               className="flex-1 rounded-xl bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
-              {submitting ? "Creating…" : "🚀 Create Room"}
+              {submitting ? "Creating…" : <><Icon emoji="🚀" size={14} className="inline mr-1" />Create Room</>}
             </button>
           </div>
           <ScriptTags />

@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 
 type SetupStep = "generate" | "verify" | "done";
 
@@ -91,7 +92,7 @@ export default function Setup2FAPage() {
       <div className="w-full max-w-md">
         {/* Header */}
         <div className="mb-8 text-center">
-          <span className="text-2xl">🔐</span>
+          <Icon emoji="🔐" className="h-6 w-6" />
           <h1 className="mt-2 text-xl font-bold text-neutral-900 dark:text-neutral-50">
             Set Up Two-Factor Authentication
           </h1>
@@ -156,7 +157,7 @@ export default function Setup2FAPage() {
                 disabled={!secret}
                 onClick={() => setStep("verify")}
               >
-                I&apos;ve added the key → Verify
+                I&apos;ve added the key <Icon emoji="→" className="inline h-4 w-4 align-[-2px]" /> Verify
               </Button>
             </div>
           )}
@@ -199,14 +200,14 @@ export default function Setup2FAPage() {
                 }}
                 className="w-full text-center text-sm text-neutral-500 hover:text-neutral-700"
               >
-                ← Back
+                <Icon emoji="←" className="inline h-4 w-4 align-[-2px]" /> Back
               </button>
             </form>
           )}
 
           {step === "done" && (
             <div className="space-y-4 text-center">
-              <span className="text-4xl">✅</span>
+              <Icon emoji="✅" className="mx-auto h-10 w-10 text-4xl" />
               <p className="font-semibold text-neutral-900 dark:text-neutral-50">
                 2FA activated successfully!
               </p>

@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@/components/ui/Icon';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
 import { VideoEmbed } from './VideoEmbed';
 import { type Tweet, timeAgo } from './types';
@@ -36,7 +37,7 @@ export function TweetCard({
     <article className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
       {tweet.retweetedByUsername && (
         <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-          <span aria-hidden="true">🔁</span>
+          <Icon emoji="🔁" />
           {t('tweets.retweetedBy', { username: tweet.retweetedByUsername })}
         </div>
       )}
@@ -45,7 +46,7 @@ export function TweetCard({
       )}
       {tweet.isPinned && (
         <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
-          <span aria-hidden="true">📌</span>
+          <Icon emoji="📌" />
           {t('tweets.pinned')}
         </div>
       )}
@@ -104,7 +105,7 @@ export function TweetCard({
           params={{ tweetId: tweet.id }}
           className="flex items-center gap-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
         >
-          <span>💬</span>
+          <Icon emoji="💬" />
           <span>{tweet.repliesCount}</span>
         </Link>
 
@@ -119,7 +120,7 @@ export function TweetCard({
                 tweet.retweeted ? 'border-green-300 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
               }`}
             >
-              <span>🔁</span>
+              <Icon emoji="🔁" />
               <span>{tweet.retweetsCount}</span>
             </button>
             {showQuoteBox && (
@@ -131,7 +132,7 @@ export function TweetCard({
                   }}
                   className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 dark:text-neutral-300"
                 >
-                  🔁 {t('tweets.retweet')}
+                  <Icon emoji="🔁" /> {t('tweets.retweet')}
                 </button>
                 <textarea
                   value={quoteDraft}
@@ -162,7 +163,7 @@ export function TweetCard({
             tweet.liked ? 'border-red-300 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
           }`}
         >
-          <span>{tweet.liked ? '❤️' : '🤍'}</span>
+          <Icon emoji={tweet.liked ? '❤️' : '🤍'} />
           <span>{tweet.likesCount}</span>
         </button>
       </div>

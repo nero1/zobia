@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 /* ─── Types ─── */
 type PieceType = "p" | "n" | "b" | "r" | "q" | "k";
@@ -629,11 +630,13 @@ export default function ChessGame({ onReady, onGameOver, onScore, difficulty = "
 
       {(status === "checkmate" || status === "stalemate" || status === "draw") && (
         <div className="text-center space-y-1 py-2">
-          <p className={`text-lg font-bold ${
+          <p className={`text-lg font-bold flex items-center justify-center gap-1.5 ${
             status === "checkmate" && gameState.turn === "b" ? "text-emerald-400" : "text-amber-400"
           }`}>
             {status === "checkmate"
-              ? gameState.turn === "w" ? "AI wins by checkmate" : "You win by checkmate! 🏆"
+              ? gameState.turn === "w"
+                ? "AI wins by checkmate"
+                : <>You win by checkmate! <Icon emoji="🏆" size={18} /></>
               : "Draw"}
           </p>
           <p className="text-muted-foreground text-sm">Material score: {score}</p>

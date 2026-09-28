@@ -14,6 +14,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,18 +172,18 @@ function EntryRow({
     >
       <td className="px-4 py-3 text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
         <div className="flex items-center gap-1">
-          <span>{rankMedal(entry.rank)}</span>
+          <span>{rankMedal(entry.rank) && <Icon emoji={rankMedal(entry.rank)} className="inline h-4 w-4 align-text-bottom" />}</span>
           <span className={rankMedal(entry.rank) ? "ml-1" : ""}>{entry.rank}</span>
           {(ripple === "up" || hasRankUp) && (
             <span className="ml-1 text-xs font-semibold text-teal-600 dark:text-teal-400"
                   title={`Moved up ${rankChange} place${rankChange !== 1 ? "s" : ""}`}>
-              ▲{rankChange > 0 ? rankChange : ""}
+              <Icon emoji="▲" className="inline h-3 w-3 align-text-bottom" />{rankChange > 0 ? rankChange : ""}
             </span>
           )}
           {(ripple === "down" || hasRankDown) && (
             <span className="ml-1 text-xs font-semibold text-red-500 dark:text-red-400"
                   title={`Dropped ${Math.abs(rankChange)} place${Math.abs(rankChange) !== 1 ? "s" : ""}`}>
-              ▼{Math.abs(rankChange) > 0 ? Math.abs(rankChange) : ""}
+              <Icon emoji="▼" className="inline h-3 w-3 align-text-bottom" />{Math.abs(rankChange) > 0 ? Math.abs(rankChange) : ""}
             </span>
           )}
         </div>
@@ -448,7 +449,7 @@ function LeaderboardsContent() {
               onClick={() => handlePageChange(page - 1)}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
-              ← Prev
+              <Icon emoji="←" className="inline h-4 w-4 align-text-bottom" /> Prev
             </button>
             <span className="tabular-nums">Page {page} of {totalPages}</span>
             <button
@@ -456,7 +457,7 @@ function LeaderboardsContent() {
               onClick={() => handlePageChange(page + 1)}
               className="rounded-lg border border-neutral-200 px-3 py-1.5 disabled:opacity-40 hover:bg-neutral-50 dark:border-neutral-700"
             >
-              Next →
+              Next <Icon emoji="→" className="inline h-4 w-4 align-text-bottom" />
             </button>
           </div>
         </div>

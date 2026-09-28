@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useFeatureFlags } from "@/lib/hooks/useFeatureFlags";
 import { NotFoundGate } from "@/components/shared/NotFoundGate";
+import { Icon } from "@/components/ui/Icon";
 
 type Tab = "new" | "popular" | "mine";
 
@@ -42,7 +43,7 @@ function QuizCard({ q }: { q: QuizSummary }) {
       href={`/quiz/${q.slug}`}
       className="block rounded-xl border border-neutral-200 bg-white p-4 shadow-card transition-colors hover:border-primary-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-primary-700"
     >
-      <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-50">📝 {q.title}</h3>
+      <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-50"><Icon emoji="📝" className="mr-1 inline-block align-text-bottom" /> {q.title}</h3>
       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         <span>@{q.creatorUsername ?? "unknown"}</span>
         <span>·</span>
@@ -144,14 +145,14 @@ export default function QuizzesPage() {
               onClick={() => setTab(key)}
               className={`flex-1 rounded-lg py-2 text-xs font-semibold transition-colors sm:text-sm ${tab === key ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
             >
-              <span className="mr-1">{icon}</span>{label}
+              <Icon emoji={icon} className="mr-1 inline-block" />{label}
             </button>
           ))}
         </div>
 
         {featureDisabled ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-16 text-center dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-4xl">📝</span>
+            <Icon emoji="📝" size={36} className="text-4xl" />
             <p className="mt-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               {t("quizzes.disabled", "Quizzes are currently disabled.")}
             </p>
@@ -169,7 +170,7 @@ export default function QuizzesPage() {
                 Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)
               ) : quizzes.length === 0 ? (
                 <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-16 dark:border-neutral-800 dark:bg-neutral-900">
-                  <span className="text-4xl">📝</span>
+                  <Icon emoji="📝" size={36} className="text-4xl" />
                   <p className="mt-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                     {tab === "mine" ? t("quizzes.empty.mine", "You haven't created any quizzes yet.") : t("quizzes.empty.default", "No quizzes yet — be the first to create one!")}
                   </p>

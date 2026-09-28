@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface PollOption {
   id: string;
@@ -44,7 +45,7 @@ function Bars({ options, highlightIds }: { options: PollOption[]; highlightIds: 
           <div key={o.id}>
             <div className="mb-1 flex items-center justify-between gap-2 text-sm">
               <span className={`truncate ${mine ? "font-semibold text-foreground" : "text-foreground"}`}>
-                {mine && <span className="mr-1">✓</span>}
+                {mine && <Icon emoji="✓" className="mr-1 inline" />}
                 {o.label}
               </span>
               <span className="shrink-0 tabular-nums text-muted-foreground">{pct}%</span>
@@ -165,7 +166,7 @@ export function PollVoteCard({ poll, viewerSignedIn }: { poll: PollForCard; view
                   isSelected ? "border-primary-500 bg-primary-500" : "border-neutral-500"
                 }`}
               >
-                {isSelected && <span className="text-[10px] leading-none text-white">✓</span>}
+                {isSelected && <Icon emoji="✓" size={10} className="text-white" />}
               </span>
               <span className="min-w-0 flex-1 truncate">{o.label}</span>
             </button>

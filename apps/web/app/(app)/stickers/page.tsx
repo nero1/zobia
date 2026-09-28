@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,7 +79,7 @@ function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
         {pack.coverEmoji}
         {pack.owned && (
           <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-teal-500 text-xs text-white">
-            ✓
+            <Icon emoji="✓" size={12} />
           </span>
         )}
       </div>
@@ -95,8 +96,8 @@ function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
       {/* Earn condition */}
       {pack.unlockType === "earn" && pack.earnCondition && (
         <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 dark:border-blue-900 dark:bg-blue-950/30">
-          <p className="text-xs font-medium text-blue-700 dark:text-blue-300">
-            🔒 {pack.earnCondition}
+          <p className="flex items-center gap-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+            <Icon emoji="🔒" size={12} /> {pack.earnCondition}
           </p>
         </div>
       )}
@@ -105,11 +106,11 @@ function PackCard({ pack, onUnlock, unlocking }: PackCardProps) {
       <div className="mt-auto pt-4">
         {pack.owned ? (
           <div className="flex items-center justify-center gap-1.5 rounded-xl bg-teal-50 py-2 text-sm font-semibold text-teal-700 dark:bg-teal-900/30 dark:text-teal-400">
-            <span>✓</span> Owned
+            <Icon emoji="✓" size={14} /> Owned
           </div>
         ) : pack.unlockType === "earn" ? (
           <div className="flex items-center justify-center gap-1.5 rounded-xl bg-neutral-100 py-2 text-sm font-semibold text-neutral-500 dark:bg-neutral-800">
-            🔒 Locked
+            <Icon emoji="🔒" size={14} /> Locked
           </div>
         ) : (
           <button
@@ -245,7 +246,7 @@ export default function StickersPage() {
         </div>
       ) : packs.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-5xl">😶</span>
+          <Icon emoji="😶" size={48} className="text-5xl" />
           <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">No sticker packs yet</p>
           <p className="mt-1 text-sm text-neutral-500">Check back soon!</p>
         </div>

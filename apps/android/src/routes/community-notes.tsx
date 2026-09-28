@@ -26,6 +26,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
+import { Icon } from '@/components/ui/Icon';
 
 type NoteStatus = 'needs_review' | 'shown' | 'hidden';
 
@@ -178,7 +179,7 @@ function CommunityNotesPage() {
         </div>
       ) : notes.length === 0 ? (
         <div className="py-12 text-center">
-          <p className="text-4xl mb-3">📝</p>
+          <p className="mb-3 flex justify-center"><Icon emoji="📝" size={32} /></p>
           <p className="font-semibold text-neutral-700 dark:text-neutral-300">{t('communityNotes.noNotes')}</p>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('communityNotes.noNotesHint')}</p>
         </div>
@@ -190,7 +191,7 @@ function CommunityNotesPage() {
               <div key={note.id} className="rounded-xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 p-4 space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-base">
-                    {note.author_avatar_emoji || '👤'}
+                    {note.author_avatar_emoji || <Icon emoji="👤" size={16} />}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -217,7 +218,7 @@ function CommunityNotesPage() {
                         note.user_helpful === true ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
-                      👍 {t('communityNotes.helpful', { count: note.helpful_votes })}
+                      <Icon emoji="👍" size={13} /> {t('communityNotes.helpful', { count: note.helpful_votes })}
                     </button>
                     <button
                       onClick={() => handleVote(note.id, false)}
@@ -226,7 +227,7 @@ function CommunityNotesPage() {
                         note.user_helpful === false ? 'bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
-                      👎 {t('communityNotes.notHelpful', { count: note.unhelpful_votes })}
+                      <Icon emoji="👎" size={13} /> {t('communityNotes.notHelpful', { count: note.unhelpful_votes })}
                     </button>
                   </div>
                 )}

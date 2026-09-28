@@ -13,6 +13,7 @@ import { formatShortDate } from '@/lib/format/date';
 import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
 import { BlogMenu } from '@/components/blogs/BlogMenu';
 import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
+import { Icon } from '@/components/ui/Icon';
 
 interface BlogDetail {
   id: string;
@@ -142,13 +143,13 @@ function BlogHomePage() {
             <Link key={a.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: a.slug }} className="block rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
               <div className="flex items-center gap-1.5">
                 <h2 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{a.title}</h2>
-                {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">🔒</span>}
+                {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5"><Icon emoji="🔒" className="inline h-2.5 w-2.5" /></span>}
               </div>
               {a.excerpt && <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2">{a.excerpt}</p>}
               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
                 {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
-                <span>👁 {a.view_count}</span>
-                <span>❤️ {a.like_count}</span>
+                <span className="inline-flex items-center gap-0.5"><Icon emoji="👁" className="inline h-3 w-3" /> {a.view_count}</span>
+                <span className="inline-flex items-center gap-0.5"><Icon emoji="❤️" className="inline h-3 w-3" /> {a.like_count}</span>
               </div>
             </Link>
           ))}

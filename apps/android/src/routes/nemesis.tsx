@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
+import { Icon } from '@/components/ui/Icon';
 
 interface NemesisParty {
   userId: string;
@@ -83,7 +84,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
   if (optedOut) {
     return (
       <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">🔕</div>
+        <div className="mb-3 flex justify-center"><Icon emoji="🔕" size={36} /></div>
         <h3 className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">Nemesis System Off</h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">You&apos;ve turned off Nemesis rivals. Re-enable it anytime in Settings → Privacy.</p>
       </div>
@@ -93,7 +94,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
   if (!nemesis || !me) {
     return (
       <div className="bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">👻</div>
+        <div className="mb-3 flex justify-center"><Icon emoji="👻" size={36} /></div>
         <h3 className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">{t('nemesis.noNemesis')}</h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('nemesis.noNemesisDesc')}</p>
       </div>
@@ -158,7 +159,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
             disabled={!!data.sprintActive || challenging}
             className="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg text-sm font-semibold disabled:opacity-60"
           >
-            {challenging ? '…' : data.sprintActive ? t('nemesis.sprintStandings') : `${t('nemesis.challenge')} 🔥`}
+            {challenging ? '…' : data.sprintActive ? t('nemesis.sprintStandings') : <>{t('nemesis.challenge')} <Icon emoji="🔥" size={14} /></>}
           </button>
         </div>
       </div>
@@ -218,7 +219,7 @@ function NemesisPage() {
 
       {timeLeft && (
         <div className="flex items-center gap-2 mb-4 text-xs text-neutral-400 dark:text-neutral-500">
-          <span>🔄</span>
+          <Icon emoji="🔄" size={12} />
           <span>
             {t('nemesis.nextRefresh')} <strong className="text-neutral-600 dark:text-neutral-400">{timeLeft}</strong>
           </span>
@@ -229,7 +230,7 @@ function NemesisPage() {
         <NemesisSkeleton />
       ) : status === 'error' ? (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">⚠️</div>
+          <div className="mb-3 flex justify-center"><Icon emoji="⚠️" size={36} /></div>
           <p className="text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold">
             {t('nemesis.retry')}

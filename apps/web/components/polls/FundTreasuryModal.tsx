@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 export interface TreasuryState {
   id: string;
@@ -135,8 +136,8 @@ export function FundTreasuryModal({
   return (
     <div>
       {treasury && (
-        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
-          🎁 {treasury.fundedAmount} {currency.softPlural.toLowerCase()} funded · {treasury.claimantCount}/{treasury.maxClaimants} claimed ·{" "}
+        <div className="mb-3 flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-950/20 px-3 py-2 text-xs text-amber-300">
+          <Icon emoji="🎁" size={14} /> {treasury.fundedAmount} {currency.softPlural.toLowerCase()} funded · {treasury.claimantCount}/{treasury.maxClaimants} claimed ·{" "}
           {treasury.rewardPerClaimant} {currency.softPlural.toLowerCase()} each · {treasury.status}
         </div>
       )}
@@ -146,9 +147,9 @@ export function FundTreasuryModal({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent"
+            className="flex items-center gap-1.5 rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent"
           >
-            🎁 {isEditing ? t("polls.treasury.editButton", "Edit reward pot") : t("polls.treasury.fundButton", "Fund reward pot")}
+            <Icon emoji="🎁" size={14} /> {isEditing ? t("polls.treasury.editButton", "Edit reward pot") : t("polls.treasury.fundButton", "Fund reward pot")}
           </button>
           {isEditing && (
             <button

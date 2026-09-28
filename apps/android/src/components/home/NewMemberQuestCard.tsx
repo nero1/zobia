@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useNewMemberQuestDismissal } from '@/lib/hooks/useNewMemberQuestDismissal';
+import { Icon } from '@/components/ui/Icon';
 
 interface QuestStep {
   id: string;
@@ -72,7 +73,7 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
     <div className="rounded-xl border border-violet-200 bg-white dark:bg-neutral-800 shadow-sm">
       <div className="flex items-center justify-between border-b border-violet-100 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🎯</span>
+          <Icon emoji="🎯" size={18} />
           <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{t('home.newMemberQuest.title')}</h2>
         </div>
         <div className="flex items-center gap-3">
@@ -140,7 +141,8 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
             ))}
           </div>
           <div className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 px-3 py-2">
-            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
+            <p className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
+              <Icon emoji="🏆" size={12} />
               {t('home.newMemberQuest.reward', {
                 coins: TOTAL_COINS.toLocaleString(),
                 coinName: currency.softPlural,

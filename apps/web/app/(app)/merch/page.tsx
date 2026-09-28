@@ -11,6 +11,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,7 +56,7 @@ function StoreCard({ store }: { store: MerchStore }) {
       {/* Creator info */}
       <div className="mb-3 flex items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-2xl dark:bg-neutral-800">
-          🛍️
+          <Icon emoji="🛍️" size={22} />
         </span>
         <div className="min-w-0">
           <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{store.storeName}</p>
@@ -178,7 +179,7 @@ export default function MerchDirectoryPage() {
         </div>
       ) : filteredStores.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-5xl">🛍️</span>
+          <Icon emoji="🛍️" className="text-5xl" size={48} />
           <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">
             {search ? "No stores match your search" : "No stores yet"}
           </p>

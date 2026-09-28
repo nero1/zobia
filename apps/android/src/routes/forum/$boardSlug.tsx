@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useBbforumConfig } from '@/lib/hooks/useBbforumConfig';
+import { Icon } from '@/components/ui/Icon';
 
 interface BoardRow { id: string; slug: string; name: string; description: string | null; icon_emoji: string; }
 interface ThreadRow {
@@ -72,7 +73,7 @@ function BoardPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="bg-white dark:bg-neutral-800 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
-        <Link to="/forum" className="text-xs text-neutral-500 dark:text-neutral-400">← {t('bbforum.forum.title')}</Link>
+        <Link to="/forum" className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"><Icon emoji="←" size={12} /> {t('bbforum.forum.title')}</Link>
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{board?.icon_emoji} {board?.name}</h1>
       </div>
 
@@ -91,7 +92,7 @@ function BoardPage() {
               <textarea value={body} onChange={(e) => setBody(e.target.value.slice(0, 20000))} rows={5} placeholder={t('bbforum.thread.bodyPlaceholder')} className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
               <label className="flex items-center gap-2 text-xs font-semibold text-amber-700 dark:text-amber-300">
                 <input type="checkbox" checked={potEnabled} onChange={(e) => setPotEnabled(e.target.checked)} />
-                💰 {t('bbforum.pot.fundLabel')}
+                <Icon emoji="💰" size={13} /> {t('bbforum.pot.fundLabel')}
               </label>
               {potEnabled && (
                 <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
@@ -131,8 +132,8 @@ function BoardPage() {
           <Link key={thread.id} to="/forum/thread/$slug" params={{ slug: thread.slug }} className="flex items-center gap-3 px-4 py-3">
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium text-neutral-900 dark:text-neutral-100 text-sm">
-                {thread.is_pinned && <span className="mr-1 text-amber-500">📌</span>}
-                {thread.is_locked && <span className="mr-1 text-neutral-400 dark:text-neutral-500">🔒</span>}
+                {thread.is_pinned && <span className="mr-1 text-amber-500"><Icon emoji="📌" size={12} /></span>}
+                {thread.is_locked && <span className="mr-1 text-neutral-400 dark:text-neutral-500"><Icon emoji="🔒" size={12} /></span>}
                 {thread.title}
               </p>
               <p className="text-xs text-neutral-400 dark:text-neutral-500">

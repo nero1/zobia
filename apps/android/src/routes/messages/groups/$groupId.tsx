@@ -16,6 +16,7 @@ import { apiClient } from '@/lib/api/client';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
 import { useAdaptiveChatPoll } from '@/lib/hooks/useAdaptiveChatPoll';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -133,7 +134,7 @@ function MembersPanel({
       <div className="max-h-[80vh] w-full overflow-hidden rounded-t-2xl bg-white dark:bg-neutral-800">
         <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-4 py-4">
           <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('messages.groupChat.members.title')}</h2>
-          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label={t('action.close')}>✕</button>
+          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label={t('action.close')}><Icon emoji="✕" /></button>
         </div>
         <div className="max-h-[65vh] overflow-y-auto">
           {members === null ? (
@@ -411,7 +412,7 @@ function GroupChatPage() {
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400"
                 aria-label={t('messages.groupChat.moreOptions')}
               >
-                ⋮
+                <Icon emoji="⋮" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-xl">
@@ -460,7 +461,7 @@ function GroupChatPage() {
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages?.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16 text-neutral-400 dark:text-neutral-500">
-            <span className="text-4xl">👥</span>
+            <Icon emoji="👥" size={36} />
             <p className="mt-2 text-sm">{t('messages.groupChat.noMessagesYet')}</p>
           </div>
         )}

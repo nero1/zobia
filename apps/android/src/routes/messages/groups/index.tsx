@@ -12,6 +12,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { Icon } from '@/components/ui/Icon';
 
 interface GroupChat {
   id: string;
@@ -165,7 +166,7 @@ function GroupsPage() {
 
         {status === 'success' && groups?.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 gap-3 px-6 text-center">
-            <span className="text-4xl">👥</span>
+            <Icon emoji="👥" size={36} />
             <p className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('messages.groupsList.empty')}</p>
             <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('messages.groupsList.emptyHint')}</p>
             <Link

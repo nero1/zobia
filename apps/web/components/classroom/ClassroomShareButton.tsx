@@ -15,6 +15,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
+import { Icon } from "@/components/ui/Icon";
 
 export function ClassroomShareButton({
   roomId,
@@ -66,7 +67,7 @@ export function ClassroomShareButton({
           "rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
         }
       >
-        🔗 {t("classroom.share.button", "Share")}
+        <Icon emoji="🔗" size={14} className="inline align-[-2px]" /> {t("classroom.share.button", "Share")}
       </button>
       {notice && <span className="text-xs text-teal-600 dark:text-teal-400">{notice}</span>}
     </span>

@@ -21,6 +21,7 @@ import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
+import { Icon } from '@/components/ui/Icon';
 
 interface QuizOption {
   id: string;
@@ -267,7 +268,7 @@ function QuizDetailPage() {
     return (
       <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('quizzes.notFound', 'Quiz not found')}</p>
-        <Link to="/quizzes" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('quizzes.title', 'Quizzes')}</Link>
+        <Link to="/quizzes" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 dark:text-primary-300"><Icon emoji="←" size={14} /> {t('quizzes.title', 'Quizzes')}</Link>
       </div>
     );
   }
@@ -335,8 +336,8 @@ function QuizDetailPage() {
             const mySelection = answers[q.id] ?? [];
             return (
               <div key={q.id} className={`rounded-xl border p-4 ${r?.isCorrect ? 'border-success-200 bg-white dark:bg-neutral-800' : 'border-danger-200 bg-white dark:bg-neutral-800'}`}>
-                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                  {r?.isCorrect ? '✓' : '✗'} {q.prompt}
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  <Icon emoji={r?.isCorrect ? '✓' : '✗'} size={14} /> {q.prompt}
                 </p>
                 <div className="mt-2 space-y-1">
                   {q.options.map((opt) => {
@@ -349,7 +350,7 @@ function QuizDetailPage() {
                           wasCorrect ? 'bg-success-50 dark:bg-success-900/30 text-success-700 dark:text-success-300 font-semibold' : wasMine ? 'bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300' : 'text-neutral-500 dark:text-neutral-400'
                         }`}
                       >
-                        {wasCorrect && '✓ '}{wasMine && !wasCorrect && '✗ '}{opt.label}
+                        {wasCorrect && <Icon emoji="✓" size={12} className="inline mr-1 align-text-bottom" />}{wasMine && !wasCorrect && <Icon emoji="✗" size={12} className="inline mr-1 align-text-bottom" />}{opt.label}
                       </div>
                     );
                   })}
@@ -397,7 +398,7 @@ function QuizDetailPage() {
                       className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm disabled:opacity-50 ${isChecked ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200'}`}
                     >
                       <span className={`flex h-4 w-4 shrink-0 items-center justify-center border ${q.type === 'multiple' ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300 dark:border-neutral-600'}`}>
-                        {isChecked && <span className="text-[10px] text-white">✓</span>}
+                        {isChecked && <Icon emoji="✓" size={10} className="text-white" />}
                       </span>
                       {opt.label}
                     </button>

@@ -10,6 +10,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listBoardTree } from "@/lib/bbforum/repo";
+import { Icon } from "@/components/ui/Icon";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -43,7 +44,7 @@ export default async function ForumHomePage() {
                 href={`/forum/${board.slug}`}
                 className="flex items-center gap-3 rounded-t-xl px-4 py-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/60"
               >
-                <span className="text-2xl">{board.icon_emoji}</span>
+                <span className="text-2xl"><Icon emoji={board.icon_emoji} size={28} /></span>
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-neutral-900 dark:text-neutral-100">{board.name}</p>
                   {board.description && <p className="truncate text-xs text-neutral-500">{board.description}</p>}
@@ -61,8 +62,8 @@ export default async function ForumHomePage() {
                       href={`/forum/${sub.slug}`}
                       className="flex items-center gap-2 px-4 py-2 pl-10 text-sm text-neutral-600 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-800/60"
                     >
-                      <span>↳</span>
-                      <span>{sub.icon_emoji}</span>
+                      <span><Icon emoji="↳" size={14} /></span>
+                      <span><Icon emoji={sub.icon_emoji} size={18} /></span>
                       <span className="flex-1">{sub.name}</span>
                       <span className="text-xs text-neutral-400">{sub.thread_count} threads</span>
                     </Link>

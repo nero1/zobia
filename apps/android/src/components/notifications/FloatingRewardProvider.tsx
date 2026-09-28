@@ -14,6 +14,7 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth/store';
 import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
+import { Icon } from '@/components/ui/Icon';
 import { LevelUpCelebration, type LevelUpCelebrationData } from './LevelUpCelebration';
 
 export interface RewardPayload {
@@ -82,9 +83,17 @@ export function FloatingRewardProvider({ children }: { children: ReactNode }) {
             key={toast.id}
             className="animate-[floatReward_2.6s_ease-out_forwards] flex items-center gap-2 rounded-full bg-neutral-900/90 px-4 py-2 text-sm font-semibold text-white shadow-lg"
           >
-            {!!toast.credits && <span>🪙 +{toast.credits}</span>}
+            {!!toast.credits && (
+              <span className="inline-flex items-center gap-1">
+                <Icon emoji="🪙" size={14} /> +{toast.credits}
+              </span>
+            )}
             {!!toast.xp && <span className="text-emerald-300">+{toast.xp} XP</span>}
-            {!!toast.stars && <span className="text-violet-300">⭐ +{toast.stars}</span>}
+            {!!toast.stars && (
+              <span className="inline-flex items-center gap-1 text-violet-300">
+                <Icon emoji="⭐" size={14} /> +{toast.stars}
+              </span>
+            )}
           </div>
         ))}
       </div>

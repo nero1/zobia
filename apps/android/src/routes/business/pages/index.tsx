@@ -9,6 +9,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface BusinessPage {
   id: string;
@@ -100,7 +101,9 @@ function BusinessPagesList() {
             <div key={p.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card flex items-center justify-between">
               <Link to="/business/pages/$pageId" params={{ pageId: p.id }} className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{p.name}</p>
-                <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('business.pages.stats', '👁 {{views}} · 📝 {{posts}} · {{status}}', { views: p.view_count, posts: p.post_count, status: p.status })}</p>
+                <p className="inline-flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500">
+                  <Icon emoji="👁" size={12} /> {p.view_count} · <Icon emoji="📝" size={12} /> {p.post_count} · {p.status}
+                </p>
               </Link>
               <button
                 onClick={() => deleteMutation.mutate(p.id)}

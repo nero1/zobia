@@ -15,6 +15,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { showBanner, hideBanner } from '@/lib/ads/admob';
+import { Icon } from '@/components/ui/Icon';
 import type { GameSummary } from '@zobia/shared/types';
 
 async function fetchGames(q: string) {
@@ -143,12 +144,12 @@ function GamesPage() {
                   <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5 truncate">{game.tagline}</p>
                 )}
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-neutral-400 dark:text-neutral-500">⭐ {game.avgRating.toFixed(1)}</span>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500 inline-flex items-center gap-0.5"><Icon emoji="⭐" size={12} /> {game.avgRating.toFixed(1)}</span>
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">·</span>
                   <span className="text-xs text-neutral-400 dark:text-neutral-500">{game.playCount.toLocaleString()} plays</span>
                 </div>
                 {game.favoriteCount > 0 && (
-                  <span className="text-xs text-rose-500 mt-1 block">❤️ {game.favoriteCount.toLocaleString()}</span>
+                  <span className="text-xs text-rose-500 mt-1 flex items-center gap-0.5"><Icon emoji="❤️" size={12} /> {game.favoriteCount.toLocaleString()}</span>
                 )}
               </Link>
               <button
@@ -157,7 +158,7 @@ function GamesPage() {
                 aria-label={game.isFavorited ? t('games.removeFavorite', 'Remove favorite') : t('games.addFavorite', 'Add favorite')}
                 className="absolute right-3 top-3 text-lg"
               >
-                {game.isFavorited ? '❤️' : '🤍'}
+                <Icon emoji={game.isFavorited ? '❤️' : '🤍'} />
               </button>
             </div>
           ))}

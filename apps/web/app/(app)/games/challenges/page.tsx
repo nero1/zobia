@@ -17,6 +17,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface GameSummary { slug: string; name: string; }
 interface Challenge {
@@ -61,7 +62,7 @@ function ExpiryCountdown({ expiresAt }: { expiresAt: string }) {
   const { label, urgent } = useCountdown(expiresAt);
   return (
     <span className={`text-xs font-medium ${urgent ? "text-red-400" : "text-muted-foreground"}`}>
-      ⏳ {t("games.challenges.expiresIn", "Expires in {{time}}", { time: label })}
+      <Icon emoji="⏳" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.challenges.expiresIn", "Expires in {{time}}", { time: label })}
     </span>
   );
 }
@@ -198,7 +199,7 @@ export default function ChallengesPage() {
     <div className="mx-auto max-w-2xl px-4 py-6">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("games.challenges")}</h1>
-        <Link href="/games" className="text-sm text-neutral-400 hover:text-neutral-200">← {t("games.title")}</Link>
+        <Link href="/games" className="text-sm text-neutral-400 hover:text-neutral-200"><Icon emoji="←" className="inline h-4 w-4 align-text-bottom" /> {t("games.title")}</Link>
       </div>
 
       <form onSubmit={create} className="mb-6 space-y-3 rounded-xl border border-border bg-card p-4">
@@ -221,7 +222,7 @@ export default function ChallengesPage() {
             className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100"
           />
           {opponentSelected && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400">✓ {opponentSelected.displayName}</span>
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400"><Icon emoji="✓" className="inline h-3.5 w-3.5 align-text-bottom" /> {opponentSelected.displayName}</span>
           )}
           {!opponentSelected && opponentSuggestions.length > 0 && (
             <div className="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card shadow-modal overflow-hidden">
@@ -336,7 +337,7 @@ export default function ChallengesPage() {
                     className="rounded-lg border border-red-800 px-3 py-1.5 text-xs font-semibold text-red-400 hover:bg-red-950/40 disabled:opacity-50"
                     title={t("games.challenges.deleteHint", "The opponent hasn't accepted yet — this challenge can be deleted.")}
                   >
-                    🗑 {t("games.challenges.delete", "Delete")}
+                    <Icon emoji="🗑" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.challenges.delete", "Delete")}
                   </button>
                 )}
                 {canArchive && (
@@ -345,7 +346,7 @@ export default function ChallengesPage() {
                     onClick={() => archive(c.id)}
                     className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent disabled:opacity-50"
                   >
-                    🗄 {t("games.challenges.archive", "Archive")}
+                    <Icon emoji="🗄" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.challenges.archive", "Archive")}
                   </button>
                 )}
               </div>

@@ -19,6 +19,7 @@ import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
 import { BlogMenu } from '@/components/blogs/BlogMenu';
 import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
 import { RewardBadge } from '@/components/shared/UserBadges';
+import { Icon } from '@/components/ui/Icon';
 
 interface PostDetail {
   id: string;
@@ -184,8 +185,9 @@ function PostViewPage() {
           <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">{formatShortDate(post.published_at)}</p>
         )}
         {isArticle && treasuryQuery.data && treasuryQuery.data.status === 'active' && treasuryQuery.data.claimantCount < treasuryQuery.data.maxClaimants && (
-          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-            🎁 {t('blogs.post.rewardPotBadge', 'Reward pot: {{amount}} credits each for the next {{slots}} people who comment or share!', { amount: treasuryQuery.data.rewardPerClaimant, slots: treasuryQuery.data.maxClaimants - treasuryQuery.data.claimantCount })}
+          <div className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <Icon emoji="🎁" className="inline h-3.5 w-3.5 flex-shrink-0" />
+            {t('blogs.post.rewardPotBadge', 'Reward pot: {{amount}} credits each for the next {{slots}} people who comment or share!', { amount: treasuryQuery.data.rewardPerClaimant, slots: treasuryQuery.data.maxClaimants - treasuryQuery.data.claimantCount })}
           </div>
         )}
         {isArticle && !blog.hideAuthorInfo && (
@@ -242,7 +244,7 @@ function PostViewPage() {
               disabled={toggleLike.isPending}
               className="flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm"
             >
-              <span>{isLiked ? '❤️' : '🤍'}</span>
+              <span><Icon emoji={isLiked ? '❤️' : '🤍'} className="inline h-4 w-4" /></span>
               <span>{post.like_count}</span>
             </button>
             <button
@@ -250,10 +252,10 @@ function PostViewPage() {
               disabled={share.isPending}
               className="flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm"
             >
-              <span>🔗</span>
+              <span><Icon emoji="🔗" className="inline h-4 w-4" /></span>
               <span>{t('blogs.post.share', 'Share')}</span>
             </button>
-            <span className="text-xs text-neutral-400 dark:text-neutral-500">👁 {post.view_count} views</span>
+            <span className="flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500"><Icon emoji="👁" className="inline h-3.5 w-3.5" /> {post.view_count} views</span>
           </div>
         )}
         {shareNotice && <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">{shareNotice}</p>}

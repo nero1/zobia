@@ -16,6 +16,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -232,7 +233,7 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
       {/* Header */}
       <div className="flex items-start gap-3">
         <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-base select-none flex-shrink-0">
-          {note.authorAvatarEmoji || "👤"}
+          {note.authorAvatarEmoji || <Icon emoji="👤" className="h-4 w-4" />}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -280,7 +281,7 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
               }
               disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            <span>👍</span>
+            <Icon emoji="👍" className="h-3.5 w-3.5" />
             <span>Helpful ({note.helpfulVotes})</span>
           </button>
           <button
@@ -294,7 +295,7 @@ function NoteCard({ note, onVote, voting }: NoteCardProps) {
               }
               disabled:opacity-50 disabled:cursor-not-allowed`}
           >
-            <span>👎</span>
+            <Icon emoji="👎" className="h-3.5 w-3.5" />
             <span>Not Helpful ({note.unhelpfulVotes})</span>
           </button>
         </div>
@@ -444,7 +445,7 @@ export default function CommunityNotesPage() {
   if (featureEnabled === false) {
     return (
       <div className="max-w-2xl mx-auto px-4 py-12 text-center">
-        <div className="text-5xl mb-4">🔒</div>
+        <Icon emoji="🔒" className="mx-auto mb-4 h-12 w-12 text-5xl" />
         <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">
           Community Notes Unavailable
         </h1>
@@ -499,7 +500,7 @@ export default function CommunityNotesPage() {
         <NoteSkeleton />
       ) : error ? (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">⚠️</div>
+          <Icon emoji="⚠️" className="mx-auto mb-3 h-10 w-10 text-4xl" />
           <p className="text-red-500 font-medium">{error}</p>
           <button
             onClick={() => {
@@ -513,7 +514,7 @@ export default function CommunityNotesPage() {
         </div>
       ) : notes.length === 0 ? (
         <div className="text-center py-12">
-          <div className="text-5xl mb-4">📝</div>
+          <Icon emoji="📝" className="mx-auto mb-4 h-12 w-12 text-5xl" />
           <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300 mb-1">
             No notes yet
           </h3>

@@ -16,6 +16,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,7 +100,7 @@ export function AnnouncementModal({
           aria-label="Close announcement"
           className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
         >
-          ✕
+          <Icon emoji="✕" />
         </button>
 
         {/* Content */}

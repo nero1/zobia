@@ -322,7 +322,9 @@ function MobileDrawer({
                   </span>
                   {t(item.labelKey)}
                   {isOffForUsers && (
-                    <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+                    <span title="Disabled for regular users" className="ml-auto">
+                      <Icon emoji="⚠️" className="text-xs text-amber-500" size={14} />
+                    </span>
                   )}
                 </Link>
               );

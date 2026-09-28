@@ -15,6 +15,7 @@ import { useEffect } from 'react';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
+import { Icon } from '@/components/ui/Icon';
 
 function KycPage() {
   const { t } = useTranslation();
@@ -26,7 +27,7 @@ function KycPage() {
 
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 bg-neutral-50 dark:bg-neutral-800 px-6 text-center">
-      <span className="text-4xl">🪪</span>
+      <Icon emoji="🪪" size={40} />
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('kyc.title')}</h1>
       <p className="text-sm text-neutral-500 dark:text-neutral-400">
         {t('kyc.androidWrapperDesc', 'Identity verification opens in a secure browser tab.')}

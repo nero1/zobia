@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import type { GuildDetail } from '@/lib/guilds/types';
 import { GuildDetailView } from '@/lib/guilds/GuildDetailView';
+import { Icon } from '@/components/ui/Icon';
 
 async function fetchGuild(guildId: string): Promise<GuildDetail> {
   const { data } = await apiClient.get<{ data: GuildDetail }>(`/guilds/${guildId}`);
@@ -75,7 +76,7 @@ function GuildProfilePage() {
   if (status === 'error' || !guild) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-6 text-center">
-        <span className="text-5xl">🏰</span>
+        <Icon emoji="🏰" size={48} />
         <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}

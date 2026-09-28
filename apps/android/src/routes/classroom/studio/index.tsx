@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { apiError, formatNgnKobo, get, send, type StudioRow, type StudioSummary } from '@/lib/classroom/api';
 import { ClassroomBoostButton, ClassroomShareButton } from '@/components/classroom/ClassroomActions';
 import { StatsTierNote } from '@/components/classroom/Studio';
+import { Icon } from '@/components/ui/Icon';
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
@@ -85,8 +86,8 @@ function StudioPage() {
             {t('classroom.studio.members', 'Members')}: {c.members} · {t('classroom.studio.paidMembers', 'Paid members')}: {c.paidMembers} · {formatNgnKobo(c.revenueAllTimeKobo)} · {t('classroom.studio.pendingReports', 'Pending reports')}: {c.pendingReports}
           </p>
           <div className="flex flex-wrap gap-2">
-            <Link to="/classroom/studio/$roomId" params={{ roomId: c.id }} className="rounded-lg bg-primary-600 px-2.5 py-1 text-xs font-semibold text-white">
-              ⚙️ {t('classroom.home.manage', 'Manage')}
+            <Link to="/classroom/studio/$roomId" params={{ roomId: c.id }} className="inline-flex items-center gap-1 rounded-lg bg-primary-600 px-2.5 py-1 text-xs font-semibold text-white">
+              <Icon emoji="⚙️" size={12} /> {t('classroom.home.manage', 'Manage')}
             </Link>
             <ClassroomShareButton roomId={c.id} slug={c.slug} name={c.name} />
             <ClassroomBoostButton roomId={c.id} name={c.name} />

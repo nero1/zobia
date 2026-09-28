@@ -15,6 +15,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,7 +139,7 @@ function GuildCard({
 
           {guild.city && (
             <p className="mt-0.5 text-xs text-neutral-500">
-              📍 {guild.city}
+              <Icon emoji="📍" className="inline h-3.5 w-3.5 align-text-bottom" /> {guild.city}
               {guild.sameCity && (
                 <span className="ml-1.5 rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                   Near you
@@ -164,7 +165,7 @@ function GuildCard({
         <div className="shrink-0">
           {isJoined ? (
             <span className="rounded-xl bg-teal-100 px-4 py-2 text-sm font-bold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-              ✓ Joined!
+              <Icon emoji="✓" className="inline h-4 w-4 align-text-bottom" /> Joined!
             </span>
           ) : (
             <button
@@ -265,14 +266,14 @@ export default function GuildDiscoveryPage() {
       {/* Solo note */}
       {data?.soloNote && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-          💡 {data.soloNote}
+          <Icon emoji="💡" className="inline h-4 w-4 align-text-bottom" /> {data.soloNote}
         </div>
       )}
 
       {/* Too new notice */}
       {data?.tooNew && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-5 text-center dark:border-amber-800 dark:bg-amber-950/30">
-          <p className="text-2xl">⏳</p>
+          <Icon emoji="⏳" className="text-2xl" size={24} />
           <p className="mt-2 font-semibold text-amber-800 dark:text-amber-300">Come back soon!</p>
           <p className="mt-1 text-sm text-amber-700 dark:text-amber-400">
             Guild recommendations unlock after your first 24 hours on Zobia.
@@ -301,7 +302,7 @@ export default function GuildDiscoveryPage() {
         </div>
       ) : !data?.tooNew && guilds.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 bg-white px-4 py-10 text-center dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-4xl">🏛️</p>
+          <Icon emoji="🏛️" className="text-4xl" size={36} />
           <p className="mt-3 font-semibold text-neutral-900 dark:text-neutral-50">
             No guilds near your city yet
           </p>

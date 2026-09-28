@@ -8823,17 +8823,46 @@ different component tree. No page renders different markup per theme.
 
 ### Icon sets
 
-A new `<Icon name="..." />` component (`apps/web/components/ui/Icon.tsx`,
-mirrored at `apps/android/src/components/ui/Icon.tsx`) renders either the
-existing emoji character or a matching `lucide-react` monochrome vector
-icon depending on the active icon set, resolved the same way the site theme
-is (per-device override, else the admin default). This first pass migrates
-the highest-visibility surface — each app's primary navigation chrome (top
-bar, bottom tab bar, side drawer/menu, profile dropdown) — to the `<Icon>`
-abstraction. The rest of the app (post reactions, gift emojis, badges, and
-other decorative emoji throughout feeds/chat/games) intentionally still
-uses raw emoji; migrating those is a separate, much larger follow-up, not
-an oversight.
+A new `<Icon>` component (`apps/web/components/ui/Icon.tsx`, mirrored at
+`apps/android/src/components/ui/Icon.tsx`) renders either the existing
+emoji character or a matching `lucide-react` monochrome vector icon
+depending on the active icon set, resolved the same way the site theme is
+(per-device override, else the admin default). Two usage modes:
+`<Icon name="home" />` for the curated nav-chrome vocabulary (top bar,
+bottom tab bar, side drawer/menu, profile dropdown), and the
+general-purpose `<Icon emoji="🎁" />` for every other UI-chrome icon in the
+app, resolved via `shared/utils/emojiIconMap.ts`'s `EMOJI_TO_LUCIDE_NAME`
+table (~200 mapped emoji covering navigation/status/commerce/achievement/
+content/places/actions glyphs). An emoji with no entry there renders as the
+plain character in both icon sets — never broken.
+
+Both `Icon.tsx` files use **explicit named imports** from `lucide-react`
+(never a namespace `import *`), indexed into a `LUCIDE_BY_NAME` record —
+required for tree-shaking, since a computed `LucideIcons["Foo"]` lookup
+against a namespace import can't be statically analyzed by the bundler and
+would otherwise ship the entire ~1000-icon library, which matters
+especially for the Capacitor Android APK's size.
+
+**Migration scope**: after the initial nav-chrome-only pass, a full
+follow-up migrated essentially every UI-chrome emoji across both apps —
+roughly 800+ occurrences across ~250 web files and ~170 Android files
+(admin panels, feed cards, settings, wallet, messages, profile, games HUB
+chrome, etc.) — to the swappable `<Icon>` abstraction. **Deliberately still
+raw emoji, by design, not oversight**: anywhere the emoji itself IS content
+rather than a decoration — default-avatar-emoji pickers
+(`shared/utils/defaultAvatars.ts`), country-flag selectors, gift/sticker
+catalog items, cover-emoji pickers, and all in-game emoji data inside
+`apps/web/components/games/engines/*` (chess pieces, playing-card suits,
+dice faces, memory-match tiles, emoji-quiz/flag-quiz answer keys, fruit/
+animal sprites — converting these to a monochrome icon would visibly break
+the actual gameplay, e.g. turning a chess board's pieces indistinguishable
+or defeating a "guess this emoji" quiz). A small number of translation
+strings had their icon-shaped emoji baked directly into the
+`shared/i18n/locales/en.json` value rather than as a JSX literal (e.g.
+`"kyc.doc.uploaded": "✓ Uploaded"`) — those were stripped and given a
+matching `<Icon>` at each call site instead, since leaving the emoji in
+the translation string would have rendered a duplicate glyph once nav-style
+`<Icon>` badges were added nearby.
 
 ### Other fixes in this pass
 
@@ -8857,19 +8886,26 @@ an oversight.
 - The Christmas theme is a festive red/green color re-skin only; no
   animated snow or other decorative effects, to keep the change purely
   additive/low-risk.
-- The Capacitor Android app does not yet have a single shared
-  page-container component the way `AppContentShell` centralizes it on
-  web/PWA, so the mobile-edge-padding tightening above was not
-  mechanically retrofitted across its many individual route files in this
-  pass — the CSS-variable/theme infrastructure itself (globals.css,
-  ThemeProvider, Icon component) is fully mirrored, but a route-by-route
-  padding pass on Android is a follow-up.
+- The Capacitor Android app does not have a single shared page-container
+  component the way `AppContentShell` centralizes edge padding on
+  web/PWA — each Android route manages its own internal padding, and many
+  deliberately use edge-to-edge/full-bleed card sections (a common,
+  intentional native-app pattern distinct from web's boxed-column layout).
+  Investigating a mechanical retrofit of web's `px-4`→`px-3` edge-padding
+  change found it would be unsafe to apply blindly: adding outer padding at
+  the root would stack with routes' own full-bleed section padding and
+  visually break the intentional edge-to-edge design in many screens.
+  What *was* safely applied: the shared `.site-container` max-width now
+  wraps every route in `apps/android/src/routes/__root.tsx` (a no-op on
+  phone-width viewports, bounding width on tablets/foldables). A genuine
+  route-by-route edge-padding audit is a per-screen design decision, not a
+  mechanical find-replace, and remains a follow-up requiring visual review.
 - No new database table — `ui_site_theme`/`ui_icon_set` reuse the existing
   `x_manifest` key/value table, which already has its Supabase Data API
   grants from its original migration.
 
 ---
 
-*ZobiaSocial PRD v2.36*
+*ZobiaSocial PRD v2.37*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

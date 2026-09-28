@@ -14,6 +14,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -409,7 +410,7 @@ function SendGiftModal({
           Gift sent to @{recipient?.username}!
         </p>
         <p className="text-sm text-neutral-500">
-          You sent {selectedGift?.name} — they&apos;ll love it 🎉
+          You sent {selectedGift?.name} — they&apos;ll love it <Icon emoji="🎉" className="inline h-4 w-4 align-text-bottom" />
         </p>
         {messageText.trim() && (
           <p className="max-w-xs whitespace-pre-wrap rounded-xl bg-neutral-50 px-3 py-2 text-sm text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
@@ -492,7 +493,7 @@ function SendGiftModal({
           {/* Wallet balance */}
           {wallet && (
             <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              🪙 <span className="font-medium text-neutral-700 dark:text-neutral-300">{wallet.coins.toLocaleString()} {currency.softPlural.toLowerCase()}</span> available
+              <Icon emoji="🪙" className="inline h-3.5 w-3.5 align-text-bottom" /> <span className="font-medium text-neutral-700 dark:text-neutral-300">{wallet.coins.toLocaleString()} {currency.softPlural.toLowerCase()}</span> available
             </p>
           )}
 
@@ -541,13 +542,13 @@ function SendGiftModal({
                       title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
                       aria-hidden="true"
                     >
-                      ✨
+                      <Icon emoji="✨" className="inline h-3.5 w-3.5" />
                     </span>
                   )}
                   <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
                   <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
                   <span className={clsx("rounded-full px-1.5 py-0.5 text-[11px] font-semibold", tierColour(gift.tier))}>
-                    🪙 {gift.coinCost.toLocaleString()}
+                    <Icon emoji="🪙" className="inline h-3 w-3 align-text-bottom" /> {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
               );
@@ -653,12 +654,12 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
           </p>
           {hasReward && (
             <p className="mt-0.5 truncate text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-              ✨ Unlocked: {gift.reward!.label} {expanded ? "▲" : "▼"}
+              <Icon emoji="✨" className="inline h-3 w-3 align-text-bottom" /> Unlocked: {gift.reward!.label} <Icon emoji={expanded ? "▲" : "▼"} className="inline h-3 w-3 align-text-bottom" />
             </p>
           )}
           {!hasReward && hasMessage && (
             <p className="mt-0.5 truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-              💬 {gift.message} {expanded ? "▲" : "▼"}
+              <Icon emoji="💬" className="inline h-3 w-3 align-text-bottom" /> {gift.message} <Icon emoji={expanded ? "▲" : "▼"} className="inline h-3 w-3 align-text-bottom" />
             </p>
           )}
         </div>
@@ -770,7 +771,7 @@ function GiftsPageContent() {
       {/* Page header */}
       <div className="mb-6 flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">🎁 Gifts</h1>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50"><Icon emoji="🎁" className="inline h-6 w-6 align-text-bottom" /> Gifts</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
             Send gifts to friends and see your gift history
           </p>
@@ -781,7 +782,7 @@ function GiftsPageContent() {
             onClick={() => { setSelectedCatalogGiftId(undefined); setShowModal(true); }}
             className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 active:bg-primary-800"
           >
-            🎁 Send a Gift
+            <Icon emoji="🎁" className="inline h-4 w-4 align-text-bottom" /> Send a Gift
           </button>
         </div>
       </div>
@@ -800,7 +801,19 @@ function GiftsPageContent() {
                 : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
             )}
           >
-            {tabKey === "catalog" ? t("gifts.tabs.catalog", { defaultValue: "🗂️ Catalog" }) : tabKey === "received" ? "📥 Received" : "📤 Sent"}
+            {tabKey === "catalog" ? (
+              <>
+                <Icon emoji="🗂️" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("gifts.tabs.catalog", { defaultValue: "Catalog" })}
+              </>
+            ) : tabKey === "received" ? (
+              <>
+                <Icon emoji="📥" className="inline h-3.5 w-3.5 align-text-bottom" /> Received
+              </>
+            ) : (
+              <>
+                <Icon emoji="📤" className="inline h-3.5 w-3.5 align-text-bottom" /> Sent
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -820,7 +833,7 @@ function GiftsPageContent() {
             </div>
           ) : allCatalogueGifts.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <span className="text-4xl" aria-hidden="true">🎁</span>
+              <Icon emoji="🎁" className="text-4xl" size={36} />
               <p className="text-sm text-neutral-500 dark:text-neutral-400">No gifts available right now.</p>
             </div>
           ) : (
@@ -838,7 +851,7 @@ function GiftsPageContent() {
                       title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
                       aria-hidden="true"
                     >
-                      ✨
+                      <Icon emoji="✨" className="inline h-3.5 w-3.5" />
                     </span>
                   )}
                   <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
@@ -847,7 +860,7 @@ function GiftsPageContent() {
                     {GIFT_TIER_LABELS[gift.tier] ?? `Tier ${gift.tier}`}
                   </span>
                   <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
-                    🪙 {gift.coinCost.toLocaleString()}
+                    <Icon emoji="🪙" className="inline h-3 w-3 align-text-bottom" /> {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
               ))}
@@ -884,7 +897,7 @@ function GiftsPageContent() {
           </div>
         ) : gifts.length === 0 ? (
           <div className="flex flex-col items-center gap-4 py-12 text-center">
-            <span className="text-4xl" aria-hidden="true">🎁</span>
+            <Icon emoji="🎁" className="text-4xl" size={36} />
             <div>
               <p className="font-semibold text-neutral-900 dark:text-neutral-50">
                 {tab === "received" ? "No gifts received yet" : "No gifts sent yet"}
@@ -901,7 +914,7 @@ function GiftsPageContent() {
                 onClick={() => setShowModal(true)}
                 className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
               >
-                🎁 Send a Gift
+                <Icon emoji="🎁" className="inline h-4 w-4 align-text-bottom" /> Send a Gift
               </button>
             )}
           </div>
@@ -930,7 +943,7 @@ function GiftsPageContent() {
           >
             <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 bg-white px-5 py-4 dark:border-neutral-800 dark:bg-neutral-900">
               <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-50">
-                🎁 Send a Gift
+                <Icon emoji="🎁" className="inline h-4 w-4 align-text-bottom" /> Send a Gift
               </h2>
               <button
                 type="button"
@@ -938,7 +951,7 @@ function GiftsPageContent() {
                 className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100 dark:text-neutral-400 dark:hover:bg-neutral-800"
                 aria-label="Close"
               >
-                <span aria-hidden="true" className="text-lg leading-none">✕</span>
+                <Icon emoji="✕" className="inline h-4 w-4" />
               </button>
             </div>
             <div className="px-5 py-4">

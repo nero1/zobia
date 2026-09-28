@@ -14,6 +14,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 type EventType = 'flash_xp' | 'guild_war' | 'cultural' | 'mystery_drop' | string;
 
@@ -140,7 +141,7 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-xl">🎁</span>
+            <Icon emoji="🎁" size={20} />
             <h2 className="text-sm font-semibold text-amber-700 dark:text-amber-300">{t('events.giftDrop.title')}</h2>
           </div>
           <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{drop.name}</p>
@@ -153,7 +154,7 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
       </div>
       <div className="mt-4 flex items-center gap-3">
         {drop.coinCost > 0 && (
-          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{drop.coinCost.toLocaleString()} 🪙</span>
+          <span className="inline-flex items-center gap-1 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{drop.coinCost.toLocaleString()} <Icon emoji="🪙" size={13} /></span>
         )}
         {drop.owned ? (
           <span className="rounded-full bg-teal-100 dark:bg-teal-900/40 px-3 py-1 text-sm font-semibold text-teal-700 dark:text-teal-300">
@@ -294,7 +295,7 @@ function EventsPage() {
 
       {activeEvents.length === 0 && upcomingEvents.length === 0 && !giftDrop && (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">📅</span>
+          <span className="flex justify-center"><Icon emoji="📅" size={44} /></span>
           <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('events.noEvents')}</h2>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('events.noEventsHint')}</p>
         </div>

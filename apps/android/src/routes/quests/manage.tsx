@@ -17,6 +17,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { Icon } from '@/components/ui/Icon';
 
 interface OwnedQuest {
   id: string;
@@ -103,7 +104,7 @@ function QuestManagePage() {
 
       {!quests || quests.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-          <span className="text-5xl">🎯</span>
+          <Icon emoji="🎯" size={48} />
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('quests.manage.empty', 'No quests attributed to you yet')}</p>
         </div>
       ) : (
@@ -116,13 +117,13 @@ function QuestManagePage() {
                   {q.is_active ? t('quests.manage.live', 'Live') : t('quests.manage.stopped', 'Stopped')}
                 </span>
                 {q.flag_status === 'flagged' && (
-                  <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">🚩 {t('quests.manage.flagged', 'Flagged')}</span>
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300"><Icon emoji="🚩" size={10} /> {t('quests.manage.flagged', 'Flagged')}</span>
                 )}
               </div>
               <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400 line-clamp-2">{q.description}</p>
               {q.pause_reason && (
                 <p className="mb-2 text-xs text-amber-600 dark:text-amber-300">
-                  {q.auto_paused ? '⚠️ ' : ''}{t('quests.manage.pauseReason', '{{prefix}}: {{reason}}', {
+                  {q.auto_paused ? <Icon emoji="⚠️" size={12} className="inline mr-1 align-text-bottom" /> : ''}{t('quests.manage.pauseReason', '{{prefix}}: {{reason}}', {
                     prefix: q.auto_paused ? t('quests.manage.autoPaused', 'Auto-paused') : t('quests.manage.paused', 'Paused'),
                     reason: q.pause_reason,
                   })}
@@ -130,10 +131,10 @@ function QuestManagePage() {
                 </p>
               )}
               <div className="mb-2 grid grid-cols-2 gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-                <div>📋 {t('quests.manage.applications', '{{count}} applications', { count: q.application_count })}</div>
-                <div>✅ {t('quests.manage.approved', '{{count}} approved', { count: q.approved_count })}</div>
-                <div>🏁 {t('quests.manage.completions', '{{count}} completions', { count: q.completions_count })}</div>
-                <div>🪙 {t('quests.manage.reward', '{{count}} {{currency}} reward', { count: q.reward_coins, currency: currency.softPlural })}</div>
+                <div className="inline-flex items-center gap-1"><Icon emoji="📋" size={12} /> {t('quests.manage.applications', '{{count}} applications', { count: q.application_count })}</div>
+                <div className="inline-flex items-center gap-1"><Icon emoji="✅" size={12} /> {t('quests.manage.approved', '{{count}} approved', { count: q.approved_count })}</div>
+                <div className="inline-flex items-center gap-1"><Icon emoji="🏁" size={12} /> {t('quests.manage.completions', '{{count}} completions', { count: q.completions_count })}</div>
+                <div className="inline-flex items-center gap-1"><Icon emoji="🪙" size={12} /> {t('quests.manage.reward', '{{count}} {{currency}} reward', { count: q.reward_coins, currency: currency.softPlural })}</div>
               </div>
               {q.is_daily_quest_eligible && (
                 <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">

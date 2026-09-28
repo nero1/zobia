@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface WikiSummary {
   id: string;
@@ -51,7 +52,7 @@ function WikiCard({ w, t }: { w: WikiSummary; t: (k: string, d: string, o?: Reco
         // eslint-disable-next-line @next/next/no-img-element
         <img src={w.cover_image_url} alt={w.name} className="mb-3 h-24 w-full rounded-xl object-cover" />
       ) : (
-        <div className="mb-3 flex items-center justify-center h-24 rounded-xl bg-neutral-800 text-4xl">📚</div>
+        <div className="mb-3 flex items-center justify-center h-24 rounded-xl bg-neutral-800"><Icon emoji="📚" className="text-4xl" size={32} /></div>
       )}
       <div className="font-bold text-foreground text-sm leading-tight">{w.name}</div>
       {w.description && <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{w.description}</div>}
@@ -151,7 +152,7 @@ export default function WikiDiscoveryPage() {
               tab === key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span aria-hidden="true">{icon}</span>
+            <Icon emoji={icon} aria-hidden />
             <span>{t(labelKey, fallback)}</span>
           </button>
         ))}
@@ -165,7 +166,7 @@ export default function WikiDiscoveryPage() {
         </div>
       ) : wikis.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <div className="text-4xl mb-3">📚</div>
+          <div className="mb-3"><Icon emoji="📚" className="text-4xl" size={32} /></div>
           <p>
             {search.trim()
               ? t("wiki.empty.search", "No wikis found for \"{{query}}\".", { query: search.trim() })

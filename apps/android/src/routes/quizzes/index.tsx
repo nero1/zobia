@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { useCallback, useRef, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { useFeatureFlags } from '@/lib/hooks/useManifest';
+import { Icon } from '@/components/ui/Icon';
 
 type Tab = 'new' | 'popular' | 'mine';
 
@@ -116,9 +117,9 @@ function QuizzesPage() {
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}
+            className={`flex-1 inline-flex items-center justify-center gap-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
-            {icon} {label}
+            <Icon emoji={icon} size={12} /> {label}
           </button>
         ))}
       </div>
@@ -136,7 +137,7 @@ function QuizzesPage() {
 
       {status === 'success' && quizzes.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🧠</div>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700"><Icon emoji="🧠" size={28} /></div>
           <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
             {tab === 'mine' ? t('quizzes.empty.mine', "You haven't created any quizzes yet.") : t('quizzes.empty.default', 'No quizzes yet — be the first to create one!')}
           </p>

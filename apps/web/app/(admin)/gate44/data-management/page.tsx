@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import UserManagementTable, { ALLOWED_FIELD_LABELS } from "@/components/admin/UserManagementTable";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 type Tab = "users" | "financial" | "statistical";
 
@@ -31,7 +32,7 @@ function StatCard({ label, value, icon }: { label: string; value: string; icon: 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-xl">{icon}</span>
+        <Icon emoji={icon} className="text-xl" size={20} />
         <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">{label}</p>
       </div>
       <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{value}</p>
@@ -238,7 +239,7 @@ function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Export Users</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"><Icon emoji="✕" size={16} /></button>
         </div>
 
         <div className="space-y-4">
@@ -350,7 +351,7 @@ function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[
             </p>
             <label className="flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
               <input type="checkbox" checked={includeCredentials} onChange={(e) => setIncludeCredentials(e.target.checked)} />
-              Include credentials (password hash, TOTP secret) so accounts stay login-capable — ⚠️ highly sensitive file
+              Include credentials (password hash, TOTP secret) so accounts stay login-capable — <Icon emoji="⚠️" size={14} className="inline-block align-[-2px]" /> highly sensitive file
             </label>
             <button
               onClick={() => void submitAccountsExport()}
@@ -432,7 +433,7 @@ function ImportModal({ onClose, showToast }: { onClose: () => void; showToast: (
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Import Users</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"><Icon emoji="✕" size={16} /></button>
         </div>
 
         {!job ? (
@@ -536,7 +537,7 @@ function CreateUserModal({ onClose, onCreated, showToast }: { onClose: () => voi
       <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Create User</h3>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"><Icon emoji="✕" size={16} /></button>
         </div>
         <div className="space-y-2">
           <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Username *" className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100" />

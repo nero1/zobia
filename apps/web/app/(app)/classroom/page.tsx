@@ -25,6 +25,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
 import type { ClassroomCard as ClassroomCardData } from "@/lib/classroom/directory";
 import { ClassroomCard } from "@/components/classroom/ClassroomCard";
+import { Icon } from "@/components/ui/Icon";
 
 interface EnrolledClassroom {
   id: string;
@@ -261,7 +262,7 @@ export default function ClassroomPage() {
             <Skeleton />
           ) : directory.data && directory.data.classrooms.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-center">
-              <span className="text-5xl">🏫</span>
+              <Icon emoji="🏫" size={48} />
               <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">{t("classroom.empty.browse.title", "No classrooms open")}</h2>
               <p className="mt-1 text-sm text-neutral-500">
                 {q || category || price !== "all"
@@ -283,7 +284,7 @@ export default function ClassroomPage() {
         </div>
       ) : enrolled.data.rooms.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">📚</span>
+          <Icon emoji="📚" size={48} />
           <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">{t("classroom.empty.mine.title", "No enrolled classrooms")}</h2>
           <p className="mt-1 text-sm text-neutral-500">{t("classroom.empty.mine.subtitle", "Browse and enroll in a ClassRoom to get started!")}</p>
         </div>

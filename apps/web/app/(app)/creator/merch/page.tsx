@@ -19,6 +19,7 @@ import { useState, useEffect, FormEvent } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface StoreState {
   id: string;
@@ -202,10 +203,10 @@ export default function CreatorMerchPage() {
   if (ineligible) {
     return (
       <div className="mx-auto max-w-2xl p-6 text-center">
-        <span className="text-4xl">🔒</span>
+        <Icon emoji="🔒" className="mx-auto h-10 w-10 text-4xl" />
         <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">Merch stores are for Elite+ creators and verified Business accounts</p>
         <p className="mt-1 text-sm text-neutral-500">Reach Elite tier or verify your Business account to open a store.</p>
-        <Link href="/creator" className="mt-4 inline-block text-sm text-blue-600 hover:underline">← Creator dashboard</Link>
+        <Link href="/creator" className="mt-4 inline-flex items-center gap-1 text-sm text-blue-600 hover:underline"><Icon emoji="←" className="h-3.5 w-3.5" /> Creator dashboard</Link>
       </div>
     );
   }
@@ -219,7 +220,7 @@ export default function CreatorMerchPage() {
       )}
 
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">🛍️ My Merch Store</h1>
+        <h1 className="inline-flex items-center gap-2 text-xl font-bold text-neutral-900 dark:text-neutral-50"><Icon emoji="🛍️" className="h-5 w-5" /> My Merch Store</h1>
         {store && <Link href={`/merch/${store.id}`} className="text-sm text-blue-600 hover:underline">View public page →</Link>}
       </div>
 
