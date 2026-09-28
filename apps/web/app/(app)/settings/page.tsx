@@ -20,6 +20,7 @@ import { usePhoneVerificationRequired } from "@/lib/hooks/usePhoneVerificationRe
 import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
 import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
 import { AvatarCropModal } from "@/components/profile/AvatarCropModal";
+import { Icon } from "@/components/ui/Icon";
 import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
 import { useSiteTheme } from "@/lib/hooks/useSiteTheme";
 import { SITE_THEMES, ICON_SETS } from "@zobia/shared/utils";
@@ -191,7 +192,7 @@ function SimpleChatTheme({
               <div className="h-8 w-12 rounded-lg" style={{ background: t.color }} />
               <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{t.label}</span>
               {locked && (
-                <span className="text-xs text-neutral-400">🔒</span>
+                <span className="text-xs text-neutral-400"><Icon emoji="🔒" size={12} /></span>
               )}
             </button>
             {tooltip === t.key && (
@@ -1077,7 +1078,7 @@ export default function SettingsPage() {
               onClick={() => setNextTheme(t)}
               className={`flex-1 rounded-xl py-2.5 text-sm font-semibold capitalize transition-colors ${(nextTheme ?? "system") === t ? "bg-blue-600 text-white" : "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}
             >
-              {t === "light" ? "☀️" : t === "dark" ? "🌙" : "💻"} {t}
+              <Icon emoji={t === "light" ? "☀️" : t === "dark" ? "🌙" : "💻"} size={14} className="inline mr-1" />{t}
             </button>
           ))}
         </div>
@@ -1382,7 +1383,7 @@ export default function SettingsPage() {
                           : "border border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400"
                       }`}
                     >
-                      {isHidden ? "🙈 " : ""}{label}
+                      {isHidden && <Icon emoji="🙈" size={12} className="inline mr-1" />}{label}
                     </button>
                   );
                 })}
@@ -1420,7 +1421,7 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
                 {settings?.isVerified ? (
                   <span className="inline-flex items-center gap-1">
-                    You have the blue checkmark <span className="text-blue-500" aria-hidden="true">✔</span>
+                    You have the blue checkmark <Icon emoji="✔" size={14} className="text-blue-500" />
                   </span>
                 ) : (
                   "Get the blue checkmark"
@@ -2228,7 +2229,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
             <>
               <div className="flex items-center gap-3">
                 <div className={`flex h-8 w-8 items-center justify-center rounded-full text-base ${totpEnabled ? "bg-teal-100 dark:bg-teal-900" : "bg-neutral-100 dark:bg-neutral-800"}`}>
-                  {totpEnabled ? "✓" : "🔒"}
+                  <Icon emoji={totpEnabled ? "✓" : "🔒"} size={16} />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">

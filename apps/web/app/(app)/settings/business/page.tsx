@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // BusinessTierCard
@@ -195,9 +196,9 @@ function BusinessTierCard({
                   return (
                     <li key={feat} className="flex items-start gap-1.5 text-xs">
                       {included ? (
-                        <span className="mt-px font-bold text-teal-600">✓</span>
+                        <span className="mt-px font-bold text-teal-600"><Icon emoji="✓" size={12} /></span>
                       ) : (
-                        <span className="mt-px font-bold text-neutral-300 dark:text-neutral-600">✗</span>
+                        <span className="mt-px font-bold text-neutral-300 dark:text-neutral-600"><Icon emoji="✗" size={12} /></span>
                       )}
                       <span className={included ? "text-neutral-700 dark:text-neutral-300" : "text-neutral-400 dark:text-neutral-600"}>
                         {feat}
@@ -290,7 +291,7 @@ const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
 const VERIFICATION_BADGE: Record<VerificationStatus, { label: string; classes: string }> = {
   unverified: { label: "Unverified", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" },
   pending: { label: "Pending Review", classes: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
-  verified: { label: "Verified ✓", classes: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300" },
+  verified: { label: "Verified", classes: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300" },
   rejected: { label: "Rejected", classes: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
 };
 
@@ -569,7 +570,7 @@ export default function BusinessSettingsPage() {
     <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-6">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Link href="/settings" className="text-sm text-neutral-500 hover:underline">← Settings</Link>
+        <Link href="/settings" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={12} /> Settings</Link>
         <span className="text-neutral-300">/</span>
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Business Account</h1>
       </div>
@@ -620,8 +621,8 @@ export default function BusinessSettingsPage() {
                 <p className="text-sm text-neutral-500 capitalize">{business.business_type}</p>
               )}
             </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${badge.classes}`}>
-              {badge.label}
+            <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold ${badge.classes}`}>
+              {badge.label}{verStatus === "verified" && <Icon emoji="✓" size={12} />}
             </span>
           </div>
 
