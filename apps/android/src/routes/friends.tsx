@@ -17,6 +17,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface Friend {
   id: string;
@@ -67,7 +68,7 @@ interface FriendRow {
 }
 
 function mapFriend(row: FriendRow): Friend {
-  return { id: row.userId ?? row.id, username: row.username, displayName: row.displayName ?? null, avatarEmoji: row.avatarEmoji ?? '🙂' };
+  return { id: row.userId ?? row.id, username: row.username, displayName: row.displayName ?? null, avatarEmoji: row.avatarEmoji ?? '' };
 }
 
 interface FriendRequestRow {
@@ -86,7 +87,7 @@ function mapRequest(row: FriendRequestRow): FriendRequest {
     addresseeId: row.addressee_id,
     username: row.username,
     displayName: row.display_name,
-    avatarEmoji: row.avatar_emoji ?? '🙂',
+    avatarEmoji: row.avatar_emoji ?? '',
   };
 }
 
@@ -144,7 +145,7 @@ function ProfileLink({
 }) {
   return (
     <Link to="/profile/$username" params={{ username }} className="flex min-w-0 flex-1 items-center gap-3">
-      <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-lg shrink-0">{emoji || '🙂'}</div>
+      <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-lg shrink-0">{emoji || <Icon emoji="🙂" size={18} />}</div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{name}</p>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">@{username}</p>
@@ -351,7 +352,7 @@ function RecentChatsTab() {
             params={{ conversationId: c.conversationId }}
             className="shrink-0 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
           >
-            💬 {t('friends.recent.message', 'Message')}
+            <Icon emoji="💬" size={12} className="inline" /> {t('friends.recent.message', 'Message')}
           </Link>
         </li>
       ))}
@@ -410,10 +411,10 @@ function FriendsPage() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<Tab>('friends');
 
-  const tabs: { id: Tab; label: string }[] = [
+  const tabs: { id: Tab; label: string; icon?: string }[] = [
     { id: 'friends', label: t('friends.tabs.myFriends') },
     { id: 'requests', label: t('friends.tabs.requests') },
-    { id: 'recent', label: `🕐 ${t('friends.tabs.recent', 'Recent')}` },
+    { id: 'recent', label: t('friends.tabs.recent', 'Recent'), icon: '🕐' },
     { id: 'discover', label: t('friends.tabs.discover') },
   ];
 
@@ -432,6 +433,7 @@ function FriendsPage() {
               tab === tItem.id ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'
             }`}
           >
+            {tItem.icon && <Icon emoji={tItem.icon} size={13} className="mr-1 inline" />}
             {tItem.label}
           </button>
         ))}
