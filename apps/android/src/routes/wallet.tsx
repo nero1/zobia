@@ -127,7 +127,7 @@ function CreatorEarningsCard({ payouts, fiat }: { payouts: CreatorPayoutsSummary
       <div className="mt-3">
         <div className="flex items-center justify-between text-xs">
           <span className={`font-semibold ${met ? 'text-teal-700 dark:text-teal-300' : 'text-amber-700 dark:text-amber-300'}`}>
-            {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${fmt(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
+            {met ? <span className="inline-flex items-center gap-1"><Icon emoji="✅" size={12} /> {t('creator.thresholdMet', 'Withdrawal threshold reached')}</span> : `${fmt(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
           </span>
         </div>
         <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
@@ -148,7 +148,7 @@ function RankBadgesSummary({ me }: { me: MeSummary }) {
         {me.prestige_count > 0 && (
           <span className="text-amber-500 text-sm">{'★'.repeat(Math.min(me.prestige_count, 5))}</span>
         )}
-        <span className="text-sm text-neutral-500 dark:text-neutral-400">🏆 {t('profile.stats.badgeCount', { count: me.badge_count })}</span>
+        <span className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400"><Icon emoji="🏆" size={12} /> {t('profile.stats.badgeCount', { count: me.badge_count })}</span>
       </div>
       <span className="shrink-0 text-xs font-semibold text-primary-600 dark:text-primary-300">{t('wallet.viewFullStats')}</span>
     </Link>
@@ -227,8 +227,12 @@ function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
             disabled={purchasingId !== null}
             className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-3 text-left disabled:opacity-60"
           >
-            <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
-              {tab === 'coins' ? `🪙 ${(p as (typeof COIN_PRODUCTS)[number]).coins.toLocaleString()}` : `⭐ ${(p as (typeof STAR_PRODUCTS)[number]).stars.toLocaleString()}`}
+            <p className="inline-flex items-center gap-1 text-sm font-bold text-neutral-900 dark:text-neutral-100">
+              {tab === 'coins' ? (
+                <><Icon emoji="🪙" size={13} /> {(p as (typeof COIN_PRODUCTS)[number]).coins.toLocaleString()}</>
+              ) : (
+                <><Icon emoji="⭐" size={13} /> {(p as (typeof STAR_PRODUCTS)[number]).stars.toLocaleString()}</>
+              )}
             </p>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
               {purchasingId === p.id ? t('common.loading', 'Loading…') : p.price}
@@ -348,7 +352,7 @@ function BoosterPacksPanel({ onPurchased }: { onPurchased: () => void }) {
                     ? t('wallet.boosters.active', 'Active')
                     : purchaseMutation.isPending && purchaseMutation.variables === b.key
                       ? t('common.loading', 'Loading…')
-                      : `🪙 ${(b.coins_cost ?? 0).toLocaleString()}`}
+                      : <span className="inline-flex items-center gap-1"><Icon emoji="🪙" size={11} /> {(b.coins_cost ?? 0).toLocaleString()}</span>}
                 </p>
               </button>
             );

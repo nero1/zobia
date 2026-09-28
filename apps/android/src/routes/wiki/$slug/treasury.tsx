@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { fetchWiki, fetchTreasury } from '@/lib/wiki/api';
+import { Icon } from '@/components/ui/Icon';
 
 function WikiTreasuryPage() {
   const { slug } = Route.useParams();
@@ -73,10 +74,13 @@ function WikiTreasuryPage() {
 
       {treasury && treasury.status === 'active' ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4 text-sm text-amber-800 dark:text-amber-300">
-          🎁 {t('wiki.treasury.activeSummary', '{{amount}} credits each for the next {{slots}} contributors or sharers.', {
-            amount: treasury.rewardPerClaimant,
-            slots: Math.max(treasury.maxClaimants - treasury.claimantCount, 0),
-          })}
+          <span className="inline-flex items-start gap-1.5">
+            <Icon emoji="🎁" size={14} className="mt-0.5 shrink-0" />
+            {t('wiki.treasury.activeSummary', '{{amount}} credits each for the next {{slots}} contributors or sharers.', {
+              amount: treasury.rewardPerClaimant,
+              slots: Math.max(treasury.maxClaimants - treasury.claimantCount, 0),
+            })}
+          </span>
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {t('wiki.treasury.claimedSoFar', '{{claimed}} of {{max}} claimed so far.', { claimed: treasury.claimantCount, max: treasury.maxClaimants })}
           </p>

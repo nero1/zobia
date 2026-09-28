@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { fetchWiki, fetchWikiPages } from '@/lib/wiki/api';
 import { WikiOwnerToolbar } from '@/components/wiki/WikiOwnerToolbar';
 import { formatShortDate } from '@/lib/format/date';
+import { Icon } from '@/components/ui/Icon';
 
 function WikiHomePage() {
   const { slug } = Route.useParams();
@@ -36,7 +37,7 @@ function WikiHomePage() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
         <div className="flex items-start gap-3">
           <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800 text-2xl">
-            {wiki.avatar_url ? <img src={wiki.avatar_url} alt="" className="h-full w-full object-cover" /> : '📖'}
+            {wiki.avatar_url ? <img src={wiki.avatar_url} alt="" className="h-full w-full object-cover" /> : <Icon emoji="📖" size={22} />}
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 truncate">{wiki.name}</h1>
@@ -47,7 +48,7 @@ function WikiHomePage() {
         <div className="mt-3 flex items-center gap-3 border-t border-neutral-100 dark:border-neutral-800 pt-3 text-xs text-neutral-500 dark:text-neutral-400">
           <span>{t('wiki.stat.pages', '{{count}} pages', { count: wiki.page_count })}</span>
           <span>{t('wiki.stat.contributors', '{{count}} contributors', { count: wiki.contributor_count })}</span>
-          <span>👁 {wiki.view_count}</span>
+          <span className="inline-flex items-center gap-1"><Icon emoji="👁" size={11} /> {wiki.view_count}</span>
         </div>
       </div>
 
@@ -86,7 +87,7 @@ function WikiHomePage() {
               <h2 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{p.title}</h2>
               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
                 <span>{formatShortDate(p.updated_at)}</span>
-                <span>👁 {p.view_count}</span>
+                <span className="inline-flex items-center gap-1"><Icon emoji="👁" size={10} /> {p.view_count}</span>
                 <span>{t('wiki.pages.revisionCount', '{{count}} edits', { count: p.revision_count })}</span>
               </div>
             </Link>
