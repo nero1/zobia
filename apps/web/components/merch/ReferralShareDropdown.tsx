@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth/hooks";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -74,8 +75,12 @@ export function ReferralShareDropdown({ itemUrl, isPhysical, commissionPct }: Re
         onClick={toggle}
         className="flex w-full items-center justify-between rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 font-medium text-teal-700 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950 dark:text-teal-300 dark:hover:bg-teal-900"
       >
-        <span>💰 {commissionLabel}</span>
-        <span aria-hidden>{open ? "▲" : "▼"}</span>
+        <span className="flex items-center gap-1">
+          <Icon emoji="💰" size={14} /> {commissionLabel}
+        </span>
+        <span aria-hidden>
+          <Icon emoji={open ? "▲" : "▼"} size={12} />
+        </span>
       </button>
       {open && (
         <div className="mt-1.5 rounded-lg border border-neutral-200 bg-white p-2 dark:border-neutral-800 dark:bg-neutral-900">
@@ -95,7 +100,7 @@ export function ReferralShareDropdown({ itemUrl, isPhysical, commissionPct }: Re
                 title="Copy link"
                 className="shrink-0 rounded bg-teal-600 px-2 py-1 text-white hover:bg-teal-700"
               >
-                {copied ? "✓" : "📋"}
+                {copied ? <Icon emoji="✓" size={14} /> : <Icon emoji="📋" size={14} />}
               </button>
             </div>
           ) : (
