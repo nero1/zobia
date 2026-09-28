@@ -20,6 +20,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
+import { Icon } from '@/components/ui/Icon';
 
 interface MerchStore {
   creatorId: string;
@@ -77,7 +78,7 @@ function MerchDirectoryPage() {
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-          <span className="text-5xl">🛍️</span>
+          <Icon emoji="🛍️" size={44} />
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{search ? t('merch.noSearchResults', 'No stores match your search') : t('merch.empty', 'No stores yet')}</p>
         </div>
       ) : (
@@ -90,7 +91,7 @@ function MerchDirectoryPage() {
               className="flex flex-col rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm"
             >
               <div className="mb-2 flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">🛍️</span>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl"><Icon emoji="🛍️" size={18} /></span>
                 <p className="min-w-0 truncate font-semibold text-neutral-900 dark:text-neutral-100">{store.storeName}</p>
               </div>
               {store.description && <p className="mb-2 line-clamp-2 text-sm text-neutral-600 dark:text-neutral-400">{store.description}</p>}

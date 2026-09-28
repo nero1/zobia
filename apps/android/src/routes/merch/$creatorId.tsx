@@ -20,6 +20,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
+import { Icon } from '@/components/ui/Icon';
 
 interface Product {
   id: string;
@@ -133,7 +134,7 @@ function CreatorMerchStorePage() {
     return (
       <div className="flex flex-col items-center p-12">
         <p className="text-neutral-500 dark:text-neutral-400">{t('merch.storeNotFound', 'Store not found')}</p>
-        <Link to="/merch" className="mt-3 text-sm text-primary-600 dark:text-primary-300">← {t('merch.backToStores', 'Back to Stores')}</Link>
+        <Link to="/merch" className="mt-3 text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('merch.backToStores', 'Back to Stores')}</Link>
       </div>
     );
   }
@@ -153,7 +154,7 @@ function CreatorMerchStorePage() {
 
       {store.products.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
-          <span className="text-5xl">📦</span>
+          <Icon emoji="📦" size={44} />
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('merch.noProducts', 'No products yet')}</p>
         </div>
       ) : (
@@ -163,14 +164,14 @@ function CreatorMerchStorePage() {
               {product.imageUrl ? (
                 <img src={product.imageUrl} alt={product.name} className="mb-2 h-24 w-full rounded-xl object-cover" />
               ) : (
-                <div className="mb-2 flex h-24 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl">🛍️</div>
+                <div className="mb-2 flex h-24 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl"><Icon emoji="🛍️" size={28} /></div>
               )}
               <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</p>
               {product.stock !== null && product.stock <= 5 && !product.isSoldOut && (
                 <p className="text-xs font-semibold text-red-600 dark:text-red-300">{t('merch.lowStock', 'Only {{count}} left!', { count: product.stock })}</p>
               )}
               <div className="mt-auto space-y-1.5 pt-2">
-                <p className="text-base font-bold text-amber-600 dark:text-amber-300">🪙 {product.priceCoin.toLocaleString()}</p>
+                <p className="text-base font-bold text-amber-600 dark:text-amber-300 inline-flex items-center gap-1"><Icon emoji="🪙" size={14} /> {product.priceCoin.toLocaleString()}</p>
                 {product.isSoldOut ? (
                   <div className="rounded-xl bg-neutral-100 dark:bg-neutral-800 py-1.5 text-center text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('merch.soldOut', 'Sold Out')}</div>
                 ) : (
