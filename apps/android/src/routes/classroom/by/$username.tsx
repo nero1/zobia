@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { apiError, get, send, type ClassroomCard } from '@/lib/classroom/api';
 import { ClassroomCardView } from '@/components/classroom/ClassroomCardView';
 import { ClassroomBoostButton, ClassroomShareButton } from '@/components/classroom/ClassroomActions';
+import { Icon } from '@/components/ui/Icon';
 
 interface Listing {
   creator: { username: string; displayName: string; avatarEmoji: string };
@@ -38,8 +39,8 @@ function CreatorClassroomsPage() {
 
   return (
     <div className="space-y-4 p-4">
-      <Link to="/classroom" className="text-sm text-neutral-500">
-        ← {t('classroom.home.back', 'All classrooms')}
+      <Link to="/classroom" className="inline-flex items-center gap-1 text-sm text-neutral-500">
+        <Icon emoji="←" size={14} /> {t('classroom.home.back', 'All classrooms')}
       </Link>
       <div className="flex items-center gap-3">
         <span className="text-4xl">{creator.avatarEmoji}</span>
@@ -54,8 +55,8 @@ function CreatorClassroomsPage() {
         </p>
       )}
       {classrooms.length === 0 ? (
-        <p className="py-12 text-center text-sm text-neutral-500">
-          🏫 {isOwner ? t('classroom.listing.emptyOwner', "You haven't created a classroom yet.") : t('classroom.listing.empty', 'No classrooms listed yet.')}
+        <p className="flex items-center justify-center gap-1.5 py-12 text-center text-sm text-neutral-500">
+          <Icon emoji="🏫" size={16} /> {isOwner ? t('classroom.listing.emptyOwner', "You haven't created a classroom yet.") : t('classroom.listing.empty', 'No classrooms listed yet.')}
         </p>
       ) : (
         classrooms.map((c) => (
@@ -72,8 +73,8 @@ function CreatorClassroomsPage() {
                   </button>
                 )}
                 {isOwner && (
-                  <Link to="/classroom/studio/$roomId" params={{ roomId: c.id }} className={btn}>
-                    ⚙️ {t('classroom.home.manage', 'Manage')}
+                  <Link to="/classroom/studio/$roomId" params={{ roomId: c.id }} className={`${btn} inline-flex items-center gap-1`}>
+                    <Icon emoji="⚙️" size={12} /> {t('classroom.home.manage', 'Manage')}
                   </Link>
                 )}
               </>

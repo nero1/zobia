@@ -14,6 +14,7 @@ import { apiError, get, type ClassroomHome } from '@/lib/classroom/api';
 import { ClassroomBoostButton, ClassroomShareButton } from '@/components/classroom/ClassroomActions';
 import { EventsPanel } from '@/components/classroom/Panels';
 import { CurriculumPanel, MembersPanel, ReportsPanel, SettingsPanel, SlugPanel, StatsPanel } from '@/components/classroom/Studio';
+import { Icon } from '@/components/ui/Icon';
 
 type Tab = 'stats' | 'lessons' | 'members' | 'reports' | 'sessions' | 'url' | 'settings';
 
@@ -42,8 +43,8 @@ function StudioDetailPage() {
 
   return (
     <div className="space-y-3 p-4">
-      <Link to="/classroom/studio" className="text-sm text-neutral-500">
-        ← {t('classroom.nav.studio', 'Classroom Studio')}
+      <Link to="/classroom/studio" className="inline-flex items-center gap-1 text-sm text-neutral-500">
+        <Icon emoji="←" size={14} /> {t('classroom.nav.studio', 'Classroom Studio')}
       </Link>
       <div className="flex items-center gap-3">
         <span className="text-3xl">{c.coverEmoji}</span>

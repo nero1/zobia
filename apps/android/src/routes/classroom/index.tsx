@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { apiError, get, type ClassroomCard, type EnrolledClassroom } from '@/lib/classroom/api';
 import { ClassroomCardView } from '@/components/classroom/ClassroomCardView';
+import { Icon } from '@/components/ui/Icon';
 
 type Tab = 'discover' | 'enrolled';
 type Price = 'all' | 'free' | 'paid';
@@ -121,7 +122,7 @@ function ClassroomHubPage() {
             <div className="h-28 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
           ) : directory.data?.classrooms.length === 0 ? (
             <div className="py-12 text-center">
-              <span className="text-5xl">🏫</span>
+              <span className="flex justify-center"><Icon emoji="🏫" size={44} /></span>
               <p className="mt-3 font-semibold">{t('classroom.empty.browse.title', 'No classrooms open')}</p>
               <p className="text-sm text-neutral-500">
                 {q || category || price !== 'all'
@@ -137,7 +138,7 @@ function ClassroomHubPage() {
         <div className="h-28 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
       ) : !enrolled.data || enrolled.data.rooms.length === 0 ? (
         <div className="py-12 text-center">
-          <span className="text-5xl">📚</span>
+          <span className="flex justify-center"><Icon emoji="📚" size={44} /></span>
           <p className="mt-3 font-semibold">{t('classroom.empty.mine.title', 'No enrolled classrooms')}</p>
           <p className="text-sm text-neutral-500">{t('classroom.empty.mine.subtitle', 'Browse and enroll in a ClassRoom to get started!')}</p>
         </div>

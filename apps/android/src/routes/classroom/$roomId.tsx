@@ -22,6 +22,7 @@ import { ClassroomBoostButton, ClassroomShareButton } from '@/components/classro
 import { CommunityFeed } from '@/components/classroom/Community';
 import { EventsPanel, LeaderboardPanel, LessonsPanel, QuizzesPanel } from '@/components/classroom/Panels';
 import { useFiatCurrency, formatKoboClient } from '@/lib/hooks/useFiatCurrency';
+import { Icon } from '@/components/ui/Icon';
 
 type Tab = 'community' | 'classroom' | 'calendar' | 'leaderboard' | 'about';
 
@@ -124,15 +125,15 @@ function ClassroomHomePage() {
     { key: 'about', label: t('classroom.home.tabs.about', 'About'), locked: false },
   ];
   const lockedPrompt = (
-    <p className="rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500">
-      🔒 {t('classroom.home.membersOnly', 'Enrol in this classroom to join the community, climb the leaderboard and access every lesson.')}
+    <p className="flex items-center justify-center gap-1.5 rounded-xl border border-dashed border-neutral-300 p-6 text-center text-sm text-neutral-500">
+      <Icon emoji="🔒" size={14} /> {t('classroom.home.membersOnly', 'Enrol in this classroom to join the community, climb the leaderboard and access every lesson.')}
     </p>
   );
 
   return (
     <div className="space-y-3 p-4">
-      <Link to="/classroom" className="text-sm text-neutral-500">
-        ← {t('classroom.home.back', 'All classrooms')}
+      <Link to="/classroom" className="inline-flex items-center gap-1 text-sm text-neutral-500">
+        <Icon emoji="←" size={14} /> {t('classroom.home.back', 'All classrooms')}
       </Link>
       <header className="space-y-3 rounded-2xl bg-white dark:bg-neutral-800 p-4 shadow-card">
         <div className="flex items-start gap-3">
@@ -150,18 +151,18 @@ function ClassroomHomePage() {
           {!viewer.isEnrolled && !viewer.isCreator && classroom.isActive ? (
             <EnrolAction home={home} onEnrolled={() => void qc.invalidateQueries({ queryKey: ['classroom'] })} />
           ) : viewer.isEnrolled ? (
-            <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700">✓ {t('classroom.card.enrolled', 'Enrolled')}</span>
+            <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700"><Icon emoji="✓" size={12} /> {t('classroom.card.enrolled', 'Enrolled')}</span>
           ) : null}
           {insider && classroom.chatRoomEnabled && (
-            <Link to="/rooms/$roomId" params={{ roomId: classroom.id }} className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-              💬 {t('classroom.home.openRoom', 'Open Room')}
+            <Link to="/rooms/$roomId" params={{ roomId: classroom.id }} className="inline-flex items-center gap-1 rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+              <Icon emoji="💬" size={14} /> {t('classroom.home.openRoom', 'Open Room')}
             </Link>
           )}
           <ClassroomShareButton roomId={classroom.id} slug={classroom.slug} name={classroom.name} />
           {viewer.can.manageClassroom && <ClassroomBoostButton roomId={classroom.id} name={classroom.name} />}
           {(viewer.can.manageClassroom || viewer.isModerator) && (
-            <Link to="/classroom/studio/$roomId" params={{ roomId: classroom.id }} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold">
-              ⚙️ {t('classroom.home.manage', 'Manage')}
+            <Link to="/classroom/studio/$roomId" params={{ roomId: classroom.id }} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold">
+              <Icon emoji="⚙️" size={12} /> {t('classroom.home.manage', 'Manage')}
             </Link>
           )}
         </div>
@@ -182,7 +183,7 @@ function ClassroomHomePage() {
         {tabs.map((tb) => (
           <button key={tb.key} onClick={() => setTab(tb.key)} className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${active === tb.key ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-300'}`}>
             {tb.label}
-            {tb.locked && ' 🔒'}
+            {tb.locked && <Icon emoji="🔒" size={11} className="ml-1 inline" />}
           </button>
         ))}
       </nav>
