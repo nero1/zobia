@@ -6,20 +6,20 @@ export const dynamic = 'force-dynamic';
  * POST /api/auth/pin/verify
  *
  * Verify a user's PIN for sensitive operations (payments, payouts, etc).
- * Returns { verified: true } on success and { verified: false } on mismatch.
+ * Returns { verified: true } on success, 400 INVALID_PIN on mismatch and 429
+ * PIN_LOCKED after too many failures (lib/auth/pinAttempts.ts).
  * Returns 422 if the user has no PIN configured.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { eq } from "drizzle-orm";
-import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { markPinVerified } from "@/lib/auth/pinGuard";
+import { assertPinNotLocked, requireCorrectPin } from "@/lib/auth/pinAttempts";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -38,48 +38,24 @@ const verifyPinSchema = z.object({
 /**
  * Verify the authenticated user's PIN.
  *
- * @returns JSON { verified: true | false }
+ * 200 { verified: true }                     correct PIN
+ * 400 INVALID_PIN { attemptsRemaining }      wrong PIN (NOT 401 — see requireCorrectPin)
+ * 429 PIN_LOCKED                             locked out after repeated wrong PINs
+ * 422 NO_PIN_CONFIGURED                      user has no PIN
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    // PIN-specific rate limit: 5 attempts per 15 minutes to prevent brute-force (BUG-14)
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.pinVerify);
+    // Coarse request throttle (bcrypt CPU-DoS guard). Brute-force protection is
+    // the failed-attempt lockout in lib/auth/pinAttempts.ts, which — unlike a
+    // plain rate limit — is not consumed by successful verifications.
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.pinVerifyRequests);
 
     const userId = auth.user.sub;
     const body = await validateBody(req, verifyPinSchema);
 
-    // BUG-L04: The previous read-then-write pattern had a TOCTOU race — two
-    // concurrent wrong-PIN requests could both read failures=9, both pass the
-    // threshold check, and both proceed to bcrypt. Fix: atomically INCR the
-    // counter before bcrypt to claim a slot, then check the returned value.
-    // Decrement on success (correct PIN) so valid users aren't incorrectly locked.
-    const failKey = `pin_fail:${userId}`;
+    // Cheap lock check first so a locked account never reaches the database.
+    await assertPinNotLocked(userId);
 
-    // Atomically increment and check whether we're already over the limit.
-    const tentativeFailures = await redis.incr(failKey);
-
-    // Compute escalating TTL and apply it before any early return so the
-    // extended lockout window is always enforced even on repeated over-limit requests.
-    const lockoutTtl = tentativeFailures >= 20 ? 24 * 3600 : tentativeFailures >= 10 ? 30 * 60 : 5 * 60;
-    await redis.expire(failKey, lockoutTtl);
-
-    if (tentativeFailures > 20) {
-      return NextResponse.json(
-        { error: "PIN locked: too many failed attempts. Please re-authenticate.", code: "PIN_LOCKED" },
-        { status: 429 }
-      );
-    }
-    if (tentativeFailures > 10) {
-      const ttl = await redis.ttl(failKey);
-      if (ttl > 0) {
-        return NextResponse.json(
-          { error: `PIN temporarily locked. Try again in ${Math.ceil(ttl / 60)} minutes.`, code: "PIN_LOCKED" },
-          { status: 429 }
-        );
-      }
-    }
-
-    // Fetch the user's stored PIN hash
     const orm = await getDb();
     const rows = await orm
       .select({ pinHash: schema.userPins.pinHash })
@@ -88,23 +64,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .limit(1);
 
     if (!rows[0]) {
-      // No PIN configured — return 422 Unprocessable Entity
-      // Decrement the counter since this is not a real failed attempt
-      await redis.decr(failKey).catch(() => {});
       throw new ApiError(422, "NO_PIN_CONFIGURED", "No PIN configured for this account");
     }
 
-    const verified = await bcrypt.compare(body.pin, rows[0].pinHash);
+    await requireCorrectPin(userId, body.pin, rows[0].pinHash);
+    await markPinVerified(userId, auth.user.sid);
 
-    if (!verified) {
-      // Wrong PIN — TTL already set above before the early-return guards.
-    } else {
-      // Correct PIN — roll back the tentative increment and record the verified session
-      await redis.del(failKey);
-      await markPinVerified(userId, auth.user.sid);
-    }
-
-    return NextResponse.json({ verified }, { status: 200 });
+    return NextResponse.json({ verified: true }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

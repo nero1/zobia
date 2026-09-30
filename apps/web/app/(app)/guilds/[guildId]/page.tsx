@@ -24,6 +24,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { Icon } from "@/components/ui/Icon";
+import { RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -183,6 +184,31 @@ interface WarContributor {
   rank_name: string;
   war_points: number;
   guild_id: string;
+  /** The member hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
+  /** Real identity — only sent to this guild's captain / moderators, behind a "Reveal" control. */
+  revealed?: { user_id: string; username: string; display_name: string; avatar_emoji: string };
+}
+
+function WarContributorRow({ c, rank }: { c: WarContributor; rank: number }) {
+  const { t } = useTranslation();
+  const reveal = useReveal(c.revealed);
+  const shown = reveal.shown && c.revealed ? c.revealed : c;
+  return (
+    <div className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-white/60 dark:bg-neutral-900/40">
+      <span className="w-4 shrink-0 text-xs font-bold text-neutral-400 tabular-nums">{rank}</span>
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-base dark:bg-neutral-800">
+        {shown.avatar_emoji}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+        {c.anonymous && !reveal.shown ? t("leaderboard.anonymous.name", "Anonymous") : shown.display_name || shown.username}
+        {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+      </span>
+      <span className="ml-auto shrink-0 text-xs font-bold tabular-nums text-blue-600 dark:text-blue-400">
+        {c.war_points.toLocaleString()} pts
+      </span>
+    </div>
+  );
 }
 
 function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) {
@@ -200,8 +226,12 @@ function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) 
     const load = () => {
       fetch(`/api/guilds/wars/${war.id}/leaderboard`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
-        .then((d: { data?: { contributions?: WarContributor[] } } | null) => {
-          if (!cancelled && d?.data?.contributions) setContributors(d.data.contributions);
+        .then((d: { data?: { challenger?: { members?: WarContributor[] }; defender?: { members?: WarContributor[] } } } | null) => {
+          // The endpoint returns each guild's members separately; flatten so
+          // the per-guild filter below can pick our own side.
+          if (!cancelled && d?.data) {
+            setContributors([...(d.data.challenger?.members ?? []), ...(d.data.defender?.members ?? [])]);
+          }
         })
         .catch(() => {});
     };
@@ -255,18 +285,7 @@ function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) 
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">Top Contributors</p>
           <div className="space-y-1">
             {myContribs.map((c, i) => (
-              <div key={c.user_id} className="flex items-center gap-2 rounded-lg px-3 py-1.5 bg-white/60 dark:bg-neutral-900/40">
-                <span className="w-4 shrink-0 text-xs font-bold text-neutral-400 tabular-nums">{i + 1}</span>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-base dark:bg-neutral-800">
-                  {c.avatar_emoji}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-                  {c.display_name || c.username}
-                </span>
-                <span className="ml-auto shrink-0 text-xs font-bold tabular-nums text-blue-600 dark:text-blue-400">
-                  {c.war_points.toLocaleString()} pts
-                </span>
-              </div>
+              <WarContributorRow key={c.user_id} c={c} rank={i + 1} />
             ))}
           </div>
         </div>

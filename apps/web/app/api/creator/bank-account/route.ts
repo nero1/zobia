@@ -36,6 +36,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { verifyTotp } from "@/lib/auth/totp";
 import { redis } from "@/lib/redis";
+import { verifyPinAttempt } from "@/lib/auth/pinAttempts";
 import { resolveAccount, createTransferRecipient } from "@/lib/payments/paystack";
 import { getBankByCode } from "@/lib/payments/supported-banks";
 import { loadManifest } from "@/lib/manifest";
@@ -116,7 +117,9 @@ async function verifySecurityGate(
     let verified = false;
 
     if (hasPinHash && /^\d{4}$/.test(pinOrCode)) {
-      verified = await bcrypt.compare(pinOrCode, row!.pinHash!);
+      // Shared lockout: a 4-digit guess here counts against the same
+      // failed-PIN budget as /api/auth/pin/verify.
+      verified = (await verifyPinAttempt(userId, pinOrCode, row!.pinHash!)).verified;
     }
 
     if (!verified && hasTotp && /^\d{6}$/.test(pinOrCode)) {

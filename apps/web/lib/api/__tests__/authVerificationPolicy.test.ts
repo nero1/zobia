@@ -31,6 +31,8 @@ describe("requiresLiveVerification — sensitive surfaces", () => {
     ["POST", "/api/kyc/submit"],
     ["POST", "/api/auth/2fa/disable"],
     ["POST", "/api/auth/pin/verify"],
+    ["POST", "/api/auth/pin/reset"],
+    ["POST", "/api/auth/pin/setup"],
     ["POST", "/api/creator/bank-account"],
     ["DELETE", "/api/auth/sessions"],
     ["PATCH", "/api/payouts/request"],

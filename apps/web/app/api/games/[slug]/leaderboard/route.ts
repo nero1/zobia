@@ -24,7 +24,7 @@ export const GET = withAuth(
       if (!game) throw notFound("Game not found.");
 
       const page = Number(new URL(req.url).searchParams.get("page") ?? "1") || 1;
-      const board = await getGameLeaderboard(game.id, page);
+      const board = await getGameLeaderboard(game.id, page, auth.user.sub);
       return NextResponse.json({ success: true, data: board, error: null }, {
         headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" },
       });

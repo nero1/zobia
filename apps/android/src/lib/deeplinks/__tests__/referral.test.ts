@@ -29,6 +29,16 @@ vi.mock("@capacitor/app", () => ({
   App: { addListener: vi.fn(async () => ({ remove: () => {} })) },
 }));
 
+// referral.ts transitively loads lib/api/client, which registers a Network
+// listener at import time; the real plugin needs `window` and rejected as an
+// unhandled promise in this node-environment suite.
+vi.mock("@capacitor/network", () => ({
+  Network: {
+    getStatus: vi.fn(async () => ({ connected: true })),
+    addListener: vi.fn(async () => ({ remove: () => {} })),
+  },
+}));
+
 import { captureReferralFromUrl, getPendingReferralCode, clearPendingReferralCode } from "../referral";
 
 describe("referral deep-link capture", () => {

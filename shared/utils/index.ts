@@ -13,3 +13,4 @@ export * from "./giftTiers";
 export * from "./defaultAvatars";
 export * from "./uiThemes";
 export * from "./emojiIconMap";
+export * from "./celebrations";

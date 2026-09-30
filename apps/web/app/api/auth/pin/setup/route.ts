@@ -8,6 +8,11 @@ export const dynamic = 'force-dynamic';
  * Allows an authenticated user to set or change their 4-digit security PIN.
  * The PIN is hashed with bcrypt (12 rounds) before storage.
  * Uses an upsert so this doubles as both "set PIN" and "change PIN".
+ *
+ * CHANGING an existing PIN requires the current PIN (`currentPin`), verified
+ * through the shared lockout (lib/auth/pinAttempts.ts). Previously any live
+ * session could silently overwrite the PIN. A user who has forgotten their
+ * PIN uses POST /api/auth/pin/reset instead.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,6 +23,8 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
+import { eq } from "drizzle-orm";
+import { assertPinNotLocked, requireCorrectPin } from "@/lib/auth/pinAttempts";
 
 // BUG-072 FIX: centralise the bcrypt cost factor so it is never accidentally
 // lowered. 12 rounds is the minimum for PIN storage (4-digit key space is tiny,
@@ -36,6 +43,11 @@ const setupPinSchema = z.object({
   confirmPin: z
     .string()
     .regex(/^\d{4}$/, "Confirm PIN must be exactly 4 numeric digits"),
+  /** Required when a PIN already exists (change flow). */
+  currentPin: z
+    .string()
+    .regex(/^\d{4}$/, "Current PIN must be exactly 4 numeric digits")
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -65,6 +77,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("PIN and confirmation do not match", "PIN_MISMATCH");
     }
 
+    const orm = await getDb();
+    const [existing] = await orm
+      .select({ pinHash: schema.userPins.pinHash })
+      .from(schema.userPins)
+      .where(eq(schema.userPins.userId, auth.user.sub))
+      .limit(1);
+
+    if (existing) {
+      if (!body.currentPin) {
+        throw badRequest("Current PIN is required to change your PIN", "CURRENT_PIN_REQUIRED");
+      }
+      await requireCorrectPin(auth.user.sub, body.currentPin, existing.pinHash);
+    } else {
+      // First-time set: still refuse while a lockout is active for this account.
+      await assertPinNotLocked(auth.user.sub);
+    }
+
     // Hash the PIN with bcrypt (BCRYPT_ROUNDS as required for sensitive PINs)
     // BUG-072 FIX: use the named constant and validate the produced hash starts
     // with the expected bcrypt 2b prefix before storing it in the database.
@@ -76,7 +105,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Upsert: insert new PIN or update existing one
-    const orm = await getDb();
     await orm
       .insert(schema.userPins)
       .values({ userId: auth.user.sub, pinHash })

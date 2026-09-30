@@ -21,6 +21,7 @@
 import { and, desc, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
+import { getAnonymityConfig, hiddenOnLeaderboardSql } from "@/lib/privacy/leaderboardAnonymity";
 import { memGet, memSet, memDelPrefix } from "@/lib/cache/memory";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { insertNotification } from "@/lib/notifications/insert";
@@ -325,6 +326,12 @@ export interface ClassroomLeaderboardEntry {
   avatarUrl: string | null;
   points: number;
   level: number;
+  /**
+   * The member hides their name on leaderboards (effective: choice AND still
+   * eligible). Cached entries carry the REAL identity; the API route masks it
+   * per viewer — see app/api/classroom/[roomId]/leaderboard/route.ts.
+   */
+  isAnonymous: boolean;
 }
 
 const LEADERBOARD_TTL_MS = 30_000;
@@ -361,9 +368,12 @@ export async function getClassroomLeaderboard(
     avatar_url: string | null;
     points: string;
     level: number | null;
+    is_anonymous: boolean;
   }
 
   const orm = await getDb();
+  const anonymityCfg = await getAnonymityConfig();
+  const hidden = hiddenOnLeaderboardSql(anonymityCfg, "users");
   let rows: Row[];
   if (period === "all") {
     const r = await orm
@@ -375,6 +385,7 @@ export async function getClassroomLeaderboard(
         avatar_url: schema.users.avatarUrl,
         points: sql<string>`${schema.classroomMemberPoints.points}::text`,
         level: schema.classroomMemberPoints.level,
+        is_anonymous: sql<boolean>`${hidden}`,
       })
       .from(schema.classroomMemberPoints)
       .innerJoin(
@@ -396,6 +407,7 @@ export async function getClassroomLeaderboard(
         avatar_url: schema.users.avatarUrl,
         points: sql<string>`SUM(${schema.classroomPointsLedger.amount})::text`,
         level: schema.classroomMemberPoints.level,
+        is_anonymous: sql<boolean>`BOOL_OR(${hidden})`,
       })
       .from(schema.classroomPointsLedger)
       .innerJoin(
@@ -444,6 +456,7 @@ export async function getClassroomLeaderboard(
       avatarUrl: r.avatar_url,
       points: pts,
       level: r.level ?? 1,
+      isAnonymous: Boolean(r.is_anonymous),
     };
   });
 

@@ -19,10 +19,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { maskLeaderboardRow, ANONYMOUS_SNAKE_IDENTITY } from "@/lib/privacy/leaderboardAnonymity";
 import {
   getLeaderboard,
   getUserRank,
@@ -140,9 +141,38 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       .from(schema.users)
       .where(eq(schema.users.id, auth.user.sub));
     const canSeePlan = Boolean(roleRow?.isAdmin || roleRow?.isModerator);
-    const entries = canSeePlan
+    const visibleEntries = canSeePlan
       ? leaderboardPage.entries
       : leaderboardPage.entries.map(({ plan: _plan, ...rest }) => rest);
+
+    // Hide-my-name (paid privacy setting). Public boards show "Anonymous" to
+    // everyone but the user themself. The guild board is a sub-leaderboard: the
+    // guild's own captain / moderators may reveal hidden members.
+    let canReveal = false;
+    if (scope === "guild" && guildId) {
+      const [membership] = await orm
+        .select({ role: schema.guildMembers.role, isModerator: schema.guildMembers.isModerator })
+        .from(schema.guildMembers)
+        .where(
+          and(
+            eq(schema.guildMembers.guildId, guildId),
+            eq(schema.guildMembers.userId, auth.user.sub),
+            isNull(schema.guildMembers.leftAt)
+          )
+        )
+        .limit(1);
+      canReveal = membership?.role === "captain" || membership?.isModerator === true;
+    }
+    const entries = visibleEntries.map(({ is_anonymous, ...row }) =>
+      maskLeaderboardRow(row, {
+        anonymous: Boolean(is_anonymous),
+        isSelf: row.user_id === auth.user.sub,
+        canReveal,
+        idKey: "user_id",
+        masked: { ...ANONYMOUS_SNAKE_IDENTITY, city: null, custom_crest: null },
+        anonId: `anon-${row.rank}`,
+      })
+    );
 
     return NextResponse.json({
       success: true,

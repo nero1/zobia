@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { Icon } from '@/components/ui/Icon';
+import { HiddenFromOthersTag, RevealButton, useReveal } from '@/components/leaderboard/AnonymousReveal';
 
 type Scope = 'global' | 'city' | 'guild' | 'season';
 type Track = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'gaming' | 'knowledge' | 'explorer';
@@ -36,6 +37,10 @@ interface LeaderboardEntry {
   userId: string;
   username: string;
   displayName: string;
+  /** The player hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
+  /** Real identity — only sent to admins of a sub-leaderboard (e.g. the guild board), behind a "Reveal" control. */
+  revealed?: { userId: string; username: string; displayName: string; avatarEmoji: string };
   avatarEmoji: string;
   city: string;
   xp: number;
@@ -80,6 +85,15 @@ async function fetchLeaderboard(scope: Scope, track: Track, page: number): Promi
     xp: ((e.xp_value ?? e.xp) as number) ?? 0,
     plan: (e.plan as Plan | undefined) ?? null,
     isCurrentUser: false,
+    anonymous: e.anonymous === true,
+    revealed: e.revealed
+      ? {
+          userId: (((e.revealed as Record<string, unknown>).user_id ?? (e.revealed as Record<string, unknown>).userId) as string) ?? '',
+          username: ((e.revealed as Record<string, unknown>).username as string) ?? '',
+          displayName: (((e.revealed as Record<string, unknown>).display_name ?? (e.revealed as Record<string, unknown>).displayName) as string) ?? '',
+          avatarEmoji: (((e.revealed as Record<string, unknown>).avatar_emoji ?? (e.revealed as Record<string, unknown>).avatarEmoji) as string) ?? '😊',
+        }
+      : undefined,
     rankChange: (e.rankChange as number) ?? (e.rank_change as number) ?? 0,
   }));
   return {
@@ -91,23 +105,31 @@ async function fetchLeaderboard(scope: Scope, track: Track, page: number): Promi
 }
 
 function EntryRow({ entry, highlight, showPlan }: { entry: LeaderboardEntry; highlight?: boolean; showPlan: boolean }) {
+  const { t } = useTranslation();
+  const reveal = useReveal(entry.revealed);
+  const shownIdentity = reveal.shown && entry.revealed ? entry.revealed : entry;
+  // Hidden from everyone but the player themself (and admins who reveal).
+  const isMaskedRow = Boolean(entry.anonymous) && !entry.isCurrentUser && !reveal.shown;
   const rankChange = entry.rankChange;
-  return (
-    <Link
-      to="/profile/$username"
-      params={{ username: entry.username }}
-      className={`flex items-center gap-3 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0 ${highlight ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}
-    >
+  const className = `flex items-center gap-3 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0 ${highlight ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`;
+  const body = (
+    <>
       <div className="flex w-10 shrink-0 items-center gap-0.5 text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
         <RankMedal rank={entry.rank} />
         <span>{entry.rank}</span>
       </div>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">
-        {entry.avatarEmoji}
+        {shownIdentity.avatarEmoji}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">{entry.displayName}</p>
-        <p className="text-xs text-neutral-400 dark:text-neutral-500 truncate">@{entry.username}{entry.city ? ` · ${entry.city}` : ''}</p>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">
+          {isMaskedRow ? t('leaderboard.anonymous.name', 'Anonymous') : shownIdentity.displayName}
+          {entry.anonymous && entry.isCurrentUser && <HiddenFromOthersTag />}
+          {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+        </p>
+        {!isMaskedRow && (
+          <p className="text-xs text-neutral-400 dark:text-neutral-500 truncate">@{shownIdentity.username}{entry.city ? ` · ${entry.city}` : ''}</p>
+        )}
       </div>
       <div className="shrink-0 text-right">
         <p className="text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">{entry.xp.toLocaleString()}</p>
@@ -122,6 +144,13 @@ function EntryRow({ entry, highlight, showPlan }: { entry: LeaderboardEntry; hig
           </p>
         )}
       </div>
+    </>
+  );
+  // A masked row has no profile to open.
+  if (isMaskedRow) return <div className={className}>{body}</div>;
+  return (
+    <Link to="/profile/$username" params={{ username: shownIdentity.username }} className={className}>
+      {body}
     </Link>
   );
 }
@@ -197,7 +226,7 @@ function LeaderboardsPage() {
         {status === 'success' && data.entries.length > 0 && (
           <>
             {data.entries.map((e) => (
-              <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} showPlan={canSeePlan} />
+              <EntryRow key={e.userId} entry={user?.id && e.userId === user.id ? { ...e, isCurrentUser: true } : e} highlight={e.isCurrentUser || (!!user?.id && e.userId === user.id)} showPlan={canSeePlan} />
             ))}
           </>
         )}

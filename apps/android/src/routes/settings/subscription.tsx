@@ -52,6 +52,7 @@ const PLAN_FEATURES: Record<PlanId, CancelPlanFeature[]> = {
     { text: '1.5× XP multiplier', included: true },
     { text: '4 daily quests', included: true },
     { text: '50 monthly coin bonus', included: true },
+    { text: 'Hide your name on leaderboards', included: true },
   ],
   pro: [
     { text: '3× XP multiplier', included: true },
@@ -61,6 +62,7 @@ const PLAN_FEATURES: Record<PlanId, CancelPlanFeature[]> = {
     { text: 'Custom chat themes', included: true },
     { text: 'Priority support', included: true },
     { text: 'Full creator tools', included: true },
+    { text: 'Hide your name on leaderboards', included: true },
   ],
   max: [
     { text: '5× XP multiplier', included: true },
@@ -71,6 +73,7 @@ const PLAN_FEATURES: Record<PlanId, CancelPlanFeature[]> = {
     { text: 'Dedicated support', included: true },
     { text: 'Full creator tools + boosts', included: true },
     { text: 'Early feature access (2 weeks)', included: true },
+    { text: 'Hide your name on leaderboards', included: true },
   ],
 };
 

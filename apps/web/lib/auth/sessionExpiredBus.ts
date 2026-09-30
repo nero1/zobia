@@ -21,6 +21,52 @@
 /** Window event name used to broadcast session expiry across components. */
 const EVENT = "zobia:session-expired";
 
+/**
+ * Device-level hint that this browser had a signed-in session. It is a plain
+ * boolean (no user data, so nothing can leak between accounts on a shared
+ * device). It exists so that a 401 seen by a visitor who was never signed in
+ * (e.g. the landing page priming GET /api/auth/me) is NOT reported as an
+ * expired session, and so a genuine expiry is announced exactly once instead
+ * of on every future visit.
+ */
+const HAD_SESSION_KEY = "zobia:auth:had-session";
+
+function readHadSession(): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(HAD_SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Per-tab copy of the hint (survives another tab clearing the shared key). */
+let hadSession = readHadSession();
+
+/** True when this tab/device believes the user has (had) a signed-in session. */
+export function hasSessionHint(): boolean {
+  return hadSession;
+}
+
+/** Record that the user is signed in (call after an authenticated response). */
+export function markSessionActive(): void {
+  hadSession = true;
+  try {
+    window.localStorage.setItem(HAD_SESSION_KEY, "1");
+  } catch {
+    // Storage unavailable — the per-tab flag still works.
+  }
+}
+
+/** Forget the signed-in hint (explicit logout, or once expiry was announced). */
+export function clearSessionHint(): void {
+  hadSession = false;
+  try {
+    window.localStorage.removeItem(HAD_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 /** Latched flag so late subscribers (and user actions) can read current state. */
 let expired = false;
 
@@ -59,7 +105,19 @@ export function isSessionExpired(): boolean {
  */
 export function markSessionExpired(): void {
   if (expired) return;
+  // A 401 for someone who never had a session (anonymous visitor, or a
+  // visitor whose expiry was already announced) is just "not signed in",
+  // not "your session expired".
+  if (!hadSession) return;
   expired = true;
+  // Announce once: clear the shared device hint so a new window/visit does
+  // not show the notice again. Other already-open tabs keep their own
+  // per-tab flag and still show it.
+  try {
+    window.localStorage.removeItem(HAD_SESSION_KEY);
+  } catch {
+    // ignore
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(EVENT));
   }
@@ -76,6 +134,7 @@ export function markSessionExpired(): void {
  * re-triggers the 401 guard below, and is safe to call multiple times.
  */
 export function clearAuthCookies(): Promise<void> {
+  clearSessionHint();
   return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
     .then(() => undefined)
     .catch(() => undefined);
@@ -84,6 +143,7 @@ export function clearAuthCookies(): Promise<void> {
 /** Clear the latch (e.g. after the user signs back in / navigates to login). */
 export function resetSessionExpired(): void {
   expired = false;
+  hadSession = false;
 }
 
 /**
@@ -125,6 +185,9 @@ const EXEMPT_API_PATH_PREFIXES = [
   "/api/auth/refresh",
   "/api/auth/silent-refresh",
   "/api/auth/logout",
+  // Identity probe: a 401 here just means "no session". useAuth() handles it
+  // explicitly (silent refresh, then markSessionExpired) — see lib/auth/hooks.ts.
+  "/api/auth/me",
   "/api/auth/2fa",
   "/api/auth/mobile-bridge",
   "/api/auth/google",
@@ -143,6 +206,15 @@ export function rawFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
   return (originalFetch ?? fetch)(input, init);
 }
 
+function isLogoutRequest(input: RequestInfo | URL): boolean {
+  try {
+    const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    return new URL(raw, window.location.origin).pathname === "/api/auth/logout";
+  } catch {
+    return false;
+  }
+}
+
 export function installSessionExpiryFetchGuard(): void {
   if (guardInstalled || typeof window === "undefined") return;
   guardInstalled = true;
@@ -150,6 +222,7 @@ export function installSessionExpiryFetchGuard(): void {
   const base = originalFetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await base(input, init);
+    if (isLogoutRequest(input)) clearSessionHint();
     if (res.status === 401) {
       try {
         const rawUrl =

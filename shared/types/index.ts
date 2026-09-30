@@ -1209,4 +1209,6 @@ export interface GameLeaderboardRow {
   bestScore: number;
   plays: number;
   wins: number;
+  /** True when the player hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: true;
 }

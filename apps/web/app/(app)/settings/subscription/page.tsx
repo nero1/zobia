@@ -89,6 +89,7 @@ const PLANS: PlanDefinition[] = [
       { text: "Priority support", included: false },
       { text: "Creator monetisation", included: false },
       { text: "Advanced analytics", included: false },
+      { text: "Hide your name on leaderboards", included: false },
     ],
   },
   {
@@ -107,6 +108,7 @@ const PLANS: PlanDefinition[] = [
       { text: "Priority support", included: false },
       { text: "3× XP multiplier", included: false },
       { text: "Full creator tools", included: false },
+      { text: "Hide your name on leaderboards", included: true },
     ],
   },
   {
@@ -125,6 +127,7 @@ const PLANS: PlanDefinition[] = [
       { text: "Priority support", included: true },
       { text: "Full creator tools", included: true },
       { text: "5× XP multiplier", included: false },
+      { text: "Hide your name on leaderboards", included: true },
     ],
   },
   {
@@ -143,6 +146,7 @@ const PLANS: PlanDefinition[] = [
       { text: "Dedicated support", included: true },
       { text: "Full creator tools + boosts", included: true },
       { text: "Early feature access (2 weeks)", included: true },
+      { text: "Hide your name on leaderboards", included: true },
     ],
   },
 ];

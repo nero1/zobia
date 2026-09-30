@@ -22,6 +22,7 @@ import { eq, and, isNull, inArray } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
 import { getDb, schema } from "@/lib/db/drizzle";
+import { verifyPinAttempt } from "@/lib/auth/pinAttempts";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 
@@ -78,7 +79,9 @@ async function verifySecurityGate(
     let verified = false;
 
     if (hasPinHash && /^\d{4}$/.test(pinOrCode)) {
-      verified = await bcrypt.compare(pinOrCode, row!.pinHash!);
+      // Shared lockout: a 4-digit guess here counts against the same
+      // failed-PIN budget as /api/auth/pin/verify.
+      verified = (await verifyPinAttempt(userId, pinOrCode, row!.pinHash!)).verified;
     }
 
     if (!verified && hasPassword) {

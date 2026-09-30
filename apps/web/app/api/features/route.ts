@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
  * Reads from x_manifest via the cached manifest loader.
  */
 
+import { getAnonymityConfig, isAnonymityEligible } from "@/lib/privacy/leaderboardAnonymity";
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
@@ -33,6 +34,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           is_admin: schema.users.isAdmin,
           is_moderator: schema.users.isModerator,
           business_tier: schema.businessAccounts.tier,
+          xp_total: schema.users.xpTotal,
         })
         .from(schema.users)
         .leftJoin(
@@ -41,10 +43,11 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         )
         .where(eq(schema.users.id, auth.user.sub))
         .limit(1)
-        .catch(() => [] as Array<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }>),
+        .catch(() => [] as Array<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null; xp_total: number | bigint | null }>),
     ]);
 
-    const user = userRows[0] ?? { plan: "free", prestige_count: 0, is_admin: false, is_moderator: false, business_tier: null };
+    const user = userRows[0] ?? { plan: "free", prestige_count: 0, is_admin: false, is_moderator: false, business_tier: null, xp_total: 0 };
+    const anonymityCfg = await getAnonymityConfig();
     const eligibilityContext = { businessTier: user.business_tier, isAdmin: user.is_admin, isModerator: user.is_moderator };
 
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
@@ -66,6 +69,18 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),
           canShowOnlineStatus: userEligibleForFeature(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext),
           hideableSections,
+          canHideFromLeaderboards: isAnonymityEligible(
+            {
+              plan: user.plan,
+              prestigeCount: user.prestige_count,
+              isAdmin: user.is_admin,
+              isModerator: user.is_moderator,
+              businessTier: user.business_tier,
+              xpTotal: Number(user.xp_total ?? 0),
+            },
+            anonymityCfg
+          ),
+          leaderboardAnonymityEnabled: anonymityCfg.enabled,
         },
       },
       {

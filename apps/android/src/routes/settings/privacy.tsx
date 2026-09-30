@@ -22,6 +22,7 @@ interface PrivacySettings {
   sitemap_opt_out: boolean;
   group_invite_privacy: 'anybody' | 'friends' | 'nobody';
   nemesis_opt_out: boolean;
+  hide_from_leaderboards: boolean;
 }
 
 interface PrivacyCapabilities {
@@ -31,6 +32,10 @@ interface PrivacyCapabilities {
   canShowOnlineStatus: boolean;
   hideableSections: string[];
   nemesisEligible: boolean;
+  /** Paid (or level-unlocked) privacy setting — see the admin "Privacy" config group. */
+  canHideFromLeaderboards: boolean;
+  /** Admin master switch; when false the row is hidden. */
+  leaderboardAnonymityEnabled: boolean;
 }
 
 const DEFAULT_SETTINGS: PrivacySettings = {
@@ -41,6 +46,7 @@ const DEFAULT_SETTINGS: PrivacySettings = {
   sitemap_opt_out: false,
   group_invite_privacy: 'friends',
   nemesis_opt_out: false,
+  hide_from_leaderboards: false,
 };
 
 const DEFAULT_CAPS: PrivacyCapabilities = {
@@ -50,6 +56,8 @@ const DEFAULT_CAPS: PrivacyCapabilities = {
   canShowOnlineStatus: false,
   hideableSections: [],
   nemesisEligible: false,
+  canHideFromLeaderboards: false,
+  leaderboardAnonymityEnabled: true,
 };
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -80,6 +88,7 @@ function PrivacyRow({
   onChange,
   disabled,
   gated,
+  paidTag,
 }: {
   title: string;
   description: string;
@@ -87,11 +96,20 @@ function PrivacyRow({
   onChange: (v: boolean) => void;
   disabled?: boolean;
   gated?: boolean;
+  /** Small "Paid" pill next to the title (feature locked behind a plan). */
+  paidTag?: string;
 }) {
   return (
     <div className={`flex items-center justify-between gap-3 py-3 ${gated ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{title}</p>
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+          {title}
+          {paidTag && (
+            <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              {paidTag}
+            </span>
+          )}
+        </p>
         <p className="text-xs text-neutral-500 dark:text-neutral-400">{description}</p>
       </div>
       <Toggle checked={checked} onChange={onChange} disabled={disabled || gated} />
@@ -111,7 +129,7 @@ function PrivacyPage() {
       .get<{ settings: PrivacySettings; capabilities: PrivacyCapabilities }>('/users/me/privacy')
       .then(({ data }) => {
         setSettings(data.settings);
-        setCaps(data.capabilities);
+        setCaps({ ...DEFAULT_CAPS, ...data.capabilities });
       })
       .catch(() => { /* keep defaults — section still renders, just unsaved */ })
       .finally(() => setLoading(false));
@@ -168,6 +186,21 @@ function PrivacyPage() {
           onChange={(v) => void save({ sitemap_opt_out: v })}
           disabled={saving}
         />
+        {caps.leaderboardAnonymityEnabled && (
+          <PrivacyRow
+            title={t('settings.privacy.hideFromLeaderboards.label', 'Hide my name on leaderboards')}
+            description={
+              caps.canHideFromLeaderboards
+                ? t('settings.privacy.hideFromLeaderboards.hint', 'You\'ll appear as "Anonymous" on public leaderboards. Leaderboard admins can still see who you are.')
+                : t('settings.privacy.hideFromLeaderboards.locked', 'Available on paid plans. Upgrade to appear as "Anonymous" on public leaderboards.')
+            }
+            checked={caps.canHideFromLeaderboards && settings.hide_from_leaderboards}
+            onChange={(v) => void save({ hide_from_leaderboards: v })}
+            disabled={saving}
+            gated={!caps.canHideFromLeaderboards}
+            paidTag={caps.canHideFromLeaderboards ? undefined : t('settings.privacy.paidTag', 'Paid')}
+          />
+        )}
         {caps.nemesisEligible && (
           <PrivacyRow
             title={t('settings.privacy.nemesisSystem', 'Nemesis system')}

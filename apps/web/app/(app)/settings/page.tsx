@@ -21,6 +21,7 @@ import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
 import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
 import { AvatarCropModal } from "@/components/profile/AvatarCropModal";
 import { Icon } from "@/components/ui/Icon";
+import { PinResetForm } from "@/components/security/PinResetForm";
 import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
 import { useSiteTheme } from "@/lib/hooks/useSiteTheme";
 import { SITE_THEMES, ICON_SETS } from "@zobia/shared/utils";
@@ -305,6 +306,8 @@ export default function SettingsPage() {
   const [pinGateInput, setPinGateInput] = useState("");
   const [pinGateError, setPinGateError] = useState<string | null>(null);
   const [verifyingPinGate, setVerifyingPinGate] = useState(false);
+  const [pinGateForgot, setPinGateForgot] = useState(false);
+  const [pinGateNotice, setPinGateNotice] = useState<string | null>(null);
 
   interface PrivacyCapabilities {
     canLockProfile: boolean;
@@ -313,6 +316,10 @@ export default function SettingsPage() {
     canShowOnlineStatus: boolean;
     hideableSections: string[];
     nemesisEligible: boolean;
+    /** Hide-my-name-from-leaderboards: paid (or level-unlocked) privacy setting. */
+    canHideFromLeaderboards: boolean;
+    /** Admin master switch; when false the row is not shown at all. */
+    leaderboardAnonymityEnabled: boolean;
   }
   const [featureFlags, setFeatureFlags] = useState({ pinEnabled: true, twoFaEnabled: true });
   const [privacyCaps, setPrivacyCaps] = useState<PrivacyCapabilities>({
@@ -322,6 +329,8 @@ export default function SettingsPage() {
     canShowOnlineStatus: false,
     hideableSections: [],
     nemesisEligible: false,
+    canHideFromLeaderboards: false,
+    leaderboardAnonymityEnabled: true,
   });
   const [privacySettings, setPrivacySettings] = useState({
     profile_private: false,
@@ -330,6 +339,7 @@ export default function SettingsPage() {
     show_online_status: false,
     group_invite_privacy: "friends" as "anybody" | "friends" | "nobody",
     nemesis_opt_out: false,
+    hide_from_leaderboards: false,
   });
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
@@ -357,8 +367,16 @@ export default function SettingsPage() {
         body: JSON.stringify({ pin: pinGateInput.trim() }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setPinGateError(data.error?.message ?? t("settings.pinRequired.error", "Incorrect PIN"));
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: { code?: string; message?: string; params?: Record<string, unknown> };
+        };
+        const base = translateApiError(t, data.error?.code, data.error?.message ?? t("settings.pinRequired.error", "Incorrect PIN"), data.error?.params);
+        const remaining = data.error?.params?.attemptsRemaining;
+        setPinGateError(
+          data.error?.code === "INVALID_PIN" && typeof remaining === "number"
+            ? `${base} ${t("settings.pinRequired.attemptsLeft", { count: remaining, defaultValue: "{{count}} attempts left." })}`
+            : base
+        );
         return;
       }
       setPinVerified(true);
@@ -377,7 +395,7 @@ export default function SettingsPage() {
       .then((d) => {
         if (d) {
           setFeatureFlags({ pinEnabled: d.pinEnabled ?? true, twoFaEnabled: d.twoFaEnabled ?? true });
-          if (d.privacy) setPrivacyCaps(d.privacy as PrivacyCapabilities);
+          if (d.privacy) setPrivacyCaps((prev) => ({ ...prev, ...(d.privacy as Partial<PrivacyCapabilities>) }));
         }
       })
       .catch(() => { /* non-fatal, defaults are permissive */ });
@@ -388,7 +406,7 @@ export default function SettingsPage() {
       .then((r) => r.ok ? r.json() : null)
       .then((d) => {
         if (d?.settings) setPrivacySettings(d.settings as typeof privacySettings);
-        if (d?.capabilities) setPrivacyCaps(d.capabilities as PrivacyCapabilities);
+        if (d?.capabilities) setPrivacyCaps((prev) => ({ ...prev, ...(d.capabilities as Partial<PrivacyCapabilities>) }));
       })
       .catch(() => {});
   }, []);
@@ -716,35 +734,57 @@ export default function SettingsPage() {
       <div className="mx-auto flex max-w-sm flex-col gap-4 p-6 pt-16">
         <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{t("settings.pinRequired.title", "Enter your PIN")}</h1>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("settings.pinRequired.description", "Your account has PIN protection enabled. Enter your PIN to access Settings.")}</p>
-        <input
-          type="password"
-          inputMode="numeric"
-          maxLength={6}
-          value={pinGateInput}
-          onChange={(e) => setPinGateInput(e.target.value.replace(/\D/g, ""))}
-          onKeyDown={(e) => { if (e.key === "Enter") void handleVerifyPinGate(); }}
-          placeholder="PIN"
-          autoFocus
-          className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-neutral-700 dark:bg-neutral-800"
-        />
-        {pinGateError && <p className="text-sm text-red-500">{pinGateError}</p>}
-        <div className="flex gap-3">
+        {pinGateForgot ? (
+          <PinResetForm
+            onCancel={() => setPinGateForgot(false)}
+            onDone={() => {
+              setPinGateForgot(false);
+              setPinGateError(null);
+              setPinGateInput("");
+              setPinGateNotice(t("settings.pin.reset.done", "PIN reset. Enter your new PIN to continue."));
+            }}
+          />
+        ) : (
+          <>
+          <input
+            type="password"
+            inputMode="numeric"
+            maxLength={6}
+            value={pinGateInput}
+            onChange={(e) => setPinGateInput(e.target.value.replace(/\D/g, ""))}
+            onKeyDown={(e) => { if (e.key === "Enter") void handleVerifyPinGate(); }}
+            placeholder="PIN"
+            autoFocus
+            className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-neutral-700 dark:bg-neutral-800"
+          />
+          {pinGateNotice && <p className="text-sm text-emerald-600">{pinGateNotice}</p>}
+          {pinGateError && <p className="text-sm text-red-500">{pinGateError}</p>}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => router.back()}
+              className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+            >
+              {t("settings.pinRequired.cancel", "Go back")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleVerifyPinGate()}
+              disabled={verifyingPinGate || pinGateInput.length < 4}
+              className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {verifyingPinGate ? t("settings.pinRequired.verifying", "Verifying…") : t("settings.pinRequired.confirm", "Confirm")}
+            </button>
+          </div>
           <button
             type="button"
-            onClick={() => router.back()}
-            className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+            onClick={() => setPinGateForgot(true)}
+            className="text-center text-xs font-semibold text-blue-600 underline"
           >
-            {t("settings.pinRequired.cancel", "Go back")}
+            {t("settings.pin.forgot", "Forgot PIN?")}
           </button>
-          <button
-            type="button"
-            onClick={() => void handleVerifyPinGate()}
-            disabled={verifyingPinGate || pinGateInput.length < 4}
-            className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-          >
-            {verifyingPinGate ? t("settings.pinRequired.verifying", "Verifying…") : t("settings.pinRequired.confirm", "Confirm")}
-          </button>
-        </div>
+          </>
+        )}
       </div>
     );
   }
@@ -1337,6 +1377,38 @@ export default function SettingsPage() {
                 checked={!privacySettings.nemesis_opt_out}
                 onChange={(v) => void savePrivacy({ nemesis_opt_out: !v })}
                 disabled={savingPrivacy}
+              />
+            </div>
+          )}
+
+          {/* Hide my name on public leaderboards — paid feature (admin-configurable
+              plans / unlock level). Free users see it greyed out with a "Paid" tag. */}
+          {privacyCaps.leaderboardAnonymityEnabled && (
+            <div className={`flex items-center justify-between gap-3 ${privacyCaps.canHideFromLeaderboards ? "" : "opacity-60"}`}>
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {t("settings.privacy.hideFromLeaderboards.label", "Hide my name on leaderboards")}
+                  {!privacyCaps.canHideFromLeaderboards && (
+                    <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 align-middle text-[10px] font-semibold uppercase text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                      {t("settings.privacy.paidTag", "Paid")}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  {privacyCaps.canHideFromLeaderboards
+                    ? t("settings.privacy.hideFromLeaderboards.hint", "You'll appear as \"Anonymous\" on public leaderboards. Leaderboard admins can still see who you are.")
+                    : t("settings.privacy.hideFromLeaderboards.locked", "Available on paid plans. Upgrade to appear as \"Anonymous\" on public leaderboards.")}
+                </p>
+                {!privacyCaps.canHideFromLeaderboards && (
+                  <Link href="/settings/subscription" className="text-xs font-semibold text-blue-600 underline">
+                    {t("settings.privacy.upgradeLink", "See plans")}
+                  </Link>
+                )}
+              </div>
+              <ToggleSwitch
+                checked={privacyCaps.canHideFromLeaderboards && privacySettings.hide_from_leaderboards}
+                onChange={(v) => void savePrivacy({ hide_from_leaderboards: v })}
+                disabled={savingPrivacy || !privacyCaps.canHideFromLeaderboards}
               />
             </div>
           )}
@@ -2023,7 +2095,7 @@ function PhoneNumberSection({ onToast }: { onToast: (msg: string, type?: "succes
 function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
   const { t } = useTranslation();
   const [hasPin, setHasPin] = useState(false);
-  const [mode, setMode] = useState<"idle" | "set" | "change" | "remove">("idle");
+  const [mode, setMode] = useState<"idle" | "set" | "change" | "remove" | "forgot">("idle");
 
   useEffect(() => {
     void fetch("/api/auth/pin/status", { credentials: "include" })
@@ -2041,7 +2113,7 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
     if (pin !== confirmPin) { onToast("PINs do not match", "error"); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/auth/pin/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, confirmPin }) });
+      const res = await fetch("/api/auth/pin/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pin, confirmPin, ...(mode === "change" ? { currentPin } : {}) }) });
       if (!res.ok) {
         const d = (await res.json()) as { error?: string | { code?: string; message?: string } };
         const errMsg = typeof d.error === "string" ? d.error : d.error?.message;
@@ -2097,11 +2169,18 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
             {mode === "change" && <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={e => setCurrentPin(e.target.value.replace(/\D/g, ""))} placeholder="Current PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />}
             <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ""))} placeholder="New 4-digit PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
             <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={e => setConfirmPin(e.target.value.replace(/\D/g, ""))} placeholder="Confirm PIN" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
-            <div className="flex gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button onClick={handleSet} disabled={saving} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40">{saving ? "Saving…" : "Save PIN"}</button>
               <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700">Cancel</button>
+              {mode === "change" && <button onClick={() => { setPin(""); setConfirmPin(""); setCurrentPin(""); setMode("forgot"); }} className="ml-auto text-xs font-semibold text-blue-600 underline">{t("settings.pin.forgot", "Forgot PIN?")}</button>}
             </div>
           </div>
+        )}
+        {mode === "forgot" && (
+          <PinResetForm
+            onCancel={reset}
+            onDone={() => { setHasPin(true); onToast(t("settings.pin.reset.doneShort", "PIN reset")); reset(); }}
+          />
         )}
         {mode === "remove" && (
           <div className="space-y-2">
@@ -2504,9 +2583,15 @@ interface CryptoWalletRow {
   label: string | null;
 }
 
-const CHAIN_LABELS: Record<"bsc" | "solana", string> = { bsc: "BNB Smart Chain", solana: "Solana" };
-
 function CryptoWalletsSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
+  // Resolved inside the component (via i18n) rather than a module-level lookup
+  // table: the /settings page crashed with "CHAIN_LABELS is not defined" when
+  // that constant wasn't in scope for the compiled component.
+  const chainLabel = (chain: "bsc" | "solana"): string =>
+    chain === "bsc"
+      ? t("settings.wallets.chain.bsc", "BNB Smart Chain")
+      : t("settings.wallets.chain.solana", "Solana");
   const [wallets, setWallets] = useState<CryptoWalletRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingChain, setEditingChain] = useState<"bsc" | "solana" | null>(null);
@@ -2562,7 +2647,7 @@ function CryptoWalletsSection({ onToast }: { onToast: (msg: string, type?: "succ
         const wallet = wallets.find((w) => w.chain === chain);
         return (
           <div key={chain} className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
-            <span className="w-32 shrink-0 text-sm font-medium text-neutral-800 dark:text-neutral-200">{CHAIN_LABELS[chain]}</span>
+            <span className="w-32 shrink-0 text-sm font-medium text-neutral-800 dark:text-neutral-200">{chainLabel(chain)}</span>
             {editingChain === chain ? (
               <>
                 <input

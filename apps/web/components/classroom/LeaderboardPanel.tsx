@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { classroomApi } from "@/lib/classroom/clientApi";
 import type { ClassroomBadgeDef, ClassroomLeaderboardEntry, LeaderboardPeriod, MemberStanding } from "@/components/classroom/types";
 import { Icon } from "@/components/ui/Icon";
+import { HiddenFromOthersTag, RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";
 
 interface LeaderboardData {
   period: LeaderboardPeriod;
@@ -22,6 +23,38 @@ interface LeaderboardData {
   me: MemberStanding;
   levels: Array<{ level: number; name: string; minPoints: number }>;
   badgeCatalog: ClassroomBadgeDef[];
+}
+
+function LeaderboardRow({
+  entry: e,
+  viewerId,
+  period,
+  levelLabel,
+}: {
+  entry: ClassroomLeaderboardEntry;
+  viewerId: string | null;
+  period: LeaderboardPeriod;
+  levelLabel: string;
+}) {
+  const { t } = useTranslation();
+  const reveal = useReveal(e.revealed);
+  const identity = reveal.shown && e.revealed ? e.revealed : e;
+  const isSelf = e.userId === viewerId;
+  return (
+    <li className={`flex items-center gap-3 px-4 py-2.5 ${isSelf ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}>
+      <span className="w-7 text-center text-sm font-bold text-neutral-400">{e.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][e.rank - 1]} size={16} className="inline" /> : `#${e.rank}`}</span>
+      <span className="text-xl">{identity.avatarEmoji}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          {e.anonymous && !isSelf && !reveal.shown ? t("leaderboard.anonymous.name", "Anonymous") : identity.displayName}
+          {e.anonymous && isSelf && <HiddenFromOthersTag />}
+          {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+        </span>
+        <span className="block text-[11px] text-neutral-500">{levelLabel}</span>
+      </span>
+      <span className="text-sm font-bold text-violet-600">{period === "all" ? e.points : `+${e.points}`}</span>
+    </li>
+  );
 }
 
 export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerId: string | null }) {
@@ -85,15 +118,7 @@ export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerI
       ) : (
         <ol className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
           {data.entries.map((e) => (
-            <li key={e.userId} className={`flex items-center gap-3 px-4 py-2.5 ${e.userId === viewerId ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}>
-              <span className="w-7 text-center text-sm font-bold text-neutral-400">{e.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][e.rank - 1]} size={16} className="inline" /> : `#${e.rank}`}</span>
-              <span className="text-xl">{e.avatarEmoji}</span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{e.displayName}</span>
-                <span className="block text-[11px] text-neutral-500">{t("classroom.level.full", "Level {{level}} · {{name}}", { level: e.level, name: levelName(e.level) })}</span>
-              </span>
-              <span className="text-sm font-bold text-violet-600">{period === "all" ? e.points : `+${e.points}`}</span>
-            </li>
+            <LeaderboardRow key={e.userId} entry={e} viewerId={viewerId} period={period} levelLabel={t("classroom.level.full", "Level {{level}} · {{name}}", { level: e.level, name: levelName(e.level) })} />
           ))}
         </ol>
       )}

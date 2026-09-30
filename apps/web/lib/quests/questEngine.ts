@@ -451,6 +451,20 @@ export async function generateDailyDeck(
     .where(and(eq(schema.userQuestDecks.userId, userId), eq(schema.userQuestDecks.assignedDate, today)))
     .orderBy(asc(schema.userQuestDecks.id));
 
+  // 'login_streak' quests ("Log in for 7 consecutive days") track the user's
+  // live streak, not a per-day counter, so show the streak itself (capped at
+  // the target) — this also self-heals rows written before the quest switched
+  // to absolute progress. Only queried when such a quest is in the deck.
+  let loginStreak = 0;
+  if (assignedRows.some((row) => row.actionType === "login_streak")) {
+    const [streakRow] = await db
+      .select({ loginStreak: schema.users.loginStreak })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    loginStreak = streakRow?.loginStreak ?? 0;
+  }
+
   return assignedRows.map((row) => ({
     id: row.id,
     title: row.title,
@@ -463,7 +477,10 @@ export async function generateDailyDeck(
     icon: row.icon,
     plan_required: row.planRequired as Plan | null,
     track: row.track ?? "main",
-    progress_count: Number(row.progressCount),
+    progress_count:
+      row.actionType === "login_streak"
+        ? Math.min(Math.max(Number(row.progressCount), loginStreak), row.targetCount)
+        : Number(row.progressCount),
     completed: Boolean(row.completed),
     completed_at: row.completedAt ? new Date(row.completedAt).toISOString() : null,
   }));
@@ -482,13 +499,21 @@ export async function generateDailyDeck(
  * @param questId   - UUID of the quest template.
  * @param increment - How much to add to the progress counter (default 1).
  * @param db        - Drizzle db instance or an active transaction handle.
+ * @param opts.absolute - Treat `increment` as the new absolute progress value
+ *                     (never lowering existing progress) instead of a delta.
+ *                     Used by state-derived quests like 'login_streak', whose
+ *                     progress is the user's current consecutive-day streak
+ *                     rather than a per-day counter (a daily quest row can only
+ *                     ever be touched once a day, so adding +1 would leave it
+ *                     stuck at 1/7 forever).
  * @returns The updated progress state and any rewards awarded.
  */
 export async function updateQuestProgress(
   userId: string,
   questId: string,
   increment: number = 1,
-  db: DbOrTx
+  db: DbOrTx,
+  opts: { absolute?: boolean } = {}
 ): Promise<{
   progress_count: number;
   completed: boolean;
@@ -590,7 +615,10 @@ export async function updateQuestProgress(
     }
 
     const prevCount = current?.progressCount ?? 0;
-    const newCount = Math.min(prevCount + increment, quest.targetCount);
+    const newCount = Math.min(
+      opts.absolute ? Math.max(prevCount, increment) : prevCount + increment,
+      quest.targetCount
+    );
     const nowCompleted = newCount >= quest.targetCount;
 
     if (current) {
@@ -829,12 +857,15 @@ export async function checkDeckCompletion(
  * @param increment  - How much to increment matching quests by (default 1).
  *                     Used by meta-quests like 'xp_meta' where the increment
  *                     equals the XP amount earned rather than a flat unit.
+ * @param opts.absolute - Treat `increment` as the absolute progress value
+ *                     (see updateQuestProgress). Used by 'login_streak'.
  */
 export async function triggerActivityQuestProgress(
   userId: string,
   actionType: string,
   dbAdapter: DbOrTx,
-  increment: number = 1
+  increment: number = 1,
+  opts: { absolute?: boolean } = {}
 ): Promise<void> {
   const today = new Date().toISOString().slice(0, 10);
   try {
@@ -863,7 +894,7 @@ export async function triggerActivityQuestProgress(
 
     for (const quest of matchingQuests) {
       try {
-        const result = await updateQuestProgress(userId, quest.id, increment, dbAdapter);
+        const result = await updateQuestProgress(userId, quest.id, increment, dbAdapter, opts);
         if (result.newly_completed) {
           anyNewlyCompleted = true;
           publishRealtimeEvent(`user:${userId}`, "reward_earned", {

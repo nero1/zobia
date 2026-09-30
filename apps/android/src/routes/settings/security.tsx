@@ -112,13 +112,18 @@ function ActiveSessions() {
 // PIN
 // ---------------------------------------------------------------------------
 
+interface PinApiError {
+  response?: { data?: { error?: { code?: string; message?: string; params?: { attemptsRemaining?: number } } } };
+}
+
 function PinSection() {
   const { t } = useTranslation();
   const [hasPin, setHasPin] = useState(false);
-  const [mode, setMode] = useState<'idle' | 'set' | 'remove'>('idle');
+  const [mode, setMode] = useState<'idle' | 'set' | 'change' | 'remove' | 'forgot'>('idle');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [currentPin, setCurrentPin] = useState('');
+  const [proof, setProof] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -134,20 +139,53 @@ function PinSection() {
     setPin('');
     setConfirmPin('');
     setCurrentPin('');
+    setProof('');
     setError(null);
+  }
+
+  /** Server errors carry a localisable code (INVALID_PIN, PIN_LOCKED, ...); show it. */
+  function apiMessage(err: unknown): string {
+    const e = (err as PinApiError).response?.data?.error;
+    if (!e) return t('error.generic', 'Something went wrong. Please try again.');
+    const base = t(`errors.${(e.code ?? '').toLowerCase()}`, { defaultValue: e.message ?? t('error.generic', 'Something went wrong. Please try again.') });
+    return e.code === 'INVALID_PIN' && typeof e.params?.attemptsRemaining === 'number'
+      ? `${base} ${t('settings.pinRequired.attemptsLeft', { count: e.params.attemptsRemaining, defaultValue: '{{count}} attempts left.' })}`
+      : base;
   }
 
   async function handleSet() {
     if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { setError(t('settings.pin.invalid', 'PIN must be exactly 4 digits')); return; }
     if (pin !== confirmPin) { setError(t('settings.pin.mismatch', 'PINs do not match')); return; }
+    if (mode === 'change' && currentPin.length !== 4) { setError(t('settings.pin.invalid', 'PIN must be exactly 4 digits')); return; }
     setSaving(true);
     setError(null);
     try {
-      await apiClient.post('/auth/pin/setup', { pin, confirmPin });
+      await apiClient.post('/auth/pin/setup', { pin, confirmPin, ...(mode === 'change' ? { currentPin } : {}) });
       setHasPin(true);
       reset();
-    } catch {
-      setError(t('error.generic', 'Something went wrong. Please try again.'));
+    } catch (err) {
+      setError(apiMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReset() {
+    if (pin.length !== 4 || !/^\d{4}$/.test(pin)) { setError(t('settings.pin.invalid', 'PIN must be exactly 4 digits')); return; }
+    if (pin !== confirmPin) { setError(t('settings.pin.mismatch', 'PINs do not match')); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const trimmed = proof.trim();
+      await apiClient.post('/auth/pin/reset', {
+        pin,
+        confirmPin,
+        ...(/^\d{6}$/.test(trimmed) ? { totpCode: trimmed } : trimmed ? { password: trimmed } : {}),
+      });
+      setHasPin(true);
+      reset();
+    } catch (err) {
+      setError(apiMessage(err));
     } finally {
       setSaving(false);
     }
@@ -158,15 +196,19 @@ function PinSection() {
     setSaving(true);
     setError(null);
     try {
-      await apiClient.post('/auth/pin/remove', { currentPin });
+      // The route is DELETE /api/auth/pin/remove (this used to POST, which 405'd).
+      await apiClient.delete('/auth/pin/remove', { data: { currentPin } });
       setHasPin(false);
       reset();
-    } catch {
-      setError(t('error.generic', 'Something went wrong. Please try again.'));
+    } catch (err) {
+      setError(apiMessage(err));
     } finally {
       setSaving(false);
     }
   }
+
+  const inputCls = 'w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm';
+  const digits = (v: string) => v.replace(/\D/g, '');
 
   return (
     <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
@@ -177,7 +219,7 @@ function PinSection() {
 
       {mode === 'idle' && (
         <div className="flex gap-2">
-          <button onClick={() => setMode('set')} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">
+          <button onClick={() => setMode(hasPin ? 'change' : 'set')} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">
             {hasPin ? t('settings.pin.change', 'Change PIN') : t('settings.pin.set', 'Set PIN')}
           </button>
           {hasPin && (
@@ -188,23 +230,39 @@ function PinSection() {
         </div>
       )}
 
-      {mode === 'set' && (
+      {(mode === 'set' || mode === 'change' || mode === 'forgot') && (
         <div className="space-y-2">
-          <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.newPlaceholder', 'New 4-digit PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
-          <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.confirmPlaceholder', 'Confirm PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
+          {mode === 'forgot' && (
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
+              {t('settings.pin.reset.description', "Choose a new PIN. Confirm it's you with your authenticator code or account password. If you have neither, sign in again and come straight back here.")}
+            </p>
+          )}
+          {mode === 'change' && (
+            <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={(e) => setCurrentPin(digits(e.target.value))} placeholder={t('settings.pin.currentPlaceholder', 'Enter current PIN')} className={inputCls} />
+          )}
+          <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(digits(e.target.value))} placeholder={t('settings.pin.newPlaceholder', 'New 4-digit PIN')} className={inputCls} />
+          <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={(e) => setConfirmPin(digits(e.target.value))} placeholder={t('settings.pin.confirmPlaceholder', 'Confirm PIN')} className={inputCls} />
+          {mode === 'forgot' && (
+            <input type="password" autoComplete="off" value={proof} onChange={(e) => setProof(e.target.value)} placeholder={t('settings.pin.reset.proofPlaceholder', 'Authenticator code or password (if you have one)')} className={inputCls} />
+          )}
           {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
-          <div className="flex gap-2">
-            <button onClick={() => void handleSet()} disabled={saving} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
-              {saving ? t('action.saving', 'Saving…') : t('action.save', 'Save')}
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={() => void (mode === 'forgot' ? handleReset() : handleSet())} disabled={saving} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
+              {saving ? t('action.saving', 'Saving…') : mode === 'forgot' ? t('settings.pin.reset.submit', 'Reset PIN') : t('action.save', 'Save')}
             </button>
             <button onClick={reset} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
+            {mode === 'change' && (
+              <button onClick={() => { reset(); setMode('forgot'); }} className="ml-auto text-xs font-semibold text-primary-600 underline">
+                {t('settings.pin.forgot', 'Forgot PIN?')}
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {mode === 'remove' && (
         <div className="space-y-2">
-          <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.currentPlaceholder', 'Enter current PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
+          <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={(e) => setCurrentPin(digits(e.target.value))} placeholder={t('settings.pin.currentPlaceholder', 'Enter current PIN')} className={inputCls} />
           {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void handleRemove()} disabled={saving} className="rounded-lg bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">

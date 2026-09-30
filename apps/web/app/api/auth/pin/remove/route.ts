@@ -11,11 +11,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, ApiError } from "@/lib/api/errors";
+import { handleApiError, ApiError } from "@/lib/api/errors";
+import { requireCorrectPin } from "@/lib/auth/pinAttempts";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
@@ -60,11 +60,8 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
       throw new ApiError(422, "NO_PIN_CONFIGURED", "No PIN configured for this account");
     }
 
-    // Verify the supplied current PIN before allowing removal
-    const isValid = await bcrypt.compare(body.currentPin, row.pinHash);
-    if (!isValid) {
-      throw badRequest("Incorrect PIN", "INVALID_PIN");
-    }
+    // Verify the supplied current PIN (with lockout) before allowing removal
+    await requireCorrectPin(auth.user.sub, body.currentPin, row.pinHash);
 
     // Delete the PIN record
     await orm.delete(schema.userPins).where(eq(schema.userPins.userId, auth.user.sub));

@@ -262,6 +262,11 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
   meta('sponsored_quest_ai_auto_approve_threshold', 'Sponsored Quest AI Auto-Approve Threshold', 'AI moderation confidence (0-1) at or above which a business-submitted Sponsored Quest is auto-approved when moderation mode is "ai".', 'number', 'Business Accounts'),
   meta('business_downgrade_grace_days', 'Business Downgrade Grace Period (days)', 'Days after a business account tier downgrade before extra pages are deactivated and running sponsored quests are stopped.', 'number', 'Business Accounts'),
 
+  // Privacy
+  meta('leaderboard_anonymity_enabled', 'Hide Name on Leaderboards: Enabled', 'Master switch for the "hide my name on leaderboards" privacy setting (users then appear as "Anonymous" on public leaderboards). When off, nobody is hidden and the setting is not offered.', 'boolean', 'Privacy'),
+  meta('leaderboard_anonymity_min_level', 'Hide Name on Leaderboards: Unlock Level', 'Account level (main rank number, 1 = Beginner) that unlocks the setting irrespective of plan. Combined with the plans list by OR. 0 = no level unlock (plans only).', 'number', 'Privacy'),
+  meta('leaderboard_anonymity_eligible', 'Hide Name on Leaderboards: Plans/Roles', 'JSON array of plan/role entries allowed to hide their name (plan slugs, "prestige_N", "business_<tier>", "role_admin", "role_moderator"). Default: every paid plan and business account.', 'string', 'Privacy'),
+
   // Miscellaneous
   meta('deep_link_base_url', 'Deep Link Base URL', 'Base URL used when generating deep links (e.g. https://zobia.app).', 'string', 'Miscellaneous'),
 ]);
@@ -269,7 +274,7 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
 const GROUP_ORDER = [
   'Auth', 'CAPTCHA', 'GIF', 'PWA', 'Floating Notifications', 'Payments', 'Economy',
   'Creator Fund', 'Fraud Detection', 'AdMob', 'Limits', 'AI Moderation', 'Guild Wars', 'Messaging',
-  'Moments', 'Answers', 'Physical Goods', 'Grace Periods & Save Slots', 'Business Accounts',
+  'Privacy', 'Moments', 'Answers', 'Physical Goods', 'Grace Periods & Save Slots', 'Business Accounts',
   'Miscellaneous',
 ];
 
@@ -287,6 +292,7 @@ const GROUP_LABEL: Record<string, string> = {
   'AI Moderation': 'admin.config.group.aiModeration',
   'Guild Wars': 'admin.config.group.guildWars',
   Messaging: 'admin.config.group.messaging',
+  Privacy: 'admin.config.group.privacy',
   Moments: 'admin.config.group.moments',
   Answers: 'admin.config.group.answers',
   'Physical Goods': 'admin.config.group.physicalGoods',

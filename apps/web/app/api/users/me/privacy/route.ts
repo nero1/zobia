@@ -12,6 +12,9 @@ export const dynamic = 'force-dynamic';
  *   disable_friend_requests boolean — stop receiving friend requests
  *   sitemap_opt_out         boolean — exclude profile from public sitemap (no plan gate)
  *   nemesis_opt_out         boolean — turn the Nemesis system off entirely (no plan gate)
+ *   hide_from_leaderboards  boolean — show as "Anonymous" on public leaderboards. Gated by
+ *                           plan/level eligibility (admin: leaderboard_anonymity_* keys);
+ *                           turning it OFF is always allowed.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -20,6 +23,26 @@ import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
 import { sql, eq, and } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db/drizzle';
 import { getAllowedPlans, isPlanEligible as userEligible, allEligibilityOptionsExcept } from '@/lib/plans/eligibility';
+import { getAnonymityConfig, isAnonymityEligible, type AnonymityUser } from '@/lib/privacy/leaderboardAnonymity';
+
+/** Adapt the raw SQL user row (snake_case) to the anonymity eligibility helper. */
+function toAnonymityUser(u: {
+  plan: string;
+  prestige_count: number;
+  is_admin: boolean;
+  is_moderator: boolean;
+  business_tier: string | null;
+  xp_total: string | number | null;
+}): AnonymityUser {
+  return {
+    plan: u.plan,
+    prestigeCount: u.prestige_count,
+    isAdmin: u.is_admin,
+    isModerator: u.is_moderator,
+    businessTier: u.business_tier,
+    xpTotal: Number(u.xp_total ?? 0),
+  };
+}
 
 type SqlParam = string | number | boolean | null;
 
@@ -37,6 +60,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       show_online_status?: boolean;
       group_invite_privacy?: 'anybody' | 'friends' | 'nobody';
       nemesis_opt_out?: boolean;
+      hide_from_leaderboards?: boolean;
     };
 
     // Fetch current user plan + prestige + role + business tier (business
@@ -49,9 +73,11 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       is_admin: boolean;
       is_moderator: boolean;
       business_tier: string | null;
+      xp_total: string | number | null;
     }>(sql`
        SELECT COALESCE(u.plan, 'free') AS plan, COALESCE(u.prestige_count, 0) AS prestige_count,
               COALESCE(u.is_admin, false) AS is_admin, COALESCE(u.is_moderator, false) AS is_moderator,
+              COALESCE(u.xp_total, 0) AS xp_total,
               ba.tier AS business_tier
        FROM users u
        LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
@@ -121,6 +147,21 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       updates.nemesis_opt_out = Boolean(body.nemesis_opt_out);
     }
 
+    if (body.hide_from_leaderboards !== undefined) {
+      // Hiding is a paid / level-unlocked privilege; un-hiding is always allowed
+      // so a downgraded user can never be stuck hidden.
+      if (body.hide_from_leaderboards === true) {
+        const cfg = await getAnonymityConfig();
+        if (!isAnonymityEligible(toAnonymityUser(user), cfg)) {
+          throw forbidden(
+            'Hiding your name from leaderboards is a paid feature',
+            'LEADERBOARD_ANONYMITY_LOCKED'
+          );
+        }
+      }
+      updates.hide_from_leaderboards = Boolean(body.hide_from_leaderboards);
+    }
+
     if (Object.keys(updates).length === 0) {
       throw badRequest('No valid fields to update');
     }
@@ -176,8 +217,12 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       show_online_status: boolean;
       group_invite_privacy: string;
       nemesis_opt_out: boolean;
+      hide_from_leaderboards: boolean;
+      xp_total: string | number | null;
     }>(sql`
        SELECT COALESCE(u.plan, 'free') AS plan,
+              COALESCE(u.xp_total, 0) AS xp_total,
+              COALESCE(u.hide_from_leaderboards, false) AS hide_from_leaderboards,
               COALESCE(u.prestige_count, 0) AS prestige_count,
               COALESCE(u.is_admin, false) AS is_admin,
               COALESCE(u.is_moderator, false) AS is_moderator,
@@ -211,6 +256,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       isModerator: user.is_moderator,
     };
 
+    const anonymityCfg = await getAnonymityConfig();
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
       getAllowedPlans('privacy_can_lock_profile', allEligibilityOptionsExcept(['free', 'plus'])),
       getAllowedPlans('privacy_can_hide_sections', allEligibilityOptionsExcept(['free'])),
@@ -230,8 +276,14 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         show_online_status: user.show_online_status,
         group_invite_privacy: user.group_invite_privacy,
         nemesis_opt_out: user.nemesis_opt_out,
+        hide_from_leaderboards: user.hide_from_leaderboards,
       },
       capabilities: {
+        // Feature on AND this user's plan/level qualifies. When false the
+        // client shows the toggle greyed out with a "Paid" tag (free users).
+        canHideFromLeaderboards: isAnonymityEligible(toAnonymityUser(user), anonymityCfg),
+        // Master switch, so the client can hide the row entirely when the admin turns the feature off.
+        leaderboardAnonymityEnabled: anonymityCfg.enabled,
         canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed, eligibilityContext),
         canHideSections: userEligible(user.plan, user.prestige_count, hideAllowed, eligibilityContext),
         canDisableFriendRequests: userEligible(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),

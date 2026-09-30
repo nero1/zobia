@@ -220,6 +220,10 @@ export interface LeaderboardEntry {
   avatarEmoji: string;
   points: number;
   level: number;
+  /** Member hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
+  /** Real identity — only sent to the classroom's own admins, behind a "Reveal" control. */
+  revealed?: { userId: string; username: string; displayName: string; avatarEmoji: string };
 }
 
 export interface Member {

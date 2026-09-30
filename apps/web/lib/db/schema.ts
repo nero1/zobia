@@ -282,6 +282,12 @@ export const users = pgTable("users", {
   sitemapOptOut: boolean("sitemap_opt_out").notNull().default(false),
   groupInvitePrivacy: text("group_invite_privacy").notNull().default("friends"),
   nemesisOptOut: boolean("nemesis_opt_out").notNull().default(false),
+  /**
+   * Paid/level-unlocked privacy setting: when true (and the user is still
+   * eligible — see lib/privacy/leaderboardAnonymity.ts) the user appears as
+   * "Anonymous" on public leaderboards. Visible (false) by default.
+   */
+  hideFromLeaderboards: boolean("hide_from_leaderboards").notNull().default(false),
   tweetMaxLength: integer("tweet_max_length"),
 
   // Staff roles (additional — distinct from isAdmin/isModerator)

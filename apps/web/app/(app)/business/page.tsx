@@ -50,7 +50,7 @@ const TIERS = [
     key: "starter",
     label: "Starter",
     price: "₦5,000/mo",
-    features: ["Verified business badge (on approval)", "Broadcast capability", "Run Ads (CPM campaigns)", "Basic analytics (totals)", "Up to 2 Business Pages"],
+    features: ["Verified business badge (on approval)", "Broadcast capability", "Run Ads (CPM campaigns)", "Basic analytics (totals)", "Up to 2 Business Pages", "Hide your name on leaderboards"],
   },
   {
     key: "growth",

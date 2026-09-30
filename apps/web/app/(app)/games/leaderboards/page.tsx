@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { HiddenFromOthersTag } from "@/components/leaderboard/AnonymousReveal";
 import { useTranslation } from "react-i18next";
 
 interface GameSummary {
@@ -17,6 +18,9 @@ interface GameSummary {
 }
 interface Row {
   rank: number;
+  userId: string;
+  /** Player hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
   username: string;
   displayName: string;
   avatarEmoji: string;
@@ -80,10 +84,13 @@ export default function GamesLeaderboardsPage() {
 
       <ol className="divide-y divide-neutral-800 overflow-hidden rounded-xl border border-neutral-800">
         {rows.map((r) => (
-          <li key={r.username} className="flex items-center gap-3 bg-neutral-900 px-4 py-3">
+          <li key={r.userId} className="flex items-center gap-3 bg-neutral-900 px-4 py-3">
             <span className="w-6 text-sm font-bold text-neutral-400">{r.rank}</span>
             <span className="text-xl" aria-hidden>{r.avatarEmoji}</span>
-            <span className="flex-1 truncate text-sm font-medium text-neutral-100">{r.displayName || r.username}</span>
+            <span className="flex-1 truncate text-sm font-medium text-neutral-100">
+              {r.anonymous && r.userId.startsWith("anon-") ? t("leaderboard.anonymous.name", "Anonymous") : r.displayName || r.username}
+              {r.anonymous && !r.userId.startsWith("anon-") && <HiddenFromOthersTag />}
+            </span>
             <span className="text-sm font-semibold text-emerald-400">{r.bestScore}</span>
           </li>
         ))}

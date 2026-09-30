@@ -216,7 +216,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
 
     // Trigger the login_streak daily quest ("Log in for 7 consecutive days") and
     // the daily_login New Member Quest step (fire-and-forget, non-fatal)
-    void triggerActivityQuestProgress(userId, "login_streak", orm);
+    // Progress is the live streak itself (absolute), not +1 per day.
+    void triggerActivityQuestProgress(userId, "login_streak", orm, Math.max(1, result.newStreak), { absolute: true });
     void advanceNewMemberQuestStep(orm, userId, "daily_login");
 
     // Process any unclaimed comeback bonus coins (90-day re-engagement)
