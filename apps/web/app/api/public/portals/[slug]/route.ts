@@ -8,6 +8,10 @@ export const dynamic = 'force-dynamic';
  * The full (viewer-independent) portal payload, served from the two-tier
  * cache in lib/portals/cache.ts. `canonicalSlug` differs from the requested
  * slug when the tag was merged into another; clients should follow it.
+ *
+ * A hashtag with content but no portal resolves to a read-only "tag page"
+ * (payload `portal.status === "tag"`, see lib/portals/tagPage.ts); only a tag
+ * with nothing visible at all is a 404.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -16,6 +20,7 @@ import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateL
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { resolvePortal } from "@/lib/portals/repo";
 import { getPortalPayload } from "@/lib/portals/page";
+import { resolveTagPage } from "@/lib/portals/tagPage";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ slug: string }> }): Promise<NextResponse> {
   try {
@@ -23,10 +28,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
     await requireFeatureEnabled("portals");
     const { slug } = await params;
     const resolved = await resolvePortal(slug);
-    if (!resolved) throw notFound("Portal not found");
-    const payload = await getPortalPayload(resolved.row);
+    const tagPage = resolved ? null : await resolveTagPage(slug);
+    if (!resolved && !tagPage) throw notFound("Portal not found");
+    const payload = await getPortalPayload((resolved?.row ?? tagPage!.row));
     return NextResponse.json(
-      { success: true, data: { ...payload, canonicalSlug: resolved.canonicalSlug }, error: null },
+      { success: true, data: { ...payload, canonicalSlug: resolved?.canonicalSlug ?? tagPage!.canonicalSlug }, error: null },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } }
     );
   } catch (err) {

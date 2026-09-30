@@ -415,6 +415,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    policies per Supabase's new Data-API rule, the `portal_top` /
    `portal_after_3` / `portal_bottom` ad placements, and the `feature_portals`
    + `portals_*` x_manifest keys, editable at `/gate44/config` -> "Portals").
+   `0019_seed_portals.sql` seeds 22 official starter portals (places such as
+   lagos, abuja, edo, detroit; universities such as uniben, unilag, oau; topics such as
+   naija, afrobeats, tech). They start empty of posts and are editable or
+   deletable at `/gate44/portals`.
    Nothing else is needed to use Portals: create an official portal at
    `/gate44/portals`, or let the feed-refresh job below promote trending tags.
 

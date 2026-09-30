@@ -24,6 +24,7 @@ import { Icon } from "@/components/ui/Icon";
 import type { FeedTab, FeedPage } from "@/lib/feed/types";
 import type { PortalCard } from "@zobia/types";
 import { PortalSuggestionCard } from "@/components/portals/PortalSuggestionCard";
+import { TrendingTagsStrip } from "@/components/portals/TrendingTagsStrip";
 
 /** A "Portals for you" card pinned after the Nth item of the flattened list. */
 interface PlacedSuggestion {
@@ -179,6 +180,7 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
 
   return (
     <div className="space-y-3">
+      {tab === "for_you" && <TrendingTagsStrip />}
       {items.map((item, i) => (
         <div key={`${item.contentType}:${item.contentId}:${i}`} className="space-y-3">
           <FeedItemCard item={item} />

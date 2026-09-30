@@ -24,6 +24,8 @@
 import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { memDel, memGet, memSet } from "@/lib/cache/memory";
+import { invalidatePortalCache } from "./cache";
+import { DISCOVER_CACHE_ID } from "./discover";
 import { loadManifest } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
 import type { PortalCard } from "@zobia/types";
@@ -150,6 +152,8 @@ async function getCandidates(): Promise<Candidate[]> {
 
 export async function invalidateSuggestionCache(): Promise<void> {
   memDel(MEM_KEY);
+  // The discovery hub lists the same portals; admin edits and the cron refresh both.
+  await invalidatePortalCache(DISCOVER_CACHE_ID);
   try {
     await redis.del(REDIS_KEY);
   } catch (err) {

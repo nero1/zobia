@@ -31,6 +31,7 @@ export const RESERVED_PORTAL_SLUGS: ReadonlySet<string> = new Set([
   "api",
   "zobia",
   "official",
+  "discover",
 ]);
 
 /**

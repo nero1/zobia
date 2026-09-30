@@ -8989,12 +8989,20 @@ The Home Feed (`GET /api/feed`, tabs For You / Trending / New) may carry one **"
 
 Migration `0018_hashtags_portals.sql` adds `hashtags`, `content_hashtags`, `portals`, `portal_follows` and `portal_stats_daily` (explicit Supabase GRANTs for `anon`/`authenticated`/`service_role`, RLS enabled with public-read policies only on hashtags, content links and non-suppressed portals), seeds the settings above, and registers the ad placements `portal_top`, `portal_after_3`, `portal_bottom`. Drizzle definitions live in `lib/db/schema.ts`.
 
+### 43.10 Discovery hub, tag pages and seed portals (v2.40)
+
+- **Where to see portals.** The hub at `/h` (nav item "Portals", the feed card's "See all", the trending strip above the For You feed) and any `#tag` link. **Official** portals are curated by admin (`/gate44/portals`); **auto** portals appear only after `/api/cron/feed-refresh` has run and a tag passes the thresholds in 43.4. Seeded starter portals (migration `0019_seed_portals.sql`: ten places, six universities, six topics) are official and editable or deletable by admin like any other.
+- **Hub sections** (one cached payload, `GET /api/public/portals/discover`, memory 20 s then Redis, single-flight, dropped whenever admin edits a portal or the cron runs): Featured (pinned, actively boosted or sponsored portals, topped up with official ones), Trending hashtags (chips ranked by distinct posters in the trending window, including tags that have no portal), Your portals (signed in), Rising, Places and schools (portals with a place or campus keyword), New and Most followed, plus a "Browse all" grid with Trending / Popular / New tabs. One search box searches hashtags and portals together.
+- **Tag pages.** `#tag` links used to 404 unless a portal existed. Now `/h/<slug>` for any tag with visible content renders a read-only **tag page** (`lib/portals/tagPage.ts`): the same sections and cache as a portal, no follow and no view counter, `noindex`, with an admin-only "Make this an official portal" link that opens `/gate44/portals` prefilled. Only a tag with nothing visible (unknown, blocked, empty) returns 404; merged tags redirect to the survivor. `discover` is a reserved slug.
+- **Home entry point.** A slim row of trending hashtags above the For You feed (`TrendingTagsStrip`), hidden when there is no trend or the feature is off.
+- **Android.** `routes/h/index.tsx` (hub) and the tag-page state in `routes/h/$slug.tsx` mirror the web; react-query persists them per user for offline.
+
 ### 43.9 Not built (by design, for later)
 
 Sponsored-portal self-serve checkout for brands and schools, per-portal moderator roles and badges, a per-portal chat room, OG share-card images, and paid creator boosts of a portal through `ad_campaigns` (the boost dial is admin-only today).
 
 ---
 
-*ZobiaSocial PRD v2.39*
+*ZobiaSocial PRD v2.40*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

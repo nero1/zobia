@@ -7,6 +7,13 @@
 
 export type PortalStatus = "official" | "auto" | "archived" | "suppressed";
 
+/**
+ * A portal page can also be a "tag page": a hashtag that has content but no
+ * portal row (yet). It renders with the same template but is read-only (no
+ * follow, no admin copy) and noindex.
+ */
+export type PortalPageStatus = PortalStatus | "tag";
+
 export type PortalSectionKey =
   | "feed"
   | "rooms"
@@ -31,7 +38,7 @@ export interface PortalCard {
   tagline: string | null;
   coverImageUrl: string | null;
   accentColor: string | null;
-  status: PortalStatus;
+  status: PortalPageStatus;
   followerCount: number;
   /** Tagged posts in the trending window (0 when unknown). */
   activityCount: number;
@@ -126,4 +133,23 @@ export interface PortalSuggestion {
   /** Insert the card after this many items of the page (0-based count). */
   afterIndex: number;
   portals: PortalCard[];
+}
+
+/** A trending hashtag chip on the discovery hub (with or without a portal). */
+export interface TrendingTag {
+  slug: string;
+  postCount: number;
+  authorCount: number;
+  hasPortal: boolean;
+}
+
+/** One cached payload behind the /h discovery hub. */
+export interface PortalDiscover {
+  featured: PortalCard[];
+  trendingTags: TrendingTag[];
+  rising: PortalCard[];
+  places: PortalCard[];
+  newest: PortalCard[];
+  popular: PortalCard[];
+  generatedAt: string;
 }
