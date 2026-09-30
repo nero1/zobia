@@ -5529,8 +5529,8 @@ Mentions tab identically to a top-level mention (mentions are keyed off
 per `(tweet, retweeter)`, so re-retweeting is a toggle like a like. A
 **quote retweet** is the same row with `quoteContent` set; changing your
 quote is un-retweet-then-retweet-again in the UI, upsert-in-place
-server-side. Retweeting your own Tweet is rejected
-(`CANNOT_RETWEET_OWN`) — same gate (feature flag + level) as posting a
+server-side. Retweeting your own Tweet is allowed (as on X)
+— same gate (feature flag + level) as posting a
 Tweet, but **no separate charge** (a deliberate simplification vs. Tweet
 creation's image/length charges — retweeting redistributes existing
 content, it doesn't create new billable content).
