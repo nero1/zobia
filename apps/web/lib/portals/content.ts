@@ -28,7 +28,7 @@ import type {
   PortalGuildCard,
   PortalPersonCard,
   PortalRoomCard,
-} from "@zobia/shared/types";
+} from "@zobia/types";
 
 /** Content types that can appear as generic feed cards on a portal page. */
 export type PortalFeedType = Extract<

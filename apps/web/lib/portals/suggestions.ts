@@ -26,7 +26,7 @@ import { redis } from "@/lib/redis";
 import { memDel, memGet, memSet } from "@/lib/cache/memory";
 import { loadManifest } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
-import type { PortalCard } from "@zobia/shared/types";
+import type { PortalCard } from "@zobia/types";
 import { isBoostActive, isSponsorshipActive } from "./constants";
 import { bumpPortalImpressions, getActivityCounts, listFollowedPortalIds, toPortalCard } from "./repo";
 import { desc, inArray, sql } from "drizzle-orm";

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { PORTAL_SECTION_KEYS } from "@/lib/portals/constants";
-import type { PortalSectionConfig, PortalStatus } from "@zobia/shared/types";
+import type { PortalSectionConfig, PortalStatus } from "@zobia/types";
 
 interface AdminPortal {
   id: string;

@@ -13,7 +13,7 @@ import { listPortals } from "@/lib/portals/repo";
 import { PortalDirectory } from "@/components/portals/PortalDirectory";
 import { PortalNav } from "@/components/portals/PortalNav";
 import { PortalDirectoryHeader } from "@/components/portals/PortalDirectoryHeader";
-import type { PortalCard } from "@zobia/shared/types";
+import type { PortalCard } from "@zobia/types";
 
 export const metadata: Metadata = {
   title: { absolute: "Portals — Zobia Social" },

@@ -23,7 +23,7 @@ import { loadManifest } from "@/lib/manifest";
 import { listPortals, upsertOfficialPortal } from "@/lib/portals/repo";
 import { createPortalSchema } from "@/lib/portals/schemas";
 import { invalidateSuggestionCache } from "@/lib/portals/suggestions";
-import type { PortalStatus } from "@zobia/shared/types";
+import type { PortalStatus } from "@zobia/types";
 
 const querySchema = z.object({
   status: z.string().optional(),

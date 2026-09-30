@@ -13,7 +13,7 @@
  */
 
 import { loadManifest } from "@/lib/manifest";
-import type { PortalPayload, PortalSections } from "@zobia/shared/types";
+import type { PortalPayload, PortalSections } from "@zobia/types";
 import { getCachedPortalValue } from "./cache";
 import { normalizeSections } from "./constants";
 import {

@@ -5,7 +5,7 @@
  * app/api/cron/feed-refresh).
  */
 
-import type { PortalSuggestion } from "@zobia/shared/types";
+import type { PortalSuggestion } from "@zobia/types";
 
 export type FeedTab = "for_you" | "trending" | "friends" | "new";
 

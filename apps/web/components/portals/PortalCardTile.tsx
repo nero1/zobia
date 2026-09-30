@@ -12,7 +12,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";
 import { portalPath } from "@zobia/shared/utils";
-import type { PortalCard } from "@zobia/shared/types";
+import type { PortalCard } from "@zobia/types";
 
 export function portalTileHref(portal: Pick<PortalCard, "slug">, src?: "feed" | "search"): string {
   return src ? `${portalPath(portal.slug)}?src=${src}` : portalPath(portal.slug);

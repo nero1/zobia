@@ -22,7 +22,7 @@ import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";
 import { Icon } from "@/components/ui/Icon";
 import type { FeedTab, FeedPage } from "@/lib/feed/types";
-import type { PortalCard } from "@zobia/shared/types";
+import type { PortalCard } from "@zobia/types";
 import { PortalSuggestionCard } from "@/components/portals/PortalSuggestionCard";
 
 /** A "Portals for you" card pinned after the Nth item of the flattened list. */

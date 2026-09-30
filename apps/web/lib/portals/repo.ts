@@ -15,7 +15,7 @@ import { and, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { normaliseHashtag } from "@zobia/shared/utils";
-import type { PortalCard, PortalSectionConfig, PortalStatus } from "@zobia/shared/types";
+import type { PortalCard, PortalSectionConfig, PortalStatus } from "@zobia/types";
 import { isBoostActive, isSponsorshipActive, normalizeSections, RESERVED_PORTAL_SLUGS, titleFromSlug } from "./constants";
 
 export type PortalRow = typeof schema.portals.$inferSelect;

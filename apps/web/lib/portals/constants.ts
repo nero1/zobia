@@ -6,7 +6,7 @@
  * page builder, the admin API and the admin UI.
  */
 
-import type { PortalSectionConfig, PortalSectionKey } from "@zobia/shared/types";
+import type { PortalSectionConfig, PortalSectionKey } from "@zobia/types";
 import { PORTAL_SECTION_KEYS } from "@zobia/shared/utils";
 
 /** Display order of every portal section; admins can reorder/hide per portal. Defined in shared so the web and Capacitor admin UIs use the same keys. */

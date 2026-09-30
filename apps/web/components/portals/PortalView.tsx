@@ -23,7 +23,7 @@ import { HashtagText } from "./HashtagText";
 import { FollowPortalButton } from "./FollowPortalButton";
 import { PortalViewTracker } from "./PortalViewTracker";
 import { portalPath } from "@zobia/shared/utils";
-import type { PortalFeedItem, PortalFeedPage, PortalPayload, PortalSectionKey } from "@zobia/shared/types";
+import type { PortalFeedItem, PortalFeedPage, PortalPayload, PortalSectionKey } from "@zobia/types";
 
 const FEED_PAGE = 12;
 

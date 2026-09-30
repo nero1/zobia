@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth/hooks";
 import { Icon } from "@/components/ui/Icon";
 import { PortalCardTile } from "./PortalCardTile";
-import type { PortalCard } from "@zobia/shared/types";
+import type { PortalCard } from "@zobia/types";
 
 type Tab = "trending" | "followers" | "new" | "following";
 
