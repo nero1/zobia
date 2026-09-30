@@ -44,7 +44,10 @@ export function TweetCard({
   const myRetweets = myRetweetCount(tweet);
   const retweetCap = tweet.selfRetweetCap ?? 1;
   const showRetweetCounter = tweet.selfRetweetCap != null && retweetCap > 1;
+  const isOwnTweet = tweet.selfRetweetCap != null;
   const canRetweetMore = myRetweets < retweetCap;
+  // Own Tweet, every allowed retweet used: show the limit + upgrade prompt instead of retweet controls.
+  const atRetweetCap = isOwnTweet && myRetweets > 0 && !canRetweetMore;
   const popupId = useId();
   const retweetRef = useRef<HTMLDivElement>(null);
 
@@ -178,7 +181,7 @@ export function TweetCard({
           <div className="relative" ref={retweetRef}>
             <button
               onClick={() => {
-                if (tweet.retweeted && !canRetweetMore) onToggleRetweet(tweet.id, true);
+                if (tweet.retweeted && !canRetweetMore && !isOwnTweet) onToggleRetweet(tweet.id, true);
                 else {
                   if (!showQuoteBox) window.dispatchEvent(new CustomEvent("tweet-retweet-popup-open", { detail: popupId }));
                   setShowQuoteBox((v) => !v);
@@ -206,32 +209,47 @@ export function TweetCard({
                     {t("tweets.undoRetweet")}
                   </button>
                 )}
-                <button
-                  onClick={() => {
-                    onToggleRetweet(tweet.id, false);
-                    setShowQuoteBox(false);
-                  }}
-                  className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  <Icon emoji="🔁" size={14} className="mr-1 inline" /> {myRetweets > 0 ? t("tweets.retweetAgain") : t("tweets.retweet")}{showRetweetCounter ? ` (${myRetweets}/${retweetCap})` : ""}
-                </button>
-                <textarea
-                  value={quoteDraft}
-                  onChange={(e) => setQuoteDraft(e.target.value)}
-                  placeholder={t("tweets.addComment")}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800"
-                />
-                <button
-                  onClick={() => {
-                    onToggleRetweet(tweet.id, false, quoteDraft.trim());
-                    setShowQuoteBox(false);
-                    setQuoteDraft("");
-                  }}
-                  className="mt-1.5 w-full rounded-lg bg-blue-600 py-1.5 text-xs font-semibold text-white"
-                >
-                  {t("tweets.quoteRetweet")}
-                </button>
+                {atRetweetCap && (
+                  <div className="mb-1.5 rounded-lg bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+                    <p>{t("tweets.selfRetweetLimitReached", { cap: retweetCap })}</p>
+                    {tweet.selfRetweetCanUpgrade && <p className="mt-0.5">{t("tweets.selfRetweetUpgrade")}</p>}
+                  </div>
+                )}
+                {atRetweetCap && tweet.selfRetweetCanUpgrade && (
+                  <Link href="/settings/subscription" className="block w-full rounded-lg bg-blue-600 py-1.5 text-center text-xs font-semibold text-white">
+                    {t("tweets.upgradeCta")}
+                  </Link>
+                )}
+                {!atRetweetCap && (
+                  <>
+                    <button
+                      onClick={() => {
+                        onToggleRetweet(tweet.id, false);
+                        setShowQuoteBox(false);
+                      }}
+                      className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    >
+                      <Icon emoji="🔁" size={14} className="mr-1 inline" /> {myRetweets > 0 ? t("tweets.retweetAgain") : t("tweets.retweet")}{showRetweetCounter ? ` (${myRetweets}/${retweetCap})` : ""}
+                    </button>
+                    <textarea
+                      value={quoteDraft}
+                      onChange={(e) => setQuoteDraft(e.target.value)}
+                      placeholder={t("tweets.addComment")}
+                      rows={2}
+                      className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800"
+                    />
+                    <button
+                      onClick={() => {
+                        onToggleRetweet(tweet.id, false, quoteDraft.trim());
+                        setShowQuoteBox(false);
+                        setQuoteDraft("");
+                      }}
+                      className="mt-1.5 w-full rounded-lg bg-blue-600 py-1.5 text-xs font-semibold text-white"
+                    >
+                      {t("tweets.quoteRetweet")}
+                    </button>
+                  </>
+                )}
               </div>
             )}
           </div>

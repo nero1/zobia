@@ -248,10 +248,8 @@ export interface ZobiaManifest {
     longMaxLengthWords: number;
     /** Credits charged for a single Tweet over defaultMaxLength, for users who are NOT long-form exempt. */
     longTweetCostCredits: number;
-    /** Level at which NON-paid accounts may retweet their own Tweet more than once. 0 = off. */
-    selfRetweetLevelMin: number;
-    /** Fixed per-Tweet self-retweet cap for non-paid accounts that meet selfRetweetLevelMin. */
-    selfRetweetLevelMax: number;
+    /** Per-Tweet self-retweet cap by minimum account level (`{ "1": 2, "5": 5 }`); highest tier reached applies. */
+    selfRetweetLevelCaps: Record<string, number>;
     /** Per-Tweet self-retweet cap by plan slug or `business_<tier>` (bigger for pricier plans). */
     selfRetweetPlanCaps: Record<string, number>;
   };
@@ -748,9 +746,8 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     longMinRoles: ["role_admin", "role_moderator", "pro", "max"],
     longMaxLengthWords: 1000,
     longTweetCostCredits: 10,
-    selfRetweetLevelMin: 10,
-    selfRetweetLevelMax: 2,
-    selfRetweetPlanCaps: { plus: 3, pro: 5, max: 10, business_starter: 5, business_growth: 10, business_enterprise: 20 },
+    selfRetweetLevelCaps: { "1": 2, "5": 5 },
+    selfRetweetPlanCaps: { plus: 3, pro: 5, max: 10, business_starter: 10, business_growth: 15, business_enterprise: 30 },
   },
   avatarChange: {
     costCredits: 200,
@@ -1366,8 +1363,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       longMinRoles:        parseStringArray(kv["tweets_long_min_role"],       DEFAULT_MANIFEST.tweets.longMinRoles),
       longMaxLengthWords:  parseInt10(kv["tweets_long_max_length"],           DEFAULT_MANIFEST.tweets.longMaxLengthWords),
       longTweetCostCredits: parseInt10(kv["tweets_long_tweet_cost_credits"],  DEFAULT_MANIFEST.tweets.longTweetCostCredits),
-      selfRetweetLevelMin: Math.max(0, parseInt10(kv["tweets_self_retweet_level_min"], DEFAULT_MANIFEST.tweets.selfRetweetLevelMin)),
-      selfRetweetLevelMax: Math.max(1, parseInt10(kv["tweets_self_retweet_level_max"], DEFAULT_MANIFEST.tweets.selfRetweetLevelMax)),
+      selfRetweetLevelCaps: parseNumberMap(kv["tweets_self_retweet_level_caps"], DEFAULT_MANIFEST.tweets.selfRetweetLevelCaps),
       selfRetweetPlanCaps: parseNumberMap(kv["tweets_self_retweet_plan_caps"], DEFAULT_MANIFEST.tweets.selfRetweetPlanCaps),
     },
     avatarChange: {

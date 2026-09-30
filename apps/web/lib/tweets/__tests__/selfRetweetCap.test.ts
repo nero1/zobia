@@ -2,26 +2,26 @@
  * Unit tests for the self-retweet cap rule (lib/tweets/selfRetweetCap.ts).
  */
 
-import { computeSelfRetweetCap } from "../selfRetweetCap";
+import { computeSelfRetweetCap, canUpgradeSelfRetweetCap } from "../selfRetweetCap";
 
 const cfg = {
-  selfRetweetLevelMin: 10,
-  selfRetweetLevelMax: 2,
-  selfRetweetPlanCaps: { plus: 3, pro: 5, max: 10, business_starter: 5, business_growth: 10, business_enterprise: 20 },
+  selfRetweetLevelCaps: { "1": 2, "5": 5 },
+  selfRetweetPlanCaps: { plus: 3, pro: 5, max: 10, business_starter: 10, business_growth: 15, business_enterprise: 30 },
 };
 
+const free = (rankNumber: number) => ({ plan: "free", rankNumber, businessTier: null });
+
 describe("computeSelfRetweetCap", () => {
-  it("gives a non-paid account below the unlock level a cap of 1", () => {
-    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 9, businessTier: null }, cfg)).toBe(1);
+  it("gives non-paid accounts the highest level tier reached", () => {
+    expect(computeSelfRetweetCap(free(1), cfg)).toBe(2);
+    expect(computeSelfRetweetCap(free(4), cfg)).toBe(2);
+    expect(computeSelfRetweetCap(free(5), cfg)).toBe(5);
+    expect(computeSelfRetweetCap({ plan: null, rankNumber: 40, businessTier: null }, cfg)).toBe(5);
   });
 
-  it("gives a non-paid account at/above the unlock level the fixed level cap", () => {
-    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 10, businessTier: null }, cfg)).toBe(2);
-    expect(computeSelfRetweetCap({ plan: null, rankNumber: 40, businessTier: null }, cfg)).toBe(2);
-  });
-
-  it("disables the level unlock when the unlock level is 0", () => {
-    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 99, businessTier: null }, { ...cfg, selfRetweetLevelMin: 0 })).toBe(1);
+  it("falls back to 1 when there are no level tiers or the level is below every tier", () => {
+    expect(computeSelfRetweetCap(free(50), { ...cfg, selfRetweetLevelCaps: {} })).toBe(1);
+    expect(computeSelfRetweetCap(free(1), { ...cfg, selfRetweetLevelCaps: { "3": 4 } })).toBe(1);
   });
 
   it("raises the cap with the plan", () => {
@@ -30,12 +30,21 @@ describe("computeSelfRetweetCap", () => {
   });
 
   it("uses the business tier cap and takes the highest of everything that applies", () => {
-    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 1, businessTier: "growth" }, cfg)).toBe(10);
-    expect(computeSelfRetweetCap({ plan: "plus", rankNumber: 1, businessTier: "Enterprise" }, cfg)).toBe(20);
-    expect(computeSelfRetweetCap({ plan: "plus", rankNumber: 50, businessTier: null }, { ...cfg, selfRetweetLevelMax: 7 })).toBe(7);
+    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 1, businessTier: "starter" }, cfg)).toBe(10);
+    expect(computeSelfRetweetCap({ plan: "free", rankNumber: 1, businessTier: "growth" }, cfg)).toBe(15);
+    expect(computeSelfRetweetCap({ plan: "plus", rankNumber: 1, businessTier: "Enterprise" }, cfg)).toBe(30);
+    expect(computeSelfRetweetCap({ plan: "plus", rankNumber: 50, businessTier: null }, cfg)).toBe(5);
   });
 
   it("never returns less than 1, even for a plan missing from the map", () => {
-    expect(computeSelfRetweetCap({ plan: "pro", rankNumber: 1, businessTier: null }, { ...cfg, selfRetweetPlanCaps: {} })).toBe(1);
+    expect(computeSelfRetweetCap({ plan: "pro", rankNumber: 1, businessTier: null }, { selfRetweetLevelCaps: {}, selfRetweetPlanCaps: {} })).toBe(1);
+  });
+});
+
+describe("canUpgradeSelfRetweetCap", () => {
+  it("is true while some plan offers more, false at the top", () => {
+    expect(canUpgradeSelfRetweetCap(2, cfg)).toBe(true);
+    expect(canUpgradeSelfRetweetCap(29, cfg)).toBe(true);
+    expect(canUpgradeSelfRetweetCap(30, cfg)).toBe(false);
   });
 });

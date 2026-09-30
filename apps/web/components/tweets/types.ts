@@ -32,6 +32,8 @@ export interface Tweet {
   myRetweets?: number;
   /** Set only on the viewer's own Tweets: max times they may retweet it. */
   selfRetweetCap?: number | null;
+  /** True when a higher plan would raise selfRetweetCap (drives the upgrade prompt). */
+  selfRetweetCanUpgrade?: boolean;
   /** Set when this row is a retweet-attributed feed item, not an original post. */
   retweetedById: string | null;
   retweetedByUsername: string | null;
@@ -66,6 +68,7 @@ export function mapTweetRow(r: Record<string, unknown>): Tweet {
     retweeted: Boolean(r.retweeted),
     myRetweets: Number(r.my_retweets ?? (r.retweeted ? 1 : 0)),
     selfRetweetCap: r.self_retweet_cap == null ? null : Number(r.self_retweet_cap),
+    selfRetweetCanUpgrade: Boolean(r.self_retweet_can_upgrade),
     retweetedById: (r.retweeted_by_id ?? null) as string | null,
     retweetedByUsername: (r.retweeted_by_username ?? null) as string | null,
     retweetQuoteContent: (r.retweet_quote_content ?? null) as string | null,

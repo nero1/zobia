@@ -21,7 +21,7 @@ import { isPlanEligible } from "@/lib/plans/eligibility";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { insertNotification } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
-import { computeSelfRetweetCap } from "./selfRetweetCap";
+import { computeSelfRetweetCap, canUpgradeSelfRetweetCap } from "./selfRetweetCap";
 
 /**
  * Absolute, non-admin-configurable safety ceiling on Tweet content length —
@@ -575,7 +575,7 @@ export interface RetweetResult {
 // Self-retweet caps
 // ---------------------------------------------------------------------------
 
-export async function getSelfRetweetCap(userId: string): Promise<number> {
+export async function getSelfRetweetInfo(userId: string): Promise<{ cap: number; canUpgrade: boolean }> {
   const orm = await getDb();
   const [manifest, userRows, bizRows] = await Promise.all([
     loadManifest(),
@@ -587,21 +587,27 @@ export async function getSelfRetweetCap(userId: string): Promise<number> {
       .limit(1),
   ]);
   const u = userRows[0];
-  return computeSelfRetweetCap(
+  const cap = computeSelfRetweetCap(
     { plan: u?.plan ?? "free", rankNumber: getRankForXP(Number(u?.xpTotal ?? 0)).rankNumber, businessTier: bizRows[0]?.tier ?? null },
     manifest.tweets
   );
+  return { cap, canUpgrade: canUpgradeSelfRetweetCap(cap, manifest.tweets) };
+}
+
+export async function getSelfRetweetCap(userId: string): Promise<number> {
+  return (await getSelfRetweetInfo(userId)).cap;
 }
 
 /**
- * Adds `self_retweet_cap` to the rows the viewer authored so clients know
- * whether "retweet again" is offered. Resolves the cap once, and only when
- * at least one row is the viewer's own.
+ * Adds `self_retweet_cap` (and `self_retweet_can_upgrade`) to the rows the
+ * viewer authored so clients know whether "retweet again" is offered and
+ * whether to nudge an upgrade at the cap. Resolves once, and only when at
+ * least one row is the viewer's own.
  */
 export async function withSelfRetweetCap<T extends Record<string, unknown>>(rows: T[], userId: string): Promise<T[]> {
   if (!rows.some((r) => r.user_id === userId)) return rows;
-  const cap = await getSelfRetweetCap(userId);
-  return rows.map((r) => (r.user_id === userId ? { ...r, self_retweet_cap: cap } : r));
+  const { cap, canUpgrade } = await getSelfRetweetInfo(userId);
+  return rows.map((r) => (r.user_id === userId ? { ...r, self_retweet_cap: cap, self_retweet_can_upgrade: canUpgrade } : r));
 }
 
 /**
@@ -662,7 +668,9 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
       .where(eq(schema.tweets.id, tweetId));
   });
 
-  if (mentionedInQuote(trimmedQuote).length > 0) {
+  // Self-retweets never notify: anyone @mentioned was already notified when the
+  // Tweet was first published, and repeating it would spam them.
+  if (!isOwn && mentionedInQuote(trimmedQuote).length > 0) {
     // Quote-retweet mentions notify the same way top-level Tweet mentions do,
     // but quotes don't get their own tweet_mentions rows (there's no separate
     // "quote tweet" row — the mention lives on the retweet, not a tweet).

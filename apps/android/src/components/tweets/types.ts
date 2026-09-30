@@ -30,6 +30,8 @@ export interface Tweet {
   myRetweets?: number;
   /** Set only on the viewer's own Tweets: max times they may retweet it. */
   selfRetweetCap?: number | null;
+  /** True when a higher plan would raise selfRetweetCap (drives the upgrade prompt). */
+  selfRetweetCanUpgrade?: boolean;
   retweetedById: string | null;
   retweetedByUsername: string | null;
   retweetQuoteContent: string | null;
@@ -60,6 +62,7 @@ export interface TweetRow {
   retweeted: boolean;
   my_retweets?: number;
   self_retweet_cap?: number | null;
+  self_retweet_can_upgrade?: boolean;
   retweeted_by_id: string | null;
   retweeted_by_username: string | null;
   retweet_quote_content: string | null;
@@ -91,6 +94,7 @@ export function mapTweet(row: TweetRow): Tweet {
     retweeted: Boolean(row.retweeted),
     myRetweets: row.my_retweets ?? (row.retweeted ? 1 : 0),
     selfRetweetCap: row.self_retweet_cap ?? null,
+    selfRetweetCanUpgrade: Boolean(row.self_retweet_can_upgrade),
     retweetedById: row.retweeted_by_id ?? null,
     retweetedByUsername: row.retweeted_by_username ?? null,
     retweetQuoteContent: row.retweet_quote_content ?? null,

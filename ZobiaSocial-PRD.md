@@ -5531,12 +5531,14 @@ per `(tweet, retweeter)`, so re-retweeting is a toggle like a like. A
 quote is un-retweet-then-retweet-again in the UI, upsert-in-place
 server-side. Retweeting your own Tweet is allowed (as on X),
 and repeatable up to a per-user cap (`seq` on the row; unique on
-`(tweet, user, seq)`): 1 by default, higher for paid plans via the
-admin-editable `tweets_self_retweet_plan_caps` (plan / `business_<tier>` →
-max, bigger for pricier plans), and a fixed `tweets_self_retweet_level_max`
-for non-paid accounts at/above `tweets_self_retweet_level_min` (0 = off).
-The highest applicable cap wins; past it the API returns
-`SELF_RETWEET_LIMIT`. Un-retweeting removes the latest one. Same gate (feature flag + level) as posting a
+`(tweet, user, seq)`): the highest of 1, the non-paid level tier reached
+(admin-editable `tweets_self_retweet_level_caps`, default level 1+ → 2,
+level 5+ → 5), and the plan / `business_<tier>` cap from
+`tweets_self_retweet_plan_caps` (default plus 3, pro 5, max 10, business
+10 / 15 / 30). Past the cap the API returns `SELF_RETWEET_LIMIT` and the UI
+shows a limit + "Upgrade" prompt (while any plan offers more).
+Un-retweeting removes the latest one. Self-retweets never send mention
+notifications (mentions were notified when the Tweet was published). Same gate (feature flag + level) as posting a
 Tweet, but **no separate charge** (a deliberate simplification vs. Tweet
 creation's image/length charges — retweeting redistributes existing
 content, it doesn't create new billable content).
