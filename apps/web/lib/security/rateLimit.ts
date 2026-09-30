@@ -138,8 +138,15 @@ export const RATE_LIMITS = {
   onboarding: { limit: 30, windowMs: 10 * 60 * 1000, name: "onboarding" } as RateLimitOptions,
   /** Admin operations. bypassL1 ensures multi-instance over-counting can't exceed the limit. */
   admin: { limit: 120, windowMs: 60 * 1000, name: "admin", bypassL1: true } as RateLimitOptions,
-  /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). */
+  /** PIN verification — tight limit to prevent brute-force of 4-digit keyspace (BUG-14). Also used by the admin unlock route. */
   pinVerify: { limit: 5, windowMs: 15 * 60 * 1000, name: "pin:verify", bypassL1: true } as RateLimitOptions,
+  /**
+   * User PIN verification requests — coarse throttle only (bcrypt CPU-DoS
+   * guard). Brute-force of the 4-digit keyspace is stopped by the failed-attempt
+   * lockout in lib/auth/pinAttempts.ts (5 wrong PINs -> 15 min lock), which
+   * successful verifications don't consume.
+   */
+  pinVerifyRequests: { limit: 30, windowMs: 15 * 60 * 1000, name: "pin:verify:req", bypassL1: true } as RateLimitOptions,
   /** Gift sending — separate hourly limit to prevent gift spam / draining (STRUC-09). */
   giftSend: { limit: 50, windowMs: 60 * 60 * 1000, name: "gift:send", bypassL1: true } as RateLimitOptions,
   /** Coin purchase — hourly limit on purchase initiations (STRUC-09). */

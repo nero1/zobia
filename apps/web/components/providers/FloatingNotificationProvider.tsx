@@ -1,7 +1,10 @@
 "use client";
 
 import { createContext, useState, useCallback, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { useAuth } from "@/lib/auth/hooks";
+import { shouldCelebrateCreditAward } from "@zobia/shared/utils";
 import { FloatingCurrencyNotification, type FloatingItem } from "@/components/ui/FloatingCurrencyNotification";
 import { ConfettiCanvas } from "@/components/ui/ConfettiCanvas";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
@@ -31,8 +34,8 @@ const DEFAULT_CONFIG: FloatingNotifConfig = {
 
 export interface FloatingNotificationContextValue {
   fireXP: (amount: number) => void;
-  fireCredits: (amount: number, currencyName?: string) => void;
-  fireStars: (amount: number, currencyName?: string) => void;
+  fireCredits: (amount: number, currencyName?: string, transactionType?: string) => void;
+  fireStars: (amount: number, currencyName?: string, transactionType?: string) => void;
   fireReferral: () => void;
   fireGift: (amount?: number) => void;
   fireDeckComplete: (xpReward: number, coinReward: number, coinName?: string) => void;
@@ -69,24 +72,6 @@ const QUEST_COLORS  = { colorClass: "bg-rose-500/90",   textClass: "text-white" 
 const GIFT_COLORS   = { colorClass: "bg-pink-500/90",   textClass: "text-white" };
 
 // ---------------------------------------------------------------------------
-// Helper: read userId from the access-token cookie (client-side, no verify)
-// ---------------------------------------------------------------------------
-
-function getUserIdFromCookie(): string | null {
-  try {
-    const cookieStr = document.cookie;
-    const match = cookieStr.match(/zobia_at=([^;]+)/);
-    if (!match) return null;
-    const parts = match[1].split(".");
-    if (parts.length < 2) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload.sub ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Provider
 // ---------------------------------------------------------------------------
 
@@ -100,15 +85,16 @@ export function FloatingNotificationProvider({ children }: Props) {
   const [notifications, setNotifications] = useState<FloatingItem[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
   const [levelUp, setLevelUp] = useState<LevelUpCelebrationData | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
+  // The access-token cookie is HttpOnly, so the client can't decode it for the
+  // user id; take it from the (module-deduped) /api/auth/me lookup instead.
+  // The pathname key re-checks after a client-side post-login redirect, since
+  // this provider lives in the root layout and never remounts.
+  const pathname = usePathname();
+  const { user: authUser } = useAuth(pathname ?? undefined);
+  const userId = authUser?.id ?? null;
   const [questUpdateKey, setQuestUpdateKey] = useState(0);
   const configRef = useRef(config);
   configRef.current = config;
-
-  // Get userId on mount (client-side)
-  useEffect(() => {
-    setUserId(getUserIdFromCookie());
-  }, []);
 
   // Fetch config from server
   useEffect(() => {
@@ -134,7 +120,11 @@ export function FloatingNotificationProvider({ children }: Props) {
     ]);
   }, []);
 
-  const maybeConfetti = useCallback((amount: number, threshold: number) => {
+  // Confetti only for earned/gifted inflows (see shared/utils/celebrations.ts):
+  // a refund such as "Reduced a poll reward pot" never celebrates, however
+  // large. `transactionType` is optional so legacy earned-award emitters keep working.
+  const maybeConfetti = useCallback((amount: number, threshold: number, transactionType?: string | null) => {
+    if (!shouldCelebrateCreditAward(transactionType)) return;
     if (amount >= threshold) {
       setShowConfetti(true);
     }
@@ -153,6 +143,8 @@ export function FloatingNotificationProvider({ children }: Props) {
     const payload = data as {
       type: string;
       amount?: number;
+      /** coin_ledger transaction type when the award came from a ledger entry. */
+      transactionType?: string;
       xpAmount?: number;
       coinAmount?: number;
       rankFrom?: string;
@@ -184,7 +176,7 @@ export function FloatingNotificationProvider({ children }: Props) {
             label: t("floatingNotif.creditsEarned", { amount: payload.amount, currency: "Credits" }),
             ...CREDIT_COLORS,
           });
-          maybeConfetti(payload.amount ?? 0, configRef.current.creditsThreshold);
+          maybeConfetti(payload.amount ?? 0, configRef.current.creditsThreshold, payload.transactionType);
         }
         break;
 
@@ -194,7 +186,7 @@ export function FloatingNotificationProvider({ children }: Props) {
             label: t("floatingNotif.starsEarned", { amount: payload.amount, currency: "Stars" }),
             ...STAR_COLORS,
           });
-          maybeConfetti(payload.amount ?? 0, configRef.current.starsThreshold);
+          maybeConfetti(payload.amount ?? 0, configRef.current.starsThreshold, payload.transactionType);
         }
         break;
 
@@ -266,22 +258,22 @@ export function FloatingNotificationProvider({ children }: Props) {
     maybeConfetti(amount, configRef.current.xpThreshold);
   }, [t, addNotification, maybeConfetti]);
 
-  const fireCredits = useCallback((amount: number, currencyName = "Credits") => {
+  const fireCredits = useCallback((amount: number, currencyName = "Credits", transactionType?: string) => {
     if (!configRef.current.enabled || amount <= 0) return;
     addNotification({
       label: t("floatingNotif.creditsEarned", { amount, currency: currencyName }),
       ...CREDIT_COLORS,
     });
-    maybeConfetti(amount, configRef.current.creditsThreshold);
+    maybeConfetti(amount, configRef.current.creditsThreshold, transactionType);
   }, [t, addNotification, maybeConfetti]);
 
-  const fireStars = useCallback((amount: number, currencyName = "Stars") => {
+  const fireStars = useCallback((amount: number, currencyName = "Stars", transactionType?: string) => {
     if (!configRef.current.enabled || amount <= 0) return;
     addNotification({
       label: t("floatingNotif.starsEarned", { amount, currency: currencyName }),
       ...STAR_COLORS,
     });
-    maybeConfetti(amount, configRef.current.starsThreshold);
+    maybeConfetti(amount, configRef.current.starsThreshold, transactionType);
   }, [t, addNotification, maybeConfetti]);
 
   const fireReferral = useCallback(() => {

@@ -37,7 +37,10 @@ export function getSessionExpiresAt(): number | null {
 /** Set the tracked expiry directly (epoch-ms), or clear it with null. */
 export function setSessionExpiresAt(nextExpiresAt: number | null): void {
   expiresAt = nextExpiresAt;
-  window.dispatchEvent(new CustomEvent(EVENT));
+  // Guarded like apps/web's bus: this runs inside refreshAccessToken(), which is
+  // also exercised outside a browser (unit tests) — an unguarded `window`
+  // access threw there and made every silent token refresh resolve to null.
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENT));
 }
 
 /** Convenience: derive and set the expiry from a raw access token (or clear it if null). */
@@ -46,6 +49,7 @@ export function setSessionExpiresAtFromToken(token: string | null): void {
 }
 
 export function onSessionExpiryChange(cb: (nextExpiresAt: number | null) => void): () => void {
+  if (typeof window === 'undefined') return () => {};
   const handler = () => cb(expiresAt);
   window.addEventListener(EVENT, handler);
   cb(expiresAt);

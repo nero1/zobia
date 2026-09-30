@@ -13,10 +13,16 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
+import {
+  getAnonymityConfig,
+  hiddenOnLeaderboardSql,
+  maskLeaderboardRow,
+  ANONYMOUS_CAMEL_IDENTITY,
+} from "@/lib/privacy/leaderboardAnonymity";
 
 // ---------------------------------------------------------------------------
 // Row types
@@ -33,6 +39,7 @@ interface SeasonLeaderboardRow {
   city: string | null;
   guild_id: string | null;
   total_count: string;
+  is_anonymous: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +88,8 @@ export const GET = withAuth(
         .where(eq(schema.seasons.id, seasonId));
       if (!seasonRow) throw notFound("Season not found");
 
+      let canReveal = false;
+
       // Build scope condition
       const conditions: ReturnType<typeof sql>[] = [
         sql`usp.season_id = ${seasonId}`,
@@ -106,10 +115,25 @@ export const GET = withAuth(
         const guildId = userGuildRow?.guildId ?? null;
         if (guildId) {
           conditions.push(sql`u.guild_id = ${guildId}`);
+          // The guild board is a sub-leaderboard: the guild's own captain /
+          // moderators may reveal members who chose to hide their name.
+          const [membership] = await db
+            .select({ role: schema.guildMembers.role, isModerator: schema.guildMembers.isModerator })
+            .from(schema.guildMembers)
+            .where(
+              and(
+                eq(schema.guildMembers.guildId, guildId),
+                eq(schema.guildMembers.userId, auth.user.sub),
+                isNull(schema.guildMembers.leftAt)
+              )
+            )
+            .limit(1);
+          canReveal = membership?.role === "captain" || membership?.isModerator === true;
         }
       }
 
       const where = sql.join(conditions, sql` AND `);
+      const anonymityCfg = await getAnonymityConfig();
 
       // Use a CTE so the cursor condition can reference the computed rank.
       // Ranks are sorted ASC (rank 1 = top). Cursor pages forward: (rank, user_id) > cursor.
@@ -128,7 +152,8 @@ export const GET = withAuth(
              u.rank_name,
              usp.season_xp,
              u.city,
-             u.guild_id
+             u.guild_id,
+             ${hiddenOnLeaderboardSql(anonymityCfg)} AS is_anonymous
            FROM user_season_passes usp
            JOIN users u ON u.id = usp.user_id
            WHERE ${where}
@@ -165,17 +190,29 @@ export const GET = withAuth(
       return NextResponse.json({
         success: true,
         data: {
-          entries: rows.map((r) => ({
-            rank: Number(r.rank),
-            userId: r.user_id,
-            username: r.username,
-            displayName: r.display_name,
-            avatarEmoji: r.avatar_emoji,
-            rankName: r.rank_name,
-            seasonXP: r.season_xp,
-            city: r.city,
-            guildId: r.guild_id,
-          })),
+          entries: rows.map((r) =>
+            maskLeaderboardRow(
+              {
+                rank: Number(r.rank),
+                userId: r.user_id,
+                username: r.username,
+                displayName: r.display_name,
+                avatarEmoji: r.avatar_emoji,
+                rankName: r.rank_name,
+                seasonXP: r.season_xp,
+                city: r.city as string | null,
+                guildId: r.guild_id,
+              },
+              {
+                anonymous: Boolean(r.is_anonymous),
+                isSelf: r.user_id === auth.user.sub,
+                canReveal,
+                idKey: "userId",
+                masked: { ...ANONYMOUS_CAMEL_IDENTITY, city: null },
+                anonId: `anon-${r.rank}`,
+              }
+            )
+          ),
           userRank: parseInt(userRankRows[0]?.rank ?? "0") || null,
           hasMore: nextCursor !== null,
           nextCursor,

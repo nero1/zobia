@@ -15,6 +15,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { Icon } from "@/components/ui/Icon";
+import { HiddenFromOthersTag, RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -37,6 +38,10 @@ interface LeaderboardEntry {
   /** Only present for viewers with Moderator/Admin access — see PLAN_COL_ROLES. */
   plan: Plan | null;
   isCurrentUser: boolean;
+  /** The player hides their name on leaderboards (paid privacy setting). Identity fields then read "Anonymous". */
+  anonymous?: boolean;
+  /** Real identity — sent only to admins of a sub-leaderboard (e.g. the guild board) behind a "Reveal" control. */
+  revealed?: { userId: string; displayName: string; username: string; avatarEmoji: string };
   /** Positive = moved up in rank (improved), negative = dropped. */
   rankChange?: number;
   rank_change?: number;
@@ -155,6 +160,11 @@ function EntryRow({
   /** Plan column is only rendered for Moderator/Admin viewers (see page-level gating). */
   showPlan: boolean;
 }) {
+  const { t } = useTranslation();
+  const reveal = useReveal(entry.revealed);
+  const shownIdentity = reveal.shown && entry.revealed ? entry.revealed : entry;
+  // Hidden from everyone but the player themself (and admins who reveal).
+  const isMaskedRow = Boolean(entry.anonymous) && !entry.isCurrentUser && !reveal.shown;
   const rankChange = getRankChange(entry);
   const hasRankUp = rankChange > 0;
   const hasRankDown = rankChange < 0;
@@ -189,15 +199,34 @@ function EntryRow({
         </div>
       </td>
       <td className="px-4 py-3">
-        <Link href={`/profile/${entry.userId}`} className="flex items-center gap-2 hover:underline">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-lg dark:bg-neutral-800">
-            {entry.avatarEmoji}
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{entry.displayName}</p>
-            <p className="text-xs text-neutral-400">@{entry.username}</p>
-          </div>
-        </Link>
+        {(() => {
+          const body = (
+            <>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-lg dark:bg-neutral-800">
+                {shownIdentity.avatarEmoji}
+              </span>
+              <div>
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  {isMaskedRow ? t("leaderboard.anonymous.name", "Anonymous") : shownIdentity.displayName}
+                  {entry.anonymous && entry.isCurrentUser && <HiddenFromOthersTag />}
+                </p>
+                {!isMaskedRow && <p className="text-xs text-neutral-400">@{shownIdentity.username}</p>}
+              </div>
+            </>
+          );
+          return (
+            <div className="flex items-center">
+              {isMaskedRow ? (
+                <div className="flex items-center gap-2">{body}</div>
+              ) : (
+                <Link href={`/profile/${entry.revealed && reveal.shown ? entry.revealed.userId : entry.userId}`} className="flex items-center gap-2 hover:underline">
+                  {body}
+                </Link>
+              )}
+              {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+            </div>
+          );
+        })()}
       </td>
       <td className="px-4 py-3 text-sm text-neutral-500">{entry.city || "—"}</td>
       <td className="px-4 py-3 text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">
@@ -245,12 +274,20 @@ function LeaderboardsContent() {
   // The Plan column leaks another user's subscription tier — restrict it to
   // Moderator/Admin viewers, same as the /gate44 nav link gating in Navbar.tsx.
   const [canSeePlan, setCanSeePlan] = useState(false);
+  // The signed-in user's id, used to highlight their own row (a hidden user
+  // still sees themselves; everyone else sees "Anonymous").
+  const [viewerId, setViewerId] = useState<string | null>(null);
+  const viewerIdRef = useRef<string | null>(null);
   const perPage = 20;
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((b) => setCanSeePlan(Boolean(b?.user?.is_admin || b?.user?.is_moderator)))
+      .then((b) => {
+        setCanSeePlan(Boolean(b?.user?.is_admin || b?.user?.is_moderator));
+        viewerIdRef.current = b?.user?.id ?? null;
+        setViewerId(b?.user?.id ?? null);
+      })
       .catch(() => {});
   }, []);
 
@@ -281,7 +318,16 @@ function LeaderboardsContent() {
         xp: ((e.xp_value ?? e.xp) as number) ?? 0,
         // API only includes `plan` for Moderator/Admin requesters; absent for everyone else.
         plan: (e.plan as Plan | undefined) ?? null,
-        isCurrentUser: false,
+        isCurrentUser: viewerIdRef.current !== null && ((e.user_id ?? e.userId) as string) === viewerIdRef.current,
+        anonymous: e.anonymous === true,
+        revealed: e.revealed
+          ? {
+              userId: (((e.revealed as Record<string, unknown>).user_id ?? (e.revealed as Record<string, unknown>).userId) as string) ?? "",
+              username: ((e.revealed as Record<string, unknown>).username as string) ?? "",
+              displayName: (((e.revealed as Record<string, unknown>).display_name ?? (e.revealed as Record<string, unknown>).displayName) as string) ?? "",
+              avatarEmoji: (((e.revealed as Record<string, unknown>).avatar_emoji ?? (e.revealed as Record<string, unknown>).avatarEmoji) as string) ?? "😊",
+            }
+          : undefined,
         rankChange: (e.rankChange as number) ?? (e.rank_change as number) ?? 0,
       }));
       setData({
@@ -431,9 +477,10 @@ function LeaderboardsContent() {
                 <td colSpan={canSeePlan ? 5 : 4} className="py-12 text-center text-neutral-500">{t("leaderboards.empty", "No entries yet")}</td>
               </tr>
             ) : (
-              data.entries.map((e) => (
-                <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} ripple={e.isCurrentUser ? rankRipple : null} showPlan={canSeePlan} />
-              ))
+              data.entries.map((raw) => {
+                const e = viewerId !== null && raw.userId === viewerId ? { ...raw, isCurrentUser: true } : raw;
+                return <EntryRow key={e.userId} entry={e} highlight={e.isCurrentUser} ripple={e.isCurrentUser ? rankRipple : null} showPlan={canSeePlan} />;
+              })
             )}
           </tbody>
         </table>

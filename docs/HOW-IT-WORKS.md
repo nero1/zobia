@@ -644,6 +644,7 @@ Users can control the visibility of their profile through five privacy settings.
 | **Disable friend requests** | Plus / Pro / Max / Prestige 1+ | Prevents the "Add Friend" button appearing on the user's profile |
 | **Sitemap opt-out** | All users (no plan gate) | Excludes the user's profile URL from the public `/sitemap.xml` so search engines do not index it |
 | **Show online status** | Pro / Max / Prestige 1+ | Opts the user into appearing in friends' Home page "Online Friends" row. **Off by default** — see "Online Friends & Presence Filtering" below. |
+| **Hide name on leaderboards** | All paid plans + business accounts (or an admin-set level) | Shows the user as "Anonymous" on public leaderboards. **Visible by default.** See "Leaderboard Anonymity" below. |
 
 Settings are stored as five columns on the `users` table:
 - `profile_private` — BOOLEAN
@@ -669,8 +670,28 @@ Settings are stored as five columns on the `users` table:
 | `privacy_can_disable_friend_requests` | `["plus","pro","max","prestige_1"]` |
 | `privacy_hideable_sections` | `["avatar","bio","rank","xp","guild","seasons","badges"]` |
 | `privacy_can_show_online_status` | `["pro","max","prestige_1"]` |
+| `leaderboard_anonymity_enabled` | `true` (master switch) |
+| `leaderboard_anonymity_min_level` | `0` (level that unlocks it irrespective of plan; 0 = plans only) |
+| `leaderboard_anonymity_eligible` | `["plus","pro","max","business_starter","business_growth","business_enterprise"]` |
 
 Changes take effect immediately — saving calls `invalidateManifestCache()`; the 10-minute Redis TTL is only a safety net for a missed invalidation (see "Redis Cost Controls").
+
+### Leaderboard Anonymity (hide my name)
+
+`users.hide_from_leaderboards` (default `false`, migration `0016_leaderboard_anonymity.sql`) holds the user's *choice*; it only takes *effect* while the user is eligible (`lib/privacy/leaderboardAnonymity.ts`): feature enabled AND (plan/role list match OR account level ≥ `leaderboard_anonymity_min_level`). A downgrade therefore makes the user visible again without touching the row. `PATCH /api/users/me/privacy { hide_from_leaderboards }` enforces eligibility (`403 LEADERBOARD_ANONYMITY_LOCKED`); turning it off is always allowed. `GET /api/users/me/privacy` and `GET /api/features` return `capabilities.canHideFromLeaderboards` / `leaderboardAnonymityEnabled` so the UI can grey the toggle and show the "Paid" tag.
+
+**Read path.** Queries select `hiddenOnLeaderboardSql(cfg)` as `is_anonymous` (the same rule, in SQL — no extra round trip). The raw rows (real identity + flag) are what get cached (game boards: Redis 60 s; classroom boards: in-process 30 s); `maskLeaderboardRow()` is applied per viewer **after** the cache: public viewers get `Anonymous` (id replaced by an opaque `anon-N`, name/avatar/city/crest removed); the row's own user sees themself (flagged `anonymous: true`); admins of a sub-leaderboard (classroom `manageMembers`, guild captain/moderator) additionally get `revealed` identity behind a Reveal button (`components/leaderboard/AnonymousReveal.tsx`, mirrored in the Android app). Surfaces covered: `/api/leaderboards` (incl. Hall of Fame), `/api/seasons/:id/leaderboard`, `/api/seasons/current` preview, `/api/games/:slug/leaderboard`, `/api/guilds/wars/:warId/leaderboard`, `/api/classroom/:roomId/leaderboard`.
+
+### PIN Rate Limiting, Change & Reset
+
+All PIN comparisons go through `lib/auth/pinAttempts.ts` (`verifyPinAttempt` / `requireCorrectPin`): 5 wrong PINs → 15 min lock (`pin_lock:<uid>`), 3 lockouts in 24 h → 24 h lock (`pin_strikes:<uid>`), correct PIN clears `pin_fail:<uid>`. Wrong PIN → `400 INVALID_PIN { attemptsRemaining }` (never 401, which the client treats as an expired session); locked → `429 PIN_LOCKED`. **Change** (`POST /api/auth/pin/setup`) needs `currentPin`. **Forgot PIN** (`POST /api/auth/pin/reset`) needs an authenticator code (required when 2FA is on), or the password, or a session younger than 10 minutes (fresh sign-in); success clears all lockouts. UI: Settings PIN gate ("Forgot PIN?") and Settings → Security PIN on web/PWA; Settings → Security on Android. Tests: `lib/auth/__tests__/pinAttempts.test.ts`.
+
+### Session-Expired Notice, First Paint & Reward Delivery
+
+- **Session notice.** `lib/auth/sessionExpiredBus.ts` only raises the "signed out" modal for someone who *was* signed in (device hint `zobia:auth:had-session`, set by `useAuth()` after a successful `/api/auth/me`, cleared on logout / sign-in screen / once announced). `useAuth()` tries one silent `/api/auth/refresh` before concluding a session is dead; `/api/auth/me` is exempt from the global 401 fetch guard. Tests: `lib/auth/__tests__/sessionExpiredBus.test.ts`.
+- **First paint.** The root layout inlines critical CSS (skip-link positioning, light/dark page colours) and `app/loading.tsx` gives the async server layouts a streaming fallback, so a slow network shows a styled spinner rather than a blank page with a bare "Skip to main content" link.
+- **Reward delivery & celebrations.** `FloatingNotificationProvider` takes the user id from `useAuth()` (the access-token cookie is HttpOnly, so decoding it client-side never worked and realtime reward events were never subscribed). Confetti is gated by `isCelebratableCreditType()` (`shared/utils/celebrations.ts`): only earned/gifted inflows, never refunds.
+- **Streak Keeper quest.** `login_streak` quests use *absolute* progress (`updateQuestProgress(..., { absolute: true })`) and `generateDailyDeck` reports the live streak; `daily-core` no longer increments streaks or re-awards login XP (double count).
 
 ### Username Change
 

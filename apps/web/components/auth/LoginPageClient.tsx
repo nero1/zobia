@@ -7,6 +7,7 @@ import Script from "next/script";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useScrollToError } from "@/lib/hooks/useScrollToError";
 import { formatShortDateTime } from "@/lib/format/date";
+import { clearSessionHint } from "@/lib/auth/sessionExpiredBus";
 
 // ---------------------------------------------------------------------------
 // Telegram Login Widget types
@@ -71,6 +72,13 @@ function LoginContent() {
   const telegramContainerRef = useRef<HTMLDivElement>(null);
   const turnstileContainerRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetId = useRef<string | null>(null);
+
+  // Landing on the sign-in screen means there is no live session: drop the
+  // device "was signed in" hint so nothing later mistakes an anonymous 401 for
+  // an expired session (covers logout paths that navigate via a plain form).
+  useEffect(() => {
+    clearSessionHint();
+  }, []);
 
   // Load manifest for CAPTCHA config
   useEffect(() => {

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
+import { hasSessionHint, markSessionActive, markSessionExpired, rawFetch } from '@/lib/auth/sessionExpiredBus';
 
 export interface AuthUser {
   id: string;
@@ -37,15 +38,35 @@ interface AuthState {
 
 let _authPromise: Promise<AuthUser | null> | null = null;
 
+async function requestAuthMe(): Promise<AuthUser | null> {
+  let res = await rawFetch('/api/auth/me', { credentials: 'include' });
+  if (res.status === 401 && hasSessionHint()) {
+    // The short-lived access token may simply have lapsed while the refresh
+    // token is still good — try one silent refresh before concluding anything.
+    // (Skipped for visitors who were never signed in, so anonymous page loads
+    // cost a single request instead of two.)
+    const refreshed = await rawFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      .then((r) => r.ok)
+      .catch(() => false);
+    if (refreshed) res = await rawFetch('/api/auth/me', { credentials: 'include' });
+  }
+  if (!res.ok) {
+    // markSessionExpired() is a no-op for a visitor who never had a session,
+    // so anonymous page loads stay silent; a returning user whose session
+    // died gets the one-time "signed out" notice.
+    if (res.status === 401) markSessionExpired();
+    return null;
+  }
+  const data = (await res.json()) as { user?: AuthUser; expiresAt?: number | null } | null;
+  setSessionExpiresAt(data?.expiresAt ?? null);
+  if (data?.user) markSessionActive();
+  return data?.user ?? null;
+}
+
 function fetchAuthMe(): Promise<AuthUser | null> {
   if (_authPromise) return _authPromise;
 
-  _authPromise = fetch('/api/auth/me', { credentials: 'include' })
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data: { user?: AuthUser; expiresAt?: number | null } | null) => {
-      setSessionExpiresAt(data?.expiresAt ?? null);
-      return data?.user ?? null;
-    })
+  _authPromise = requestAuthMe()
     .catch(() => null)
     .finally(() => {
       // Clear after settling so the next page navigation re-fetches.
@@ -57,14 +78,24 @@ function fetchAuthMe(): Promise<AuthUser | null> {
   return _authPromise;
 }
 
-export function useAuth(): AuthState {
+/**
+ * @param revalidateKey Optional. Providers mounted in the root layout survive
+ *   client-side navigations (e.g. the post-login redirect), so they pass the
+ *   pathname here to re-check identity while still anonymous. Once a user has
+ *   been resolved the key is ignored, so this never adds requests for
+ *   signed-in sessions.
+ */
+export function useAuth(revalidateKey?: string): AuthState {
   const [state, setState] = useState<AuthState>({ user: null, isLoading: true });
+  const resolvedRef = useRef(false);
 
   useEffect(() => {
+    if (resolvedRef.current) return;
     let cancelled = false;
 
     fetchAuthMe().then((user) => {
       if (!cancelled) {
+        if (user) resolvedRef.current = true;
         setState({ user, isLoading: false });
       }
     });
@@ -72,7 +103,7 @@ export function useAuth(): AuthState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [revalidateKey]);
 
   return state;
 }

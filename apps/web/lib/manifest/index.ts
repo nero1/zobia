@@ -204,6 +204,19 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
+  // Leaderboard anonymity — admin-editable at /gate44/config ("Privacy")
+  leaderboardAnonymity: {
+    /** Master switch. When false nobody is hidden from leaderboards and the setting is not offered. */
+    enabled: boolean;
+    /**
+     * Account level (main rank number, 1 = Beginner) that unlocks the setting
+     * irrespective of plan. 0 = no level unlock (eligibility is by
+     * `eligible` only). OR'd with `eligible`.
+     */
+    minLevel: number;
+    /** Plan/role eligibility list (lib/plans/eligibility.ts vocabulary) that may hide from leaderboards. Default: every paid plan + business accounts. */
+    eligible: string[];
+  };
   // Tweets — admin-editable at /gate44/config
   tweets: {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Tweet. */
@@ -692,6 +705,11 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     costCredits: 100,
     costStars: 1,
     minLevel: 2,
+  },
+  leaderboardAnonymity: {
+    enabled: true,
+    minLevel: 0,
+    eligible: ["plus", "pro", "max", "business_starter", "business_growth", "business_enterprise"],
   },
   tweets: {
     minLevel: 2,
@@ -1277,6 +1295,11 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
       costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
       minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
+    },
+    leaderboardAnonymity: {
+      enabled:  parseBool(kv["leaderboard_anonymity_enabled"] ?? "true", DEFAULT_MANIFEST.leaderboardAnonymity.enabled),
+      minLevel: Math.max(0, parseInt10(kv["leaderboard_anonymity_min_level"], DEFAULT_MANIFEST.leaderboardAnonymity.minLevel)),
+      eligible: parseStringArray(kv["leaderboard_anonymity_eligible"], DEFAULT_MANIFEST.leaderboardAnonymity.eligible),
     },
     tweets: {
       minLevel:            parseInt10(kv["tweets_min_level"],                 DEFAULT_MANIFEST.tweets.minLevel),

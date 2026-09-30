@@ -13,6 +13,8 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import Link from "next/link";
 import { Icon } from "@/components/ui/Icon";
+import { useAuth } from "@/lib/auth/hooks";
+import { HiddenFromOthersTag, RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -41,6 +43,81 @@ interface SeasonLeaderEntry {
   avatarEmoji: string;
   xp: number;
   isCurrentUser: boolean;
+  /** The player hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
+  /** Real identity — only for admins of a sub-leaderboard, behind a "Reveal" control. */
+  revealed?: { userId: string; username: string; displayName: string; avatarEmoji: string };
+}
+
+/** Raw entry as returned by GET /api/seasons/:id/leaderboard (camelCase, `seasonXP`). */
+interface RawSeasonLeaderEntry {
+  rank: number;
+  userId: string;
+  username: string;
+  displayName: string;
+  avatarEmoji: string;
+  seasonXP?: number | string;
+  xp?: number;
+  anonymous?: boolean;
+  revealed?: { userId: string; username: string; displayName: string; avatarEmoji: string };
+}
+
+function normaliseSeasonEntry(e: RawSeasonLeaderEntry): SeasonLeaderEntry {
+  return {
+    rank: e.rank,
+    userId: e.userId,
+    username: e.username,
+    displayName: e.displayName,
+    avatarEmoji: e.avatarEmoji,
+    // The API sends `seasonXP` (possibly a numeric string); the table renders `xp`.
+    xp: Number(e.xp ?? e.seasonXP ?? 0),
+    isCurrentUser: false,
+    anonymous: e.anonymous === true,
+    revealed: e.revealed,
+  };
+}
+
+function SeasonLeaderRow({ entry }: { entry: SeasonLeaderEntry }) {
+  const { t } = useTranslation();
+  const reveal = useReveal(entry.revealed);
+  const shown = reveal.shown && entry.revealed ? entry.revealed : entry;
+  const masked = Boolean(entry.anonymous) && !entry.isCurrentUser && !reveal.shown;
+  const identity = (
+    <>
+      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-lg dark:bg-neutral-800">
+        {shown.avatarEmoji}
+      </span>
+      <div>
+        <p className="font-semibold text-neutral-900 dark:text-neutral-100">
+          {masked ? t("leaderboard.anonymous.name", "Anonymous") : shown.displayName}
+          {entry.anonymous && entry.isCurrentUser && <HiddenFromOthersTag />}
+        </p>
+        {!masked && <p className="text-xs text-neutral-400">@{shown.username}</p>}
+      </div>
+    </>
+  );
+  return (
+    <tr className={`${entry.isCurrentUser ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/50"}`}>
+      <td className="px-4 py-3 font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
+        {entry.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][entry.rank - 1]} size={16} /> : `#${entry.rank}`}
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center">
+          {masked ? (
+            <div className="flex items-center gap-2">{identity}</div>
+          ) : (
+            <Link href={`/profile/${entry.revealed && reveal.shown ? entry.revealed.userId : entry.userId}`} className="flex items-center gap-2 hover:underline">
+              {identity}
+            </Link>
+          )}
+          {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+        </div>
+      </td>
+      <td className="px-4 py-3 text-right font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">
+        {entry.xp.toLocaleString()}
+      </td>
+    </tr>
+  );
 }
 
 interface PastSeason {
@@ -535,6 +612,8 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
  */
 export default function SeasonsPage() {
   const { t } = useTranslation();
+  const { user: authUser } = useAuth();
+  const viewerId = authUser?.id ?? null;
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -629,8 +708,8 @@ export default function SeasonsPage() {
 
           fetch(`/api/seasons/${seasonsData.activeSeason.id}/leaderboard?limit=10`, { credentials: "include" })
             .then((r) => (r.ok ? r.json() : null))
-            .then((d: { data?: { entries?: SeasonLeaderEntry[] }; entries?: SeasonLeaderEntry[] } | null) => {
-              const entries = d?.data?.entries ?? d?.entries ?? [];
+            .then((d: { data?: { entries?: RawSeasonLeaderEntry[] }; entries?: RawSeasonLeaderEntry[] } | null) => {
+              const entries = (d?.data?.entries ?? d?.entries ?? []).map(normaliseSeasonEntry);
               if (entries.length > 0) {
                 setData((prev) => prev ? { ...prev, leaderboard: entries } : prev);
               }
@@ -784,28 +863,10 @@ export default function SeasonsPage() {
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {leaderboard.map((entry) => (
-                  <tr
+                  <SeasonLeaderRow
                     key={entry.userId}
-                    className={`${entry.isCurrentUser ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/50"}`}
-                  >
-                    <td className="px-4 py-3 font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {entry.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][entry.rank - 1]} size={16} /> : `#${entry.rank}`}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link href={`/profile/${entry.userId}`} className="flex items-center gap-2 hover:underline">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-neutral-100 text-lg dark:bg-neutral-800">
-                          {entry.avatarEmoji}
-                        </span>
-                        <div>
-                          <p className="font-semibold text-neutral-900 dark:text-neutral-100">{entry.displayName}</p>
-                          <p className="text-xs text-neutral-400">@{entry.username}</p>
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">
-                      {entry.xp.toLocaleString()}
-                    </td>
-                  </tr>
+                    entry={viewerId !== null && entry.userId === viewerId ? { ...entry, isCurrentUser: true } : entry}
+                  />
                 ))}
               </tbody>
             </table>

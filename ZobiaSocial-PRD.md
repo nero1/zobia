@@ -214,7 +214,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 - Auth is handled by the platform's own JWT system (not Supabase Auth). In non-Supabase database mode, there are zero Supabase dependencies anywhere in the auth flow — see Section 22.2 for full detail.
 - No phone number or SMS authentication. No SMS anything, with exactly one narrow, admin-gated, opt-in exception: a Settings "Phone Number" field for the contacts cross-reference feature (Step 4 below), whose optional SMS OTP confirmation is off by default — see §4.5.
 - After onboarding, the user is periodically (but not aggressively) encouraged to add an email address for account recovery and to set a password. Both are optional but surfaced as strongly recommended.
-- Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory.
+- Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory. Wrong PINs are rate limited and lock the PIN out (5 wrong attempts -> 15 minutes, 3 lockouts in 24 hours -> 24 hours), changing a PIN requires the current PIN, and a forgotten PIN is reset by proving identity another way — see §42.1.
 - 2FA defaults to authenticator app (Google Authenticator, Authy, or equivalent). No SMS 2FA.
 - The 2FA login flow uses a short-lived `pre_auth` JWT type. After verifying email + password the server issues a `pre_auth` token scoped only to the `/api/auth/2fa/verify` endpoint. All other API routes and app pages reject `pre_auth` tokens, redirecting the browser to `/auth/2fa`. A full-access access token is issued only after successful TOTP verification. TOTP codes are replay-protected with a Redis atomic SET NX keyed by `totp:used:<userId>:<code>` (90-second TTL matching the TOTP window).
 - On Android, the JWT and refresh token are stored in an `EncryptedSharedPreferences` file whose AES-256 key is generated and held by the Android Keystore (`SecureTokenStorePlugin.java`, `androidx.security:security-crypto`; hardware-backed where the device supports it) — not plain `@capacitor/preferences` (v2.10; previously the tokens sat in plaintext there, only excluded from Android's backup/device-transfer mechanisms, which stops the sanctioned backup path from leaking them but nothing else). On web, in an HttpOnly cookie.
@@ -1095,9 +1095,10 @@ Every user can manage the following from Settings, identically on web, PWA and t
 - **Hidden profile sections** (Plus/Pro/Max, or Prestige 1+) — choose which profile sections (avatar, bio, rank, XP, guild, seasons, badges) are hidden from other users.
 - **Disable friend requests** (Plus/Pro/Max, or Prestige 1+) — stop receiving new friend requests.
 - **Show online status** (Pro/Max, or Prestige 1+) — opt-in toggle controlling whether the user's presence (online / recently active) is surfaced to friends in the "Online Friends" row on the Home page. **Off by default.** Friends who have not opted in never appear in another user's Online Friends row, regardless of their actual presence — this prevents the "friends always show even when offline" experience users previously had when the row simply listed every accepted friendship with no presence filter.
+- **Hide my name on leaderboards** (all paid plans incl. business accounts, or an admin-set account level) — appear as "Anonymous" on public leaderboards. **Visible by default.** Free users see the toggle greyed out with a small "Paid" tag. See §42.2.
 - **Sitemap opt-out** (all plans) — exclude the public profile from the sitemap.
 
-All plan/prestige eligibility thresholds are admin-configurable in `x_manifest` (`privacy_can_lock_profile`, `privacy_can_hide_sections`, `privacy_can_disable_friend_requests`, `privacy_can_show_online_status`, `privacy_hideable_sections`) so they can be adjusted without a deployment.
+All plan/prestige eligibility thresholds are admin-configurable in `x_manifest` (`privacy_can_lock_profile`, `privacy_can_hide_sections`, `privacy_can_disable_friend_requests`, `privacy_can_show_online_status`, `privacy_hideable_sections`, `leaderboard_anonymity_enabled`, `leaderboard_anonymity_min_level`, `leaderboard_anonymity_eligible`) so they can be adjusted without a deployment.
 
 ### Android Settings Parity (Theme, Notifications, Subscription, Business)
 
@@ -1284,7 +1285,7 @@ When a user receives any positive currency award, a floating pill animation rise
 - New user completing onboarding via the user's referral link → "+1 Referral"
 - Daily quest deck completion → confetti + "Daily Quests Complete! 🎉" + individual reward notifications
 
-**Confetti celebrations:** When a single award exceeds a per-currency admin-configured threshold, a canvas confetti animation also fires. Default thresholds: 100 XP, 50 Credits, 10 Stars.
+**Confetti celebrations:** When a single award exceeds a per-currency admin-configured threshold, a canvas confetti animation also fires. Default thresholds: 100 XP, 50 Credits, 10 Stars. **Only earned or gifted inflows may celebrate** — refunds (e.g. "Reduced a poll reward pot", `*_treasury_refund`, `gift_refund`, `game_refund`), purchases, conversions and balance adjustments never trigger confetti however large (allow-list in `shared/utils/celebrations.ts`; see §42.3).
 
 **Admin controls:**
 - Feature on/off toggle in the manifest (default: on)
@@ -8904,8 +8905,46 @@ the translation string would have rendered a duplicate glyph once nav-style
   `x_manifest` key/value table, which already has its Supabase Data API
   grants from its original migration.
 
+## 42. PIN Hardening, Leaderboard Anonymity, Session Notice & Loading Fixes (v2.38)
+
+### 42.1 PIN: rate limiting, lockout, change and reset
+
+- **Single choke point.** Every code path that compares a submitted PIN with `user_pins.pin_hash` — `POST /api/auth/pin/verify`, change (`POST /api/auth/pin/setup`), `DELETE /api/auth/pin/remove`, creator bank-account and wallet-address edits, and PIN reset — goes through `lib/auth/pinAttempts.ts`. Previously only `/verify` counted failures, so the other routes could brute-force the 10,000-key space at their (much looser) request rate limits.
+- **Policy (defaults).** 5 wrong PINs within 15 minutes → locked for 15 minutes (`429 PIN_LOCKED`, `Retry-After`). 3 lockouts within 24 hours → locked for 24 hours. A correct PIN clears the counter. A lock rejects even the correct PIN. Redis cost: one `TTL` (lock check) + one `DEL` on the happy path; counters are only written on a wrong PIN.
+- **Wrong PIN is `400 INVALID_PIN`** (with `attemptsRemaining`), never `401` — the client treats any `401` as an expired session — and never `200 { verified: false }`, which the web and Android clients used to mistake for success. `200 { verified: true }` is returned only for a correct PIN.
+- **Changing a PIN requires the current PIN** (`currentPin` on `POST /api/auth/pin/setup`; `400 CURRENT_PIN_REQUIRED` otherwise). Previously any live session could silently overwrite the PIN.
+- **Forgot PIN → reset.** `POST /api/auth/pin/reset { pin, confirmPin, totpCode? | password? }` sets a new PIN after identity re-verification: an authenticator code (mandatory when 2FA is on), or the account password, or — for Google/Telegram-only accounts with neither — a session created in the last 10 minutes (`403 REAUTH_REQUIRED` otherwise: sign in again and retry). A successful reset clears every lockout counter and the "PIN verified" window. Available from the Settings PIN gate ("Forgot PIN?") and Settings → Security PIN on web/PWA, and Settings → Security on the Android (Capacitor) app.
+- **How does a user change their PIN?** Settings → Security PIN → Change PIN (enter current PIN + new PIN twice). Forgotten: "Forgot PIN?" as above.
+
+### 42.2 Hide my name on public leaderboards
+
+- **What.** A paid privacy setting, `users.hide_from_leaderboards` (default `false` = visible). When on **and** the user is still eligible, the user appears as **"Anonymous"** (name, avatar, username, city, crest and profile link removed) on every public leaderboard: global/national/city/season boards and Hall of Fame (`/leaderboards`), the season top list, per-game boards, and the home season preview. Rank and score are still shown.
+- **Sub-leaderboards.** On leaderboards that have their own admins — a classroom (creator, moderators, staff), a guild board / guild war board (captain and guild moderators) — hidden members also show as "Anonymous" to everyone else, but those admins get a small **Reveal** control that shows the real identity (and **Hide** to put it back). Everyone else never receives the identity (server-side masking, not CSS). A hidden user always sees their own row, tagged "Hidden from others".
+- **Who can use it.** Eligibility = feature enabled AND (plan/role list match OR account level ≥ unlock level). Free users see the toggle greyed out with a small "Paid" tag and a "See plans" link; turning the setting OFF is always allowed, and a downgrade silently makes the user visible again (the stored choice only takes effect while eligible).
+- **Admin control** (`/gate44/config` → "Privacy", also the Android admin config): `leaderboard_anonymity_enabled` (master switch, default on), `leaderboard_anonymity_min_level` (level that unlocks it irrespective of plan; `0` = plans only), `leaderboard_anonymity_eligible` (plan/role list; default plus, pro, max and the three business tiers).
+- **Where users set it.** Settings → Privacy on web/PWA and the Android app (`PATCH /api/users/me/privacy { hide_from_leaderboards }`; `403 LEADERBOARD_ANONYMITY_LOCKED` when not eligible). It is listed as a feature of Plus, Pro, Max and the business plans on the plan management/upgrade pages.
+- **Caching.** Cached leaderboard data (in-process/Redis) holds real identities plus an anonymity flag and is masked per viewer *after* the cache, so a warm cache can never leak a hidden name.
+
+### 42.3 Celebrations, streak quest and reward delivery
+
+- Confetti fires only for earned/gifted credit inflows (allow-list `isCelebratableCreditType`); refunds never celebrate.
+- **Streak Keeper** ("Log in for 7 consecutive days") now shows the user's live login streak (capped at 7) instead of a per-day counter stuck at 1/7; completion is awarded when the streak reaches the target. The nightly `daily-core` job no longer also increments the streak or re-awards login XP that `POST /api/login/daily` already handled (which double-counted), and only resets streaks after a whole missed day.
+- Realtime reward events (reward toasts, confetti, level-up, quest complete) were never delivered on web because the client tried to read the user id from the HttpOnly access-token cookie; it now uses the identity lookup (`/api/auth/me`).
+
+### 42.4 "Session expired" notice
+
+The blocking "you've been signed out" popup no longer appears for visitors who were never signed in (every anonymous page load probed `/api/auth/me` and its 401 was mistaken for an expiry) and no longer repeats on every visit/window after an expiry. A device-level "was signed in" hint (`zobia:auth:had-session` in localStorage; a plain boolean, no user data) arms the notice, a silent token refresh is attempted before concluding a session is dead, and the hint is cleared once the notice has been announced, on logout, and on the sign-in screen.
+
+### 42.5 First-paint fix (blank page with only "Skip to main content")
+
+On a slow network the browser painted the app shell before the large Tailwind stylesheet arrived and before the async server layouts (manifest/DB reads) had streamed any page content, leaving an unstyled "Skip to main content" link on a blank white page. Fixed with (a) critical CSS inlined in `<head>` (skip-link positioning + light/dark page colours), and (b) a root `app/loading.tsx` streaming fallback (spinner) so a real loading state paints immediately.
+
+### 42.6 Other fixes in this release
+
+`/settings` crash ("CHAIN_LABELS is not defined") — chain labels now resolve inside the component via i18n; `/api/seasons/current` no longer sent per-user data with `public` CDN caching; the Seasons page no longer crashes on `entry.xp` (API sends `seasonXP`); the Guild War contributor list now reads the API's actual shape; the leaderboard page highlights the viewer's own row; Android PIN removal used the wrong HTTP verb. Migration: `0016_leaderboard_anonymity.sql`.
+
 ---
 
-*ZobiaSocial PRD v2.37*
+*ZobiaSocial PRD v2.38*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

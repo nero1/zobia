@@ -47,41 +47,29 @@ export const GET = async (req: NextRequest) => {
     errors.push(`questReset: ${String(err)}`);
   }
 
-  // 2. Update login streaks — set-based, single-pass
-  // BUG-04: use CURRENT_DATE (not CURRENT_DATE - 1) so users who logged in today
-  //         get their streak incremented during the same night's CRON run.
-  // BUG-21: update each column from its own current value to avoid cross-column
-  //         references that are confusing and error-prone in a single SET clause.
+  // 2. Reset broken login streaks.
+  // POST /api/login/daily is the single source of truth for extending a streak
+  // (it compares last_login_date with yesterday under a row lock), so this job
+  // must NOT also increment it — doing so double-counted every logged-in day,
+  // and resetting anyone whose last login was "before today" wiped the streak
+  // of every user who simply hadn't opened the app yet today. A streak is only
+  // broken once a whole calendar day was missed (last login before yesterday).
   try {
-    const [streakUpdate, streakReset] = await Promise.all([
-      orm.execute<{ count: string }>(sql`
-        WITH updated AS (
-          UPDATE users
-          SET login_streak_days = login_streak_days + 1,
-              login_streak      = login_streak + 1,
-              updated_at        = NOW()
-          WHERE last_login_date = CURRENT_DATE
-          RETURNING 1
-        )
-        SELECT COUNT(*) AS count FROM updated
-      `),
-      orm.execute<{ count: string }>(sql`
-        WITH reset AS (
-          UPDATE users
-          SET last_streak_before_break = login_streak_days,
-              longest_streak           = GREATEST(COALESCE(longest_streak, 0), login_streak_days),
-              login_streak_days        = 0,
-              login_streak             = 0,
-              updated_at               = NOW()
-          WHERE last_login_date < CURRENT_DATE
-            AND login_streak_days > 0
-          RETURNING 1
-        )
-        SELECT COUNT(*) AS count FROM reset
-      `),
-    ]);
+    const streakReset = await orm.execute<{ count: string }>(sql`
+      WITH reset AS (
+        UPDATE users
+        SET last_streak_before_break = login_streak_days,
+            longest_streak           = GREATEST(COALESCE(longest_streak, 0), login_streak_days),
+            login_streak_days        = 0,
+            login_streak             = 0,
+            updated_at               = NOW()
+        WHERE last_login_date < CURRENT_DATE - 1
+          AND login_streak_days > 0
+        RETURNING 1
+      )
+      SELECT COUNT(*) AS count FROM reset
+    `);
     results.loginStreaks = {
-      incremented: parseInt(streakUpdate.rows[0]?.count ?? "0"),
       reset: parseInt(streakReset.rows[0]?.count ?? "0"),
     };
   } catch (err) {
@@ -101,6 +89,14 @@ export const GET = async (req: NextRequest) => {
         FROM users
         WHERE last_login_date = CURRENT_DATE
           AND deleted_at IS NULL
+          -- POST /api/login/daily already awards (and ledgers) today's login XP;
+          -- skip those users so the same day is never paid twice.
+          AND NOT EXISTS (
+            SELECT 1 FROM xp_ledger xl
+            WHERE xl.user_id = users.id
+              AND xl.source = 'daily_login'
+              AND xl.created_at >= CURRENT_DATE
+          )
         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
         RETURNING user_id
       ),

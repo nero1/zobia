@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { Icon } from '@/components/ui/Icon';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
+import { HiddenFromOthersTag } from '@/components/leaderboard/AnonymousReveal';
 
 async function fetchGames(): Promise<GameSummary[]> {
   const { data } = await apiClient.get<{ games: GameSummary[] }>('/games');
@@ -80,8 +81,17 @@ function LeaderboardsPage() {
               <span className="w-6 text-right text-sm font-bold text-neutral-400 dark:text-neutral-500">{r.rank}</span>
               <span className="text-xl" aria-hidden>{r.avatarEmoji}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{r.displayName || r.username}</p>
-                <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">@{r.username}</p>
+                {r.anonymous && r.userId.startsWith('anon-') ? (
+                  <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('leaderboard.anonymous.name', 'Anonymous')}</p>
+                ) : (
+                  <>
+                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                      {r.displayName || r.username}
+                      {r.anonymous && <HiddenFromOthersTag />}
+                    </p>
+                    <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">@{r.username}</p>
+                  </>
+                )}
               </div>
               <span className="text-sm font-bold text-primary-600 dark:text-primary-300">{r.bestScore.toLocaleString()}</span>
             </div>

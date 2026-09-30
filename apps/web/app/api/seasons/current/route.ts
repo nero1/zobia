@@ -12,10 +12,17 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, desc } from "drizzle-orm";
+import { and, eq, desc, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
+import {
+  getAnonymityConfig,
+  hiddenOnLeaderboardSql,
+  maskLeaderboardRow,
+  ANONYMOUS_USERNAME,
+  ANONYMOUS_AVATAR_EMOJI,
+} from "@/lib/privacy/leaderboardAnonymity";
 import { getCurrentSeason, getSeasonPhase, isSeasonActive } from "@/lib/seasons/seasonEngine";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +59,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         avatarEmoji: schema.users.avatarEmoji,
         rankName: schema.users.rankName,
         seasonXp: schema.userSeasonPasses.seasonXp,
+        isAnonymous: sql<boolean>`${hiddenOnLeaderboardSql(await getAnonymityConfig(), "users")}`,
       })
       .from(schema.userSeasonPasses)
       .innerJoin(schema.users, eq(schema.users.id, schema.userSeasonPasses.userId))
@@ -80,17 +88,32 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
               purchased_at: pass.purchasedAt,
             }
           : null,
-        leaderboardPreview: top3Rows.map((r) => ({
-          user_id: r.userId,
-          username: r.username,
-          avatar_emoji: r.avatarEmoji,
-          rank_name: r.rankName,
-          season_xp: Number(r.seasonXp),
-        })),
+        leaderboardPreview: top3Rows.map((r, i) =>
+          maskLeaderboardRow(
+            {
+              user_id: r.userId,
+              username: r.username,
+              avatar_emoji: r.avatarEmoji,
+              rank_name: r.rankName,
+              season_xp: Number(r.seasonXp),
+            },
+            {
+              anonymous: Boolean(r.isAnonymous),
+              isSelf: r.userId === auth.user.sub,
+              canReveal: false,
+              idKey: "user_id",
+              masked: { username: ANONYMOUS_USERNAME, avatar_emoji: ANONYMOUS_AVATAR_EMOJI },
+              anonId: `anon-${i + 1}`,
+            }
+          )
+        ),
       },
       error: null,
     });
-    response.headers.set("Cache-Control", "public, s-maxage=30, stale-while-revalidate=60");
+    // `private`: this payload contains the caller's own season pass and a
+    // viewer-specific (anonymity-masked) preview — it must never sit in a
+    // shared CDN cache where another user could be served it.
+    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
     return response;
   } catch (err) {
     return handleApiError(err);

@@ -45,6 +45,15 @@ const RANK_ORDER: RankName[] = [
   'Legend', 'Titan', 'Goat', 'Icon', 'Zobia Icon',
 ];
 
+/**
+ * Minimum total XP for a main-rank "level" (rank number, 1 = Beginner).
+ * Levels above the top rank clamp to the top threshold; levels < 1 to 0.
+ */
+export function xpForRankNumber(rankNumber: number): number {
+  const idx = Math.min(Math.max(Math.floor(rankNumber), 1), RANK_ORDER.length) - 1;
+  return RANK_THRESHOLDS[RANK_ORDER[idx]];
+}
+
 /** Number of sub-levels (I, II, III) per rank band. */
 const SUBLEVELS_PER_RANK = 3;
 

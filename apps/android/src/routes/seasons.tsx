@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { Icon } from '@/components/ui/Icon';
+import { HiddenFromOthersTag } from '@/components/leaderboard/AnonymousReveal';
 
 interface SeasonRow {
   id: string;
@@ -56,6 +57,8 @@ interface LeaderEntry {
   displayName: string;
   avatarEmoji: string;
   seasonXP: number;
+  /** Player hides their name on leaderboards; identity fields then read "Anonymous". */
+  anonymous?: boolean;
 }
 
 interface LeaderboardResponse {
@@ -202,8 +205,11 @@ function SeasonsPage() {
                   {entry.rank <= 3 ? <Icon emoji={['🥇', '🥈', '🥉'][entry.rank - 1]} size={16} /> : `#${entry.rank}`}
                 </span>
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-sm">{entry.avatarEmoji}</span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">@{entry.username}</span>
-                <span className="shrink-0 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{entry.seasonXP.toLocaleString()}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {entry.anonymous && entry.userId.startsWith('anon-') ? t('leaderboard.anonymous.name', 'Anonymous') : `@${entry.username}`}
+                  {entry.anonymous && !entry.userId.startsWith('anon-') && <HiddenFromOthersTag />}
+                </span>
+                <span className="shrink-0 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{Number(entry.seasonXP).toLocaleString()}</span>
               </div>
             ))}
           </div>

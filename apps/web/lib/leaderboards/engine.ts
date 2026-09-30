@@ -19,6 +19,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { type DbOrTx } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
+import { getAnonymityConfig, hiddenOnLeaderboardSql } from "@/lib/privacy/leaderboardAnonymity";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +55,13 @@ export interface LeaderboardEntry {
    * to see another user's plan. See app/api/leaderboards/route.ts.
    */
   plan?: string;
+  /**
+   * True when this user is effectively hidden from leaderboards (their choice
+   * AND still eligible — lib/privacy/leaderboardAnonymity.ts). The identity
+   * fields above are REAL; callers must mask them per viewer before sending
+   * to a client (see app/api/leaderboards/route.ts).
+   */
+  is_anonymous?: boolean;
 }
 
 export interface LeaderboardCursor {
@@ -293,6 +301,7 @@ export async function getLeaderboard(
   }
 
   const where = sql.join(conditions, sql` AND `);
+  const anonymityCfg = await getAnonymityConfig();
 
   const result = await db.execute<LeaderboardEntry & Record<string, unknown>>(sql`
     SELECT
@@ -304,7 +313,8 @@ export async function getLeaderboard(
       u.rank_name,
       COALESCE(ls.xp_value, 0) AS xp_value,
       u.city,
-      u.plan
+      u.plan,
+      ${hiddenOnLeaderboardSql(anonymityCfg)} AS is_anonymous
     FROM leaderboard_snapshots ls
     JOIN users u ON u.id = ls.user_id
     WHERE ${where}
@@ -325,6 +335,7 @@ export async function getLeaderboard(
     xp_value: Number(r.xp_value),
     city: r.city,
     plan: r.plan,
+    is_anonymous: Boolean(r.is_anonymous),
   }));
 
   // PRD §9: Hall of Fame users (Prestige 10) have permanent top-100 visibility on
@@ -343,6 +354,7 @@ export async function getLeaderboard(
         city: string | null;
         custom_crest: string | null;
         plan: string;
+        is_anonymous: boolean;
       }
       const presentIds = new Set(entries.map((e) => e.user_id));
       const hofResult = await db.execute<HofRow & Record<string, unknown>>(sql`
@@ -355,7 +367,8 @@ export async function getLeaderboard(
           COALESCE(ls.xp_value, u.legacy_score, 0)::text AS xp_value,
           u.city,
           u.custom_crest,
-          u.plan
+          u.plan,
+          ${hiddenOnLeaderboardSql(anonymityCfg)} AS is_anonymous
         FROM hall_of_fame hof
         JOIN users u ON u.id = hof.user_id AND u.deleted_at IS NULL
         LEFT JOIN leaderboard_snapshots ls ON ls.user_id = hof.user_id
@@ -372,6 +385,7 @@ export async function getLeaderboard(
           if (existing) {
             existing.is_hall_of_fame = true;
             existing.custom_crest = hof.custom_crest ?? null;
+            existing.is_anonymous = Boolean(hof.is_anonymous);
           }
         }
       }
@@ -429,6 +443,7 @@ export async function getLeaderboard(
             is_hall_of_fame: true,
             custom_crest: hof.custom_crest ?? null,
             plan: hof.plan,
+            is_anonymous: Boolean(hof.is_anonymous),
           });
         }
         hofCount += missingHof.length; // HoF count is separate from ranked total so pagination is consistent

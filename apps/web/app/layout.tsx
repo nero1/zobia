@@ -184,6 +184,27 @@ export default async function RootLayout({ children }: RootLayoutProps) {
       className={inter.variable}
       {...(siteThemeDefault !== "default" ? { "data-site-theme": siteThemeDefault } : {})}
     >
+      <head>
+        {/*
+          Critical CSS, inlined so the very first paint is correct even while
+          the (much larger) Tailwind stylesheet is still downloading on a slow
+          connection. Without it the skip link (whose off-screen positioning
+          lives in that stylesheet) rendered as a bare visible link on an
+          unstyled white page for several seconds. Keep this tiny: only the
+          skip link and the page background/foreground colours.
+        */}
+        <style
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html:
+              ".skip-to-main{position:absolute;left:-9999px;top:0;z-index:999}" +
+              ".skip-to-main:focus{left:0;width:100%;padding:.5rem;background:#2563eb;color:#fff}" +
+              "body{margin:0;background:#fafafa;color:#171717}" +
+              "html.dark body{background:#0a0a0a;color:#fafafa}" +
+              "@media (prefers-color-scheme:dark){html:not(.light) body{background:#0a0a0a;color:#fafafa}}",
+          }}
+        />
+      </head>
       <body className="min-h-screen overflow-x-hidden bg-neutral-50 text-neutral-900 font-sans antialiased dark:bg-neutral-950 dark:text-neutral-50">
         {/* Accessibility: Skip to main content link (only visible on focus) */}
         <SkipToMain />

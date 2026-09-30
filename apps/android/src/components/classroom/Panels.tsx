@@ -13,6 +13,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiError, get, send, type ClassroomEvent, type ClassroomHome, type LeaderboardEntry, type MemberStanding, type ModuleView } from '@/lib/classroom/api';
 import { Icon } from '@/components/ui/Icon';
+import { HiddenFromOthersTag, RevealButton, useReveal } from '@/components/leaderboard/AnonymousReveal';
 
 const openLink = (url: string) => void Browser.open({ url, presentationStyle: 'popover' });
 
@@ -353,6 +354,27 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
 // Leaderboard
 // ---------------------------------------------------------------------------
 
+function ClassroomLeaderboardRow({ entry: e, viewerId, period }: { entry: LeaderboardEntry; viewerId: string | null; period: '7d' | '30d' | 'all' }) {
+  const { t } = useTranslation();
+  const reveal = useReveal(e.revealed);
+  const identity = reveal.shown && e.revealed ? e.revealed : e;
+  const isSelf = e.userId === viewerId;
+  return (
+    <li className={`flex items-center gap-3 px-3 py-2 ${isSelf ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}>
+      <span className="flex w-7 items-center justify-center text-sm font-bold text-neutral-400">
+        {e.rank <= 3 ? <Icon emoji={['🥇', '🥈', '🥉'][e.rank - 1]!} size={16} /> : `#${e.rank}`}
+      </span>
+      <span className="text-xl">{identity.avatarEmoji}</span>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold">
+        {e.anonymous && !isSelf && !reveal.shown ? t('leaderboard.anonymous.name', 'Anonymous') : identity.displayName}
+        {e.anonymous && isSelf && <HiddenFromOthersTag />}
+        {reveal.canReveal && <RevealButton shown={reveal.shown} onToggle={reveal.toggle} />}
+      </span>
+      <span className="text-sm font-bold text-primary-600">{period === 'all' ? e.points : `+${e.points}`}</span>
+    </li>
+  );
+}
+
 export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerId: string | null }) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'7d' | '30d' | 'all'>('30d');
@@ -397,14 +419,7 @@ export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerI
       ) : (
         <ol className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-xl bg-white dark:bg-neutral-800">
           {d.entries.map((e) => (
-            <li key={e.userId} className={`flex items-center gap-3 px-3 py-2 ${e.userId === viewerId ? 'bg-primary-50 dark:bg-primary-900/20' : ''}`}>
-              <span className="flex w-7 items-center justify-center text-sm font-bold text-neutral-400">
-                {e.rank <= 3 ? <Icon emoji={['🥇', '🥈', '🥉'][e.rank - 1]!} size={16} /> : `#${e.rank}`}
-              </span>
-              <span className="text-xl">{e.avatarEmoji}</span>
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold">{e.displayName}</span>
-              <span className="text-sm font-bold text-primary-600">{period === 'all' ? e.points : `+${e.points}`}</span>
-            </li>
+            <ClassroomLeaderboardRow key={e.userId} entry={e} viewerId={viewerId} period={period} />
           ))}
         </ol>
       )}

@@ -591,6 +591,24 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "number",
     group: "Tweets",
   },
+  leaderboard_anonymity_enabled: {
+    label: "Hide Name on Leaderboards: Enabled",
+    description: "Master switch for the \"hide my name on leaderboards\" privacy setting (users then appear as \"Anonymous\" on public leaderboards). When off, nobody is hidden and the setting is not offered. Default: on.",
+    type: "boolean",
+    group: "Privacy",
+  },
+  leaderboard_anonymity_min_level: {
+    label: "Hide Name on Leaderboards: Unlock Level",
+    description: "Account level (main rank number, 1 = Beginner) that unlocks the setting for a user irrespective of their plan. Combined with the plans list below by OR. 0 = no level unlock (plans only). Default: 0.",
+    type: "number",
+    group: "Privacy",
+  },
+  leaderboard_anonymity_eligible: {
+    label: "Hide Name on Leaderboards: Plans/Roles",
+    description: "JSON array of plan/role entries allowed to hide their name — same vocabulary as Support Ticket eligibility (plan slugs like \"plus\"/\"pro\"/\"max\", \"prestige_N\", \"business_starter\"/\"business_growth\"/\"business_enterprise\", \"role_admin\", \"role_moderator\"). Default: [\"plus\",\"pro\",\"max\",\"business_starter\",\"business_growth\",\"business_enterprise\"] (every paid plan).",
+    type: "string",
+    group: "Privacy",
+  },
   tweets_long_min_level: {
     label: "Long-Form Exempt: Minimum Level",
     description: "Minimum account level that unlocks free long-form Tweets (above the default length) up to the user's own personal length setting. Combined with the role/plan list below by OR — meeting either qualifies. Default: 10.",
@@ -1076,6 +1094,7 @@ const GROUP_ORDER = [
   "AI Moderation",
   "Guild Wars",
   "Messaging",
+  "Privacy",
   "Moments",
   "Tweets",
   "Answers",

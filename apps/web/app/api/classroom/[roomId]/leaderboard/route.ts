@@ -18,6 +18,7 @@ import { classroomContextFromParams, ok } from "@/lib/classroom/http";
 import { getClassroomLeaderboard, getMemberStanding } from "@/lib/classroom/gamification";
 import { CLASSROOM_BADGES, CLASSROOM_LEVEL_THRESHOLDS } from "@/lib/classroom/levels";
 import { levelName } from "@/lib/classroom/settings";
+import { maskLeaderboardRow, ANONYMOUS_CAMEL_IDENTITY } from "@/lib/privacy/leaderboardAnonymity";
 
 const querySchema = z.object({ period: z.enum(["7d", "30d", "all"]).optional() });
 
@@ -31,9 +32,25 @@ export const GET = withAuth<{ roomId: string }>(async (req: NextRequest, { param
       getClassroomLeaderboard(classroom.id, period, 50),
       getMemberStanding(classroom.id, auth.user.sub),
     ]);
+    // Members may hide their name (paid privacy setting). The board is
+    // members-only and cached viewer-independently, so identity is masked here
+    // per viewer: everyone sees "Anonymous"; the classroom's own admins
+    // (creator / moderators / staff) also get the real identity behind a
+    // "Reveal" control.
+    const canReveal = viewer.can.manageMembers;
+    const maskedEntries = entries.map(({ isAnonymous, ...entry }, i) =>
+      maskLeaderboardRow(entry, {
+        anonymous: isAnonymous,
+        isSelf: entry.userId === auth.user.sub,
+        canReveal,
+        idKey: "userId",
+        masked: { ...ANONYMOUS_CAMEL_IDENTITY, avatarUrl: null },
+        anonId: `anon-${i}`,
+      })
+    );
     return ok({
       period,
-      entries,
+      entries: maskedEntries,
       me,
       levels: CLASSROOM_LEVEL_THRESHOLDS.map((min, i) => ({ level: i + 1, name: levelName(classroom.settings, i + 1), minPoints: min })),
       badgeCatalog: Object.values(CLASSROOM_BADGES),

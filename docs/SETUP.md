@@ -402,7 +402,12 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    `reports.reported_user_id` — fixes `/gate44/users` failing to load once
    the `reports` table has non-trivial rows), and `0010_signups_toggle.sql`
    (seeds the `signups_enabled` x_manifest key — see "Signups Toggle" in
-   the PRD §20). `npm run migrate` does this for you.
+   the PRD §20), and `0016_leaderboard_anonymity.sql` (adds
+   `users.hide_from_leaderboards` and the three `leaderboard_anonymity_*`
+   x_manifest keys for the paid "hide my name on leaderboards" privacy
+   setting — see "Leaderboard Anonymity" in `docs/HOW-IT-WORKS.md` and PRD
+   §42; no new table, so no Supabase GRANTs needed). `npm run migrate` does
+   this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
@@ -863,7 +868,7 @@ The 7 daily slots are staggered hourly through the night so each finishes well w
 
 | UTC time | Route | Responsibilities |
 |---|---|---|
-| 23:00 | `/api/cron/daily-core` | Quest deck reset, login streaks (increment + reset), daily login XP, moments expiry, expired pin sweep, message history cleanup |
+| 23:00 | `/api/cron/daily-core` | Quest deck reset, broken-login-streak reset (streaks are *incremented* by `POST /api/login/daily`, not this job), daily login XP for users the login endpoint did not already pay, moments expiry, expired pin sweep, message history cleanup |
 | 00:00 | `/api/cron/daily-users` | Inactivity event detection (3/7/14/30/90-day thresholds), guild discovery prompts for new users, comeback coin expiry |
 | 01:00 | `/api/cron/daily-notify` | Re-engagement push + email dispatch, Telegram re-engagement (concurrent), Platform Council invitations (last 7 days of month), Platform Council membership reconciliation (1st of month — drops members outside the top 50, notifies them) |
 | 02:00 | `/api/cron/daily-guilds` | Guild tier demotion/promotion, Patron badge, guild contribution alerts, guild quest reset (Mondays) |

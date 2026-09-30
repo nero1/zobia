@@ -12,7 +12,18 @@ export type { ClassroomHomePayload } from "@/lib/classroom/home";
 export type { ClassroomPostView, ClassroomCommentView, ClassroomReportView } from "@/lib/classroom/community";
 export type { ClassroomEventView } from "@/lib/classroom/events";
 export type { ModuleView } from "@/lib/classroom/curriculum";
-export type { ClassroomLeaderboardEntry, MemberStanding, LeaderboardPeriod } from "@/lib/classroom/gamification";
+export type { MemberStanding, LeaderboardPeriod } from "@/lib/classroom/gamification";
+import type { ClassroomLeaderboardEntry as ServerLeaderboardEntry } from "@/lib/classroom/gamification";
+
+/**
+ * A classroom leaderboard row as sent to the client: `isAnonymous` is a
+ * server-only field. Hidden members read "Anonymous"; the classroom's admins
+ * additionally get `revealed` (real identity) behind a "Reveal" control.
+ */
+export type ClassroomLeaderboardEntry = Omit<ServerLeaderboardEntry, "isAnonymous"> & {
+  anonymous?: true;
+  revealed?: { userId: string; username: string; displayName: string; avatarEmoji: string; avatarUrl: string | null };
+};
 export type { ClassroomMemberView, ClassroomModeratorView } from "@/lib/classroom/members";
 export type { ClassroomStats, StudioSummary, StudioClassroomRow } from "@/lib/classroom/stats";
 export type { SlugChangeQuote, SlugHistoryEntry, SlugAvailability } from "@/lib/classroom/slug";

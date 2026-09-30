@@ -13,6 +13,12 @@ import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import type { GameLeaderboardRow } from "@zobia/types";
 import { logger } from "@/lib/logger";
+import {
+  getAnonymityConfig,
+  hiddenOnLeaderboardSql,
+  maskLeaderboardRow,
+  ANONYMOUS_CAMEL_IDENTITY,
+} from "@/lib/privacy/leaderboardAnonymity";
 
 const PAGE_SIZE = 50;
 const CACHE_TTL_SECONDS = 60;
@@ -51,11 +57,39 @@ export async function updateBestScore(
   redis.getdel(cacheKey(gameId, 1)).catch(() => {});
 }
 
-/** Top scores for a game (cached 60s). */
+/**
+ * Top scores for a game (cached 60s). The cached rows are viewer-independent
+ * (real identity + an `isHidden` flag); identity is masked per viewer AFTER the
+ * cache so a hidden player is never exposed by a warm cache entry. Game boards
+ * are public, so nobody but the player themself can reveal a hidden name.
+ */
 export async function getGameLeaderboard(
   gameId: string,
-  page = 1
+  page = 1,
+  viewerId?: string
 ): Promise<{ rows: GameLeaderboardRow[]; page: number; pageSize: number }> {
+  const board = await loadGameLeaderboard(gameId, page);
+  return {
+    ...board,
+    rows: board.rows.map(({ isHidden, ...row }) =>
+      maskLeaderboardRow<GameLeaderboardRow>(row, {
+        anonymous: isHidden === true,
+        isSelf: viewerId !== undefined && row.userId === viewerId,
+        canReveal: false,
+        idKey: "userId",
+        masked: ANONYMOUS_CAMEL_IDENTITY,
+        anonId: `anon-${row.rank}`,
+      })
+    ),
+  };
+}
+
+type CachedGameRow = GameLeaderboardRow & { isHidden?: boolean };
+
+async function loadGameLeaderboard(
+  gameId: string,
+  page = 1
+): Promise<{ rows: CachedGameRow[]; page: number; pageSize: number }> {
   const safePage = Math.max(1, Math.floor(page));
   const key = cacheKey(gameId, safePage);
 
@@ -63,7 +97,7 @@ export async function getGameLeaderboard(
     try {
       const cached = await redis.get(key);
       if (cached) {
-        return { rows: JSON.parse(cached) as GameLeaderboardRow[], page: safePage, pageSize: PAGE_SIZE };
+        return { rows: JSON.parse(cached) as CachedGameRow[], page: safePage, pageSize: PAGE_SIZE };
       }
     } catch {
       /* cache miss / redis blip — fall through to DB */
@@ -81,9 +115,11 @@ export async function getGameLeaderboard(
     plays: number;
     wins: number;
     rank: number;
+    is_anonymous: boolean;
   }>(sql`
     SELECT b.user_id, u.username, u.display_name, u.avatar_emoji,
            b.best_score, b.plays, b.wins,
+           ${hiddenOnLeaderboardSql(await getAnonymityConfig())} AS is_anonymous,
            RANK() OVER (ORDER BY b.best_score DESC)::int AS rank
     FROM game_best_scores b
     JOIN users u ON u.id = b.user_id AND u.deleted_at IS NULL
@@ -93,7 +129,7 @@ export async function getGameLeaderboard(
   `);
   const rows = result0.rows;
 
-  const result: GameLeaderboardRow[] = rows.map((r) => ({
+  const result: CachedGameRow[] = rows.map((r) => ({
     rank: r.rank,
     userId: r.user_id,
     username: r.username,
@@ -102,6 +138,7 @@ export async function getGameLeaderboard(
     bestScore: Number(r.best_score),
     plays: r.plays,
     wins: r.wins,
+    isHidden: Boolean(r.is_anonymous),
   }));
 
   if (safePage === 1) {
