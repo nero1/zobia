@@ -31,7 +31,9 @@ export function generateMetadata(config: SEOConfig): Metadata {
   const canonical = config.canonical || baseUrl;
 
   return {
-    title,
+    // `absolute`: `title` already carries the site suffix; without it the root
+    // layout's "%s | Zobia Social" template appended it a second time.
+    title: { absolute: title },
     description,
     keywords: config.keywords,
     metadataBase: new URL(baseUrl),

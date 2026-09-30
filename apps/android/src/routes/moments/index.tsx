@@ -16,6 +16,7 @@ import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
 import { Icon } from '@/components/ui/Icon';
+import { HashtagText } from '@/components/portals/HashtagText';
 
 interface ReactionSummary {
   emoji: string;
@@ -130,7 +131,7 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
         </div>
       </div>
 
-      <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line">{moment.content}</p>
+      <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line"><HashtagText text={moment.content} /></p>
 
       {/* Optional image — capped at 300x300, lazy-loaded */}
       {moment.imageUrl && (

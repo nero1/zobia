@@ -185,6 +185,10 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // Hashtag Portals (/h/<slug>) — public, crawlable mini-portals; the bare /h
+  // directory page is matched exactly in isPublicRoute() below (a "/h" prefix
+  // would also swallow /home).
+  "/h/",
   // Public wiki SEO pages (/w/<slug> and /w/<slug>/<pageSlug>) -- publicly
   // readable/indexable, mirrors /b/ above. Editing still requires auth via
   // the separate authenticated /wiki/<slug> route.
@@ -313,7 +317,7 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
 }
 
 function isPublicRoute(pathname: string): boolean {
-  if (pathname === "/" || pathname === "") return true;
+  if (pathname === "/" || pathname === "" || pathname === "/h") return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 

@@ -19,9 +19,9 @@ export async function generateMetadata({ params }: { params: Promise<{ category:
   const { category } = await params;
   try {
     const { category: cat } = await listDocsByCategory(category);
-    return { title: `${cat.name} — Help Center — Zobia Social`, description: cat.description ?? undefined };
+    return { title: { absolute: `${cat.name} — Help Center — Zobia Social` }, description: cat.description ?? undefined };
   } catch {
-    return { title: "Help Center — Zobia Social" };
+    return { title: { absolute: "Help Center — Zobia Social" } };
   }
 }
 

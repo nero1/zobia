@@ -50,6 +50,7 @@ import {
   getWikiDailyRewardCapCredits,
 } from "@/lib/wiki/limits";
 import { getWikiForPermissionCheck, canManageWiki, canContributeToWiki, type WikiRow as PermWikiRow } from "@/lib/wiki/permissions";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 import {
   countOwnedWikis,
   countActivePages,
@@ -287,6 +288,12 @@ export async function createPage(input: CreatePageInput): Promise<{ id: string; 
       createdBy: input.authorId,
       lastEditedBy: input.authorId,
     });
+    await syncContentHashtags(tx, {
+      contentType: "wiki_page",
+      contentId: pageId,
+      authorId: input.authorId,
+      texts: [input.title, input.contentMarkdown],
+    });
     await tx.insert(schema.wikiPageRevisions).values({
       pageId,
       revisionNumber: 1,
@@ -365,6 +372,12 @@ export async function updatePage(pageId: string, callerId: string, input: Update
       contentFormat,
       editSummary: input.editSummary?.trim() || null,
       editedBy: callerId,
+    });
+    await syncContentHashtags(tx, {
+      contentType: "wiki_page",
+      contentId: pageId,
+      authorId: (page as { created_by?: string | null }).created_by ?? callerId,
+      texts: [title, contentMarkdown],
     });
     await tx.update(schema.wikis).set({ editCount: sql`${schema.wikis.editCount} + 1`, updatedAt: sql`NOW()` }).where(eq(schema.wikis.id, page.wiki_id));
     becameContributor = await ensureCollaboratorRow(tx, page.wiki_id, callerId);

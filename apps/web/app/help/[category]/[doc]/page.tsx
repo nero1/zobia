@@ -21,12 +21,12 @@ export async function generateMetadata({ params }: { params: Promise<{ category:
   try {
     const { doc: d } = await getDoc(category, doc);
     return {
-      title: d.seo_title || `${d.title} — Help Center — Zobia Social`,
+      title: { absolute: d.seo_title || `${d.title} — Help Center — Zobia Social` },
       description: d.seo_description || d.title,
       alternates: { canonical: `${APP_URL}/help/${category}/${doc}` },
     };
   } catch {
-    return { title: "Help Center — Zobia Social" };
+    return { title: { absolute: "Help Center — Zobia Social" } };
   }
 }
 

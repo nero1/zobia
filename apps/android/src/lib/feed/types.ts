@@ -8,6 +8,8 @@
  * fields (tier, finalScore) are omitted just like web's FeedPage type.
  */
 
+import type { PortalSuggestion } from '@zobia/shared/types';
+
 export type FeedTab = 'for_you' | 'trending' | 'friends' | 'new';
 
 export type FeedContentType =
@@ -45,4 +47,6 @@ export interface FeedItem {
 export interface FeedPage {
   items: FeedItem[];
   nextCursor: string | null;
+  /** "Portals for you" card for this page — see apps/web/lib/portals/suggestions.ts. */
+  portalSuggestion?: PortalSuggestion | null;
 }

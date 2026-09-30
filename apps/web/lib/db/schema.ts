@@ -30,6 +30,7 @@ import {
   primaryKey,
   check,
   customType,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -6988,6 +6989,132 @@ export type NewSupportTicketEvent = typeof supportTicketEvents.$inferInsert;
 // Schema namespace — pass to drizzle(pool, { schema }) for relational queries
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Hashtags + Portals (migration 0018_hashtags_portals.sql)
+// ---------------------------------------------------------------------------
+
+export const hashtags = pgTable(
+  "hashtags",
+  {
+    id: uuidPk(),
+    slug: text("slug").notNull(),
+    display: text("display").notNull(),
+    aliasOf: uuid("alias_of").references((): AnyPgColumn => hashtags.id, { onDelete: "set null" }),
+    isBlocked: boolean("is_blocked").notNull().default(false),
+    useCount: integer("use_count").notNull().default(0),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_hashtags_slug").on(t.slug),
+    index("idx_hashtags_alias_of").on(t.aliasOf).where(sql`${t.aliasOf} IS NOT NULL`),
+    index("idx_hashtags_last_used").on(t.lastUsedAt.desc()).where(sql`${t.isBlocked} = false`),
+    check("hashtags_slug_format", sql`${t.slug} = lower(${t.slug}) AND char_length(${t.slug}) BETWEEN 2 AND 50`),
+    check("hashtags_not_self_alias", sql`${t.aliasOf} IS NULL OR ${t.aliasOf} <> ${t.id}`),
+  ]
+);
+
+export const contentHashtags = pgTable(
+  "content_hashtags",
+  {
+    id: uuidPk(),
+    hashtagId: uuid("hashtag_id")
+      .notNull()
+      .references(() => hashtags.id, { onDelete: "cascade" }),
+    contentType: text("content_type").notNull(),
+    contentId: uuid("content_id").notNull(),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_content_hashtags_unique").on(t.contentType, t.contentId, t.hashtagId),
+    index("idx_content_hashtags_tag_created").on(t.hashtagId, t.createdAt.desc()),
+    index("idx_content_hashtags_tag_type").on(t.hashtagId, t.contentType, t.createdAt.desc()),
+    index("idx_content_hashtags_created").on(t.createdAt.desc()),
+    check(
+      "content_hashtags_type_check",
+      sql`${t.contentType} IN ('moment','tweet','blog_post','forum_thread','forum_question','room','classroom','wiki_page','game','poll','quiz','guild','business_page_post')`
+    ),
+  ]
+);
+
+export const portals = pgTable(
+  "portals",
+  {
+    id: uuidPk(),
+    slug: text("slug").notNull(),
+    hashtagId: uuid("hashtag_id")
+      .notNull()
+      .references(() => hashtags.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    tagline: text("tagline"),
+    description: text("description"),
+    coverImageUrl: text("cover_image_url"),
+    accentColor: text("accent_color"),
+    status: text("status").notNull().default("auto"),
+    sections: jsonb("sections").notNull().default(sql`'[]'::jsonb`),
+    bbBoardId: uuid("bb_board_id").references(() => bbBoards.id, { onDelete: "set null" }),
+    city: text("city"),
+    isPinned: boolean("is_pinned").notNull().default(false),
+    boostWeight: smallint("boost_weight").notNull().default(0),
+    boostStartsAt: timestamp("boost_starts_at", { withTimezone: true }),
+    boostEndsAt: timestamp("boost_ends_at", { withTimezone: true }),
+    sponsoredUntil: timestamp("sponsored_until", { withTimezone: true }),
+    sponsorName: text("sponsor_name"),
+    followerCount: integer("follower_count").notNull().default(0),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("idx_portals_slug").on(t.slug),
+    uniqueIndex("idx_portals_hashtag").on(t.hashtagId),
+    index("idx_portals_status_activity").on(t.status, t.lastActivityAt.desc()),
+    index("idx_portals_boost").on(t.boostWeight.desc()).where(sql`${t.boostWeight} > 0`),
+    check("portals_status_check", sql`${t.status} IN ('official','auto','archived','suppressed')`),
+    check("portals_boost_weight_check", sql`${t.boostWeight} BETWEEN 0 AND 100`),
+    check("portals_slug_format", sql`${t.slug} = lower(${t.slug}) AND char_length(${t.slug}) BETWEEN 2 AND 50`),
+    check("portals_accent_color_check", sql`${t.accentColor} IS NULL OR ${t.accentColor} ~ '^#[0-9a-fA-F]{6}$'`),
+  ]
+);
+
+export const portalFollows = pgTable(
+  "portal_follows",
+  {
+    portalId: uuid("portal_id")
+      .notNull()
+      .references(() => portals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.portalId, t.userId] }),
+    index("idx_portal_follows_user").on(t.userId, t.createdAt.desc()),
+  ]
+);
+
+export const portalStatsDaily = pgTable(
+  "portal_stats_daily",
+  {
+    portalId: uuid("portal_id")
+      .notNull()
+      .references(() => portals.id, { onDelete: "cascade" }),
+    day: date("day").notNull().default(sql`CURRENT_DATE`),
+    views: integer("views").notNull().default(0),
+    impressions: integer("impressions").notNull().default(0),
+    clicks: integer("clicks").notNull().default(0),
+    follows: integer("follows").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.portalId, t.day] })]
+);
+
+export type Hashtag = typeof hashtags.$inferSelect;
+export type Portal = typeof portals.$inferSelect;
+export type NewPortal = typeof portals.$inferInsert;
+
 export const schema = {
   // Config
   xManifest,
@@ -7241,6 +7368,11 @@ export const schema = {
   tweetRetweets,
   tweetLikes,
   tweetMentions,
+  hashtags,
+  contentHashtags,
+  portals,
+  portalFollows,
+  portalStatsDaily,
 
   // Rooms
   roomVisits,

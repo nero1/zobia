@@ -14,6 +14,7 @@ import { apiClient } from '@/lib/api/client';
 import { useCurrency, currencyLabel } from '@/lib/hooks/useCurrency';
 import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
 import { Icon } from '@/components/ui/Icon';
+import { HashtagSuggest } from '@/components/portals/HashtagSuggest';
 
 const MAX_CONTENT = 500;
 const MAX_CAPTION = 200;
@@ -122,6 +123,7 @@ function CreateMomentPage() {
             maxLength={MAX_CONTENT}
             className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
           />
+          <HashtagSuggest value={content} onChange={(next) => setContent(next.slice(0, MAX_CONTENT))} />
           <div className="mt-1.5 flex justify-end">
             <span className={`text-xs tabular-nums ${content.length >= MAX_CONTENT ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500'}`}>
               {content.length}/{MAX_CONTENT}

@@ -69,12 +69,12 @@ export async function generateMetadata(
     const resolution = await resolveOldUsername(username).catch(() => ({ kind: "not_found" as const }));
     if (resolution.kind === "gone") {
       return {
-        title: "This account no longer exists — Zobia Social",
+        title: { absolute: "This account no longer exists — Zobia Social" },
         robots: { index: false },
       };
     }
     return {
-      title: "Profile not found — Zobia Social",
+      title: { absolute: "Profile not found — Zobia Social" },
       robots: { index: false },
     };
   }
@@ -95,7 +95,7 @@ export async function generateMetadata(
   }
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       title,

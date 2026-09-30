@@ -25,6 +25,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -700,6 +701,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const room = insertedRoom;
       if (!room) throw new Error("Room creation failed");
+
+      // #hashtags in the name/description link the room to portals.
+      if (isPublic) {
+        await syncContentHashtags(tx, {
+          contentType: room.type === "classroom" ? "classroom" : "room",
+          contentId: room.id,
+          authorId: auth.user.sub,
+          texts: [room.name, room.description],
+        });
+      }
 
       // Auto-join creator as creator member
       await tx.insert(schema.roomMembers).values({

@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, desc, eq, ilike, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
+import { recordContentHashtags, syncContentHashtags } from "@/lib/hashtags/service";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
@@ -304,6 +305,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         .returning({ id: schema.guilds.id });
 
       const guildId = guildResult[0].id;
+
+      // #hashtags in the guild's name/description link it to portals.
+      await syncContentHashtags(tx, {
+        contentType: "guild",
+        contentId: guildId,
+        authorId: userId,
+        texts: [body.name, body.description],
+      });
 
       // 6. Create captain guild_member record
       await tx.insert(schema.guildMembers).values({

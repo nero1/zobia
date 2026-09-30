@@ -22,10 +22,19 @@ import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";
 import { Icon } from "@/components/ui/Icon";
 import type { FeedTab, FeedPage } from "@/lib/feed/types";
+import type { PortalCard } from "@zobia/types";
+import { PortalSuggestionCard } from "@/components/portals/PortalSuggestionCard";
+
+/** A "Portals for you" card pinned after the Nth item of the flattened list. */
+interface PlacedSuggestion {
+  at: number;
+  portals: PortalCard[];
+}
 
 interface CachedFeedPage {
   items: FeedItemView[];
   nextCursor: string | null;
+  suggestions?: PlacedSuggestion[];
 }
 import { FeedItemCard, FeedItemCardSkeleton, type FeedItemView } from "./FeedItemCard";
 
@@ -33,7 +42,7 @@ const ADS_EVERY_N_ITEMS = 6;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function cacheKey(tab: FeedTab): string {
-  return `zobia:home:feed:${tab}:v1`;
+  return `zobia:home:feed:${tab}:v2`;
 }
 
 function readCache(tab: FeedTab): CachedFeedPage | null {
@@ -60,6 +69,7 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
   const { t } = useTranslation();
   const [items, setItems] = useState<FeedItemView[] | undefined>(undefined);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<PlacedSuggestion[]>([]);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -81,17 +91,21 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
       if (cached) {
         setItems(cached.items as FeedItemView[]);
         setCursor(cached.nextCursor);
+        setSuggestions(cached.suggestions ?? []);
         return;
       }
     }
     setItems(undefined);
     setCursor(null);
+    setSuggestions([]);
     try {
       const page = await fetchPage(null);
       if (!mountedRef.current) return;
+      const placed = page.portalSuggestion ? [{ at: page.portalSuggestion.afterIndex, portals: page.portalSuggestion.portals }] : [];
       setItems(page.items as FeedItemView[]);
       setCursor(page.nextCursor);
-      writeCache(tab, page);
+      setSuggestions(placed);
+      writeCache(tab, { items: page.items as FeedItemView[], nextCursor: page.nextCursor, suggestions: placed });
     } catch {
       if (!mountedRef.current) return;
       setError(t("feedTabs.loadError"));
@@ -120,18 +134,21 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
     try {
       const page = await fetchPage(cursor);
       if (!mountedRef.current) return;
-      setItems((prev) => {
-        const merged = [...(prev ?? []), ...(page.items as FeedItemView[])];
-        writeCache(tab, { items: merged, nextCursor: page.nextCursor });
-        return merged;
-      });
+      const baseLength = items?.length ?? 0;
+      const nextSuggestions = page.portalSuggestion
+        ? [...suggestions, { at: baseLength + page.portalSuggestion.afterIndex, portals: page.portalSuggestion.portals }]
+        : suggestions;
+      const merged = [...(items ?? []), ...(page.items as FeedItemView[])];
+      setItems(merged);
+      setSuggestions(nextSuggestions);
+      writeCache(tab, { items: merged, nextCursor: page.nextCursor, suggestions: nextSuggestions });
       setCursor(page.nextCursor);
     } catch {
       // non-fatal — retry via the button
     } finally {
       if (mountedRef.current) setLoadingMore(false);
     }
-  }, [cursor, loadingMore, fetchPage, tab]);
+  }, [cursor, loadingMore, fetchPage, tab, items, suggestions]);
 
   if (error) {
     return (
@@ -168,6 +185,9 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
           {(i + 1) % ADS_EVERY_N_ITEMS === 0 && (
             <AdSlot placement="home_feed_native" />
           )}
+          {suggestions.filter((sg) => sg.at === i + 1).map((sg) => (
+            <PortalSuggestionCard key={`portals-${sg.at}`} portals={sg.portals} />
+          ))}
         </div>
       ))}
       {cursor && (

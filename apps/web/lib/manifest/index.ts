@@ -65,6 +65,8 @@ export interface ZobiaManifest {
     moments: boolean;
     /** Tweets — short text posts with an optional charged image and a free YouTube/TikTok video embed, at /tweets. */
     tweets: boolean;
+    /** Hashtags + Portals (/h/<slug>) — hashtag-driven mini-portals that gather content from every primitive. */
+    portals: boolean;
     forum: boolean;
     /** Old-school BB-style forum (boards/threads at /forum, /f/<slug>) — separate from the Answers Q&A feature above. */
     bbforum: boolean;
@@ -372,6 +374,25 @@ export interface ZobiaManifest {
     /** When false, Zobian of the Month always requires a manual admin pick. */
     zobianOfMonthAutoComputeEnabled: boolean;
   };
+  // Hashtags + Portals (admin-editable at /gate44/config and /gate44/portals)
+  portals: {
+    /** When true, /api/cron/feed-refresh promotes trending hashtags into auto portals. */
+    autoCreateEnabled: boolean;
+    /** A tag needs at least this many tagged posts inside the window to become an auto portal. */
+    autoMinPosts: number;
+    /** ...from at least this many distinct authors (anti-spam: one user cannot mint a portal). */
+    autoMinDistinctUsers: number;
+    /** Trending window in hours used for tag velocity and the thresholds above. */
+    trendingWindowHours: number;
+    /** Auto portals with no tagged activity for this many days are archived. */
+    archiveAfterDays: number;
+    /** Insert one "Portals for you" card after this many items in the Home Feed. 0 disables suggestions. */
+    feedSuggestionEvery: number;
+    /** Max portals shown in a feed suggestion card. */
+    feedSuggestionMaxPortals: number;
+    /** Seconds a portal page payload stays cached (memory + Redis). */
+    cacheTtlSeconds: number;
+  };
   // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /gate44/ads
   ads: {
     /** How self-service business-submitted ad campaigns are reviewed. */
@@ -676,6 +697,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsPartnerFulfillment: false,
     moments: true,
     tweets: true,
+    portals: true,
     forum: true,
     bbforum: true,
     blogs: true,
@@ -803,6 +825,16 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     cacheTtlSeconds: 900,
     pageSize: 20,
     zobianOfMonthAutoComputeEnabled: true,
+  },
+  portals: {
+    autoCreateEnabled: true,
+    autoMinPosts: 20,
+    autoMinDistinctUsers: 8,
+    trendingWindowHours: 48,
+    archiveAfterDays: 30,
+    feedSuggestionEvery: 8,
+    feedSuggestionMaxPortals: 6,
+    cacheTtlSeconds: 600,
   },
   ads: {
     moderationMode: "manual",
@@ -1141,6 +1173,7 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_pidgin_autocomplete: "pidginAutocomplete",
   feature_moments: "moments",
   feature_tweets: "tweets",
+  feature_portals: "portals",
   feature_forum: "forum",
   feature_bbforum: "bbforum",
   feature_blogs: "blogs",
@@ -1267,6 +1300,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
       tweets:                     parseBool(kv["feature_tweets"]                    ?? "true",  DEFAULT_MANIFEST.features.tweets),
+      portals:                    parseBool(kv["feature_portals"]                   ?? "true",  DEFAULT_MANIFEST.features.portals),
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       bbforum:                    parseBool(kv["feature_bbforum"]                   ?? "true",  DEFAULT_MANIFEST.features.bbforum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
@@ -1401,6 +1435,16 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       cacheTtlSeconds: parseInt10(kv["home_feed_cache_ttl_seconds"], DEFAULT_MANIFEST.homeFeed.cacheTtlSeconds),
       pageSize: parseInt10(kv["home_feed_page_size"], DEFAULT_MANIFEST.homeFeed.pageSize),
       zobianOfMonthAutoComputeEnabled: parseBool(kv["home_feed_zobian_of_month_auto_compute_enabled"], DEFAULT_MANIFEST.homeFeed.zobianOfMonthAutoComputeEnabled),
+    },
+    portals: {
+      autoCreateEnabled:        parseBool(kv["portals_auto_create_enabled"], DEFAULT_MANIFEST.portals.autoCreateEnabled),
+      autoMinPosts:             parseInt10(kv["portals_auto_min_posts"],              DEFAULT_MANIFEST.portals.autoMinPosts),
+      autoMinDistinctUsers:     parseInt10(kv["portals_auto_min_distinct_users"],     DEFAULT_MANIFEST.portals.autoMinDistinctUsers),
+      trendingWindowHours:      parseInt10(kv["portals_trending_window_hours"],       DEFAULT_MANIFEST.portals.trendingWindowHours),
+      archiveAfterDays:         parseInt10(kv["portals_archive_after_days"],          DEFAULT_MANIFEST.portals.archiveAfterDays),
+      feedSuggestionEvery:      parseInt10(kv["portals_feed_suggestion_every"],       DEFAULT_MANIFEST.portals.feedSuggestionEvery),
+      feedSuggestionMaxPortals: parseInt10(kv["portals_feed_suggestion_max_portals"], DEFAULT_MANIFEST.portals.feedSuggestionMaxPortals),
+      cacheTtlSeconds:          parseInt10(kv["portals_cache_ttl_seconds"],           DEFAULT_MANIFEST.portals.cacheTtlSeconds),
     },
     ads: {
       moderationMode: kv["ad_moderation_mode"] === "ai" ? "ai" : "manual",

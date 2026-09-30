@@ -75,6 +75,7 @@ const adminNavItems = [
   { href: "/gate44/games",              label: "Games",              icon: "🎮" },
   { href: "/gate44/blogs",              label: "Blogs",              icon: "✍️" },
   { href: "/gate44/polls",              label: "Polls",              icon: "📊" },
+  { href: "/gate44/portals",            label: "Portals",            icon: "🧭" },
   { href: "/gate44/quizzes",            label: "Quizzes",            icon: "🧠" },
   { href: "/gate44/wiki",               label: "Wiki",                icon: "📖" },
   { href: "/gate44/support/queue",      label: "Support Tickets",    icon: "🎫" },

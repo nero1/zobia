@@ -17,6 +17,7 @@ import { z } from "zod";
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { getDb, schema } from "@/lib/db/drizzle";
+import { recordContentHashtags, syncContentHashtags } from "@/lib/hashtags/service";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { guildTierXpRequired, guildTierMaxMembers } from "@/lib/guilds/tiers";
@@ -312,6 +313,17 @@ export const PUT = withAuth(
 
       updates.updatedAt = new Date();
       await orm.update(schema.guilds).set(updates).where(eq(schema.guilds.id, guildId));
+
+      if (body.name !== undefined || body.description !== undefined) {
+        const [fresh] = await orm
+          .select({ name: schema.guilds.name, description: schema.guilds.description })
+          .from(schema.guilds)
+          .where(eq(schema.guilds.id, guildId))
+          .limit(1);
+        if (fresh) {
+          await recordContentHashtags({ contentType: "guild", contentId: guildId, authorId: userId, texts: [fresh.name, fresh.description] });
+        }
+      }
 
       return NextResponse.json({ success: true, data: { updated: true }, error: null });
     } catch (err) {

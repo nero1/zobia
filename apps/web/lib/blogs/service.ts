@@ -58,6 +58,7 @@ import { debitStars, creditStars } from "@/lib/economy/stars";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueBlogPostSlug, recordSlugRedirect } from "@/lib/slug";
 import { normalizeMenuConfig, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
+import { recordContentHashtags, removeContentHashtags, syncContentHashtags } from "@/lib/hashtags/service";
 import { DEFAULT_PAGE_TITLES, getDefaultPageContent, type DefaultPageKey } from "@/lib/blogs/defaultPages";
 import {
   getMaxBlogPosts,
@@ -615,6 +616,15 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
       .update(schema.blogs)
       .set({ postCount: sql`${schema.blogs.postCount} + 1`, updatedAt: sql`NOW()` })
       .where(eq(schema.blogs.id, input.blogId));
+    // #hashtags — only published posts are discoverable through portals.
+    if (input.status === "published") {
+      await syncContentHashtags(tx, {
+        contentType: "blog_post",
+        contentId: postId,
+        authorId: input.authorId,
+        texts: [input.title, input.excerpt, input.bodyMarkdown],
+      });
+    }
   });
 
   if (input.status === "published" && input.type === "article") {
@@ -692,6 +702,22 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
   if (Object.keys(patch).length === 0) return;
   await orm.update(schema.blogPosts).set({ ...patch, updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
 
+  // #hashtags — re-sync from the stored row so a text edit, a publish or an
+  // unpublish all leave the links matching what readers can actually see.
+  const [fresh] = await orm
+    .select({ title: schema.blogPosts.title, excerpt: schema.blogPosts.excerpt, bodyMarkdown: schema.blogPosts.bodyMarkdown, status: schema.blogPosts.status })
+    .from(schema.blogPosts)
+    .where(eq(schema.blogPosts.id, postId))
+    .limit(1);
+  if (fresh) {
+    await recordContentHashtags({
+      contentType: "blog_post",
+      contentId: postId,
+      authorId: post.authorId,
+      texts: fresh.status === "published" ? [fresh.title, fresh.excerpt, fresh.bodyMarkdown] : [],
+    });
+  }
+
   if (input.status === "published" && !wasPublished && post.type === "article") {
     safeAwardXPFireAndForget(callerId, 10, "creator", "blog_post_published", `blog_post_reward:${postId}`);
     await notifySubscribers(post.blogId, postId, input.title ?? post.slug, post.slug).catch(() => {});
@@ -716,6 +742,7 @@ export async function deletePost(postId: string, callerId: string, callerIsModer
       .set({ postCount: sql`GREATEST(${schema.blogs.postCount} - 1, 0)`, updatedAt: sql`NOW()` })
       .where(eq(schema.blogs.id, post.blogId));
   });
+  await removeContentHashtags("blog_post", postId);
 }
 
 /**

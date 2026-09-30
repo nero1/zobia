@@ -109,6 +109,7 @@ export type IconName =
   | "search"
   | "moments"
   | "tweets"
+  | "portals"
   | "answers"
   | "forum"
   | "quests"
@@ -160,6 +161,7 @@ const EMOJI: Record<IconName, EmojiPair> = {
   search: { default: "🔍" },
   moments: { default: "⚡" },
   tweets: { default: "🐦" },
+  portals: { default: "🧭" },
   answers: { default: "❓" },
   forum: { default: "🗨️" },
   quests: { default: "🎯" },
@@ -205,6 +207,7 @@ const LUCIDE: Record<IconName, LucideIcon> = {
   search: Search,
   moments: Zap,
   tweets: Rss,
+  portals: Compass,
   answers: HelpCircle,
   forum: MessagesSquare,
   quests: Target,

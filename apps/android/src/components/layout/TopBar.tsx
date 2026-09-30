@@ -46,6 +46,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: '/search', labelKey: 'nav.search', icon: 'search' },
   { href: '/moments', labelKey: 'nav.moments', icon: 'moments', flagKey: 'moments' },
   { href: '/tweets', labelKey: 'nav.tweets', icon: 'tweets', flagKey: 'tweets' },
+  { href: '/h', labelKey: 'nav.portals', icon: 'portals', flagKey: 'portals' },
   { href: '/answers', labelKey: 'nav.answers', icon: 'answers', flagKey: 'forum' },
   { href: '/forum', labelKey: 'nav.bbforum', icon: 'forum', flagKey: 'bbforum' },
   { href: '/polls', labelKey: 'nav.polls', icon: 'polls', flagKey: 'polls' },

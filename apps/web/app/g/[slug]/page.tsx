@@ -33,7 +33,7 @@ export async function generateMetadata({
   const description = game.tagline ?? game.description?.slice(0, 155) ?? `Play ${game.name} on Zobia Social.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       title,

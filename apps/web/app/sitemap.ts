@@ -17,7 +17,7 @@
  */
 
 import type { MetadataRoute } from "next";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 
 // Revalidate the sitemap at most once per hour so it doesn't run on every request.
@@ -175,6 +175,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   } catch {
     // Forum questions unavailable — skip silently
+  }
+
+  // Hashtag Portals. Served at /h/<slug>. Official portals always; auto
+  // portals only while live (archived/suppressed are excluded). Thin auto
+  // portals are noindex via generateMetadata, so a crawler skipping them is fine.
+  try {
+    entries.push({ url: `${BASE_URL}/h`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 });
+    const portalRows = await db
+      .select({ slug: schema.portals.slug, status: schema.portals.status, updatedAt: schema.portals.updatedAt })
+      .from(schema.portals)
+      .where(inArray(schema.portals.status, ["official", "auto"]))
+      .orderBy(sql`${schema.portals.lastActivityAt} DESC NULLS LAST`)
+      .limit(2000);
+
+    for (const p of portalRows) {
+      entries.push({
+        url: `${BASE_URL}/h/${encodeURIComponent(p.slug)}`,
+        lastModified: p.updatedAt ?? new Date(),
+        changeFrequency: "daily",
+        priority: p.status === "official" ? 0.7 : 0.4,
+      });
+    }
+  } catch {
+    // Portals table absent (pre-0018) or unavailable — skip silently
   }
 
   // Public blogs. Served at /b/<slug>. The table may not exist on older DBs

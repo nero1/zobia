@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/search/route.ts
  *
- * GET /api/search?q=<term>&types=people,blogs,wikis,answers,games&range=all&offset=0
+ * GET /api/search?q=<term>&types=people,blogs,wikis,answers,games,portals&range=all&offset=0
  *
  * Unified sitewide search across public content. Aggregates one query per
  * requested content type (same pattern as app/api/users/search/route.ts and
@@ -38,8 +38,8 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
-export type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games";
-const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games"];
+export type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games" | "portals";
+const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games", "portals"];
 
 export type SearchDateRange = "week" | "month" | "quarter" | "year" | "all";
 const RANGE_DAYS: Record<Exclude<SearchDateRange, "all">, number> = {
@@ -158,6 +158,23 @@ function branchFor(type: SearchContentType, likePattern: string, since: Date | n
                ${ftsOr(sql`g.search_vector`)})
           AND (${since}::timestamptz IS NULL OR g.created_at >= ${since})
         ORDER BY rank DESC, g.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
+    case "portals": {
+      // Hashtag Portals (/h/<slug>). A leading "#" in the query is dropped so
+      // "#lagos" finds the lagos portal, and an exact tag match outranks
+      // partial matches (ts_rank is 0-1, so a flat 1 always wins).
+      const tagLike = likePattern.replace(/^%#+/, "%");
+      const exactRank = q === null ? sql`0::real` : sql`(CASE WHEN p.slug = lower(ltrim(${q}::text, '#')) THEN 1 ELSE 0 END)::real`;
+      return sql`
+        (SELECT 'portals' AS type, p.id::text AS id, ('#' || p.slug || ' · ' || p.title) AS title,
+               p.tagline AS snippet, p.cover_image_url AS thumbnail_url,
+               ('/h/' || p.slug) AS url, COALESCE(p.last_activity_at, p.created_at) AS published_at,
+               ${exactRank} AS rank
+        FROM portals p
+        WHERE p.status IN ('official', 'auto')
+          AND (p.slug ILIKE ${tagLike} OR p.title ILIKE ${tagLike} OR p.tagline ILIKE ${tagLike})
+          AND (${since}::timestamptz IS NULL OR COALESCE(p.last_activity_at, p.created_at) >= ${since})
+        ORDER BY rank DESC, published_at DESC LIMIT ${PER_BRANCH_CAP})`;
+    }
   }
 }
 

@@ -18,7 +18,7 @@ import { HelpSearchBox } from "@/components/help/HelpSearchBox";
 import { getServerTranslation } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
-  title: "Help & FAQ — Zobia Social",
+  title: { absolute: "Help & FAQ — Zobia Social" },
   description:
     "Find answers to common questions about Zobia Social — coins, stars, rooms, gifts, payouts, PIN security, and more.",
 };

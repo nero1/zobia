@@ -31,6 +31,7 @@ import {
 } from "@/lib/contentTreasury";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 
 // ---------------------------------------------------------------------------
 // Eligibility
@@ -166,6 +167,12 @@ export async function createQuiz(input: CreateQuizInput): Promise<QuizSummary> {
         await tx.execute(sql`INSERT INTO quiz_question_options (question_id, label, is_correct, position) VALUES (${questionId}, ${options[oi].label.trim()}, ${options[oi].isCorrect}, ${oi})`);
       }
     }
+    await syncContentHashtags(tx, {
+      contentType: "quiz",
+      contentId: quizId,
+      authorId: input.userId,
+      texts: [input.title, input.description],
+    });
   });
 
   awardQuizRewards(

@@ -25,6 +25,8 @@ import { computeFinalScore, interestMatchScore, mergeTiers, normalizeScores, vel
 import { getBoostableContentSummary } from "@/lib/ads/repo";
 import { deepLinkPathFor } from "./deeplink";
 import { getCandidatePool, setCandidatePool } from "./cache";
+import { loadManifest } from "@/lib/manifest";
+import { pickPortalSuggestions } from "@/lib/portals/suggestions";
 
 // ---------------------------------------------------------------------------
 // Per-content-type "popular"/"trending" source queries.
@@ -649,13 +651,37 @@ export async function fetchFeedPage(
   cursor: string | null,
   limit: number
 ): Promise<FeedPage> {
-  if (tab === "new") return fetchNewPage(cursor, limit);
   if (tab === "friends") {
     if (!userId) return { items: [], nextCursor: null };
     return fetchFriendsPage(userId, cursor, limit);
   }
 
-  // for_you / trending — served from the cached candidate pool (see cache.ts).
-  const pool = await getCandidatePool(tab === "trending" ? "trending" : "for_you", () => computeCandidatePool(tab === "trending" ? "trending" : "for_you"));
-  return personalizeAndPaginate(pool, userId, cursor, limit);
+  let page: FeedPage;
+  if (tab === "new") {
+    page = await fetchNewPage(cursor, limit);
+  } else {
+    // for_you / trending — served from the cached candidate pool (see cache.ts).
+    const pool = await getCandidatePool(tab === "trending" ? "trending" : "for_you", () => computeCandidatePool(tab === "trending" ? "trending" : "for_you"));
+    page = await personalizeAndPaginate(pool, userId, cursor, limit);
+  }
+  return withPortalSuggestion(page, tab, userId, cursor);
+}
+
+/**
+ * Attach one "Portals for you" card to a page when suggestions are on and the
+ * page is long enough to place it (every `portals.feedSuggestionEvery`
+ * items). Never throws: a suggestion failure must not break the feed.
+ */
+async function withPortalSuggestion(page: FeedPage, tab: FeedTab, userId: string | null, cursor: string | null): Promise<FeedPage> {
+  try {
+    const manifest = await loadManifest();
+    const every = manifest.portals.feedSuggestionEvery;
+    if (!manifest.features.portals || every <= 0 || page.items.length < every) return page;
+    const portals = await pickPortalSuggestions(userId, `${tab}:${cursor ?? ""}`);
+    if (portals.length === 0) return page;
+    return { ...page, portalSuggestion: { afterIndex: every, portals } };
+  } catch (err) {
+    logger.error({ err }, "[feed] portal suggestion attach failed (non-fatal)");
+    return page;
+  }
 }

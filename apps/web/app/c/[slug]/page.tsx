@@ -54,7 +54,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     : `Join ${classroom.name}, a classroom by @${classroom.creatorUsername} on Zobia Social.`;
   const canonical = `/c/${classroom.slug ?? classroom.id}`;
   return {
-    title,
+    title: { absolute: title },
     description,
     robots: indexable ? undefined : { index: false, follow: false },
     openGraph: {
