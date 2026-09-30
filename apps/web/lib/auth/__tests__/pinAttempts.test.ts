@@ -22,6 +22,12 @@ const mockRedis = {
 
 jest.mock("@/lib/redis", () => ({ redis: mockRedis }));
 
+let mockPinLockout: Record<string, number> = {
+  maxFailedAttempts: 5, failWindowMinutes: 15, lockoutMinutes: 15,
+  strikeLimit: 3, strikeWindowHours: 24, longLockoutHours: 24,
+};
+jest.mock("@/lib/manifest", () => ({ loadManifest: async () => ({ pinLockout: mockPinLockout }) }));
+
 import bcrypt from "bcryptjs";
 import {
   verifyPinAttempt,
@@ -99,6 +105,21 @@ describe("requireCorrectPin", () => {
 
   it("resolves for the right PIN", async () => {
     await expect(requireCorrectPin(USER, "1234", hash)).resolves.toBeUndefined();
+  });
+});
+
+describe("admin-configured policy", () => {
+  afterEach(() => {
+    mockPinLockout = { maxFailedAttempts: 5, failWindowMinutes: 15, lockoutMinutes: 15, strikeLimit: 3, strikeWindowHours: 24, longLockoutHours: 24 };
+  });
+
+  it("uses the configured attempt limit, lock length and window", async () => {
+    mockPinLockout = { ...mockPinLockout, maxFailedAttempts: 2, lockoutMinutes: 30, failWindowMinutes: 5 };
+    const first = await verifyPinAttempt(USER, "0000", hash);
+    expect(first).toEqual({ verified: false, attemptsRemaining: 1 });
+    expect(ttls.get(`pin_fail:${USER}`)).toBe(5 * 60);
+    await expect(verifyPinAttempt(USER, "0000", hash)).rejects.toMatchObject({ code: "PIN_LOCKED" });
+    expect(ttls.get(`pin_lock:${USER}`)).toBe(30 * 60);
   });
 });
 

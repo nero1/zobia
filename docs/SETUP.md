@@ -408,6 +408,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    setting — see "Leaderboard Anonymity" in `docs/HOW-IT-WORKS.md` and PRD
    §42; no new table, so no Supabase GRANTs needed). `npm run migrate` does
    this for you.
+   Also `0017_pin_lockout_config.sql` (admin-editable PIN lockout policy keys).
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
