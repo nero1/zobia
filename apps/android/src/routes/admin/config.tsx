@@ -118,6 +118,12 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
   meta('auth_2fa_enabled', 'Two-Factor Authentication (2FA)', 'Allow users to enable TOTP-based 2FA on their accounts.', 'boolean', 'Auth'),
   meta('auth_2fa_required_for_mods', 'Require 2FA for Moderators', 'Block moderator logins until they set up 2FA on their account.', 'boolean', 'Auth'),
   meta('feature_pin_auth', 'PIN Authentication', 'Allow users to set a numeric PIN for quick app unlock.', 'boolean', 'Auth'),
+  meta('pin_max_failed_attempts', 'PIN Lockout: Max Wrong Attempts', 'Wrong PINs allowed within the window below before the PIN is locked. Default: 5.', 'number', 'Auth'),
+  meta('pin_fail_window_minutes', 'PIN Lockout: Failure Window (minutes)', 'Rolling window in which wrong PINs accumulate. Default: 15.', 'number', 'Auth'),
+  meta('pin_lockout_minutes', 'PIN Lockout: Lock Length (minutes)', 'How long the PIN stays locked after too many wrong attempts. Default: 15.', 'number', 'Auth'),
+  meta('pin_strike_limit', 'PIN Lockout: Lockouts Before Long Lock', 'Number of lockouts within the strike window that escalates to the long lockout. Default: 3.', 'number', 'Auth'),
+  meta('pin_strike_window_hours', 'PIN Lockout: Strike Window (hours)', 'Window in which lockouts count as strikes. Default: 24.', 'number', 'Auth'),
+  meta('pin_long_lockout_hours', 'PIN Lockout: Long Lock Length (hours)', 'Length of the escalated lockout. Default: 24.', 'number', 'Auth'),
 
   // CAPTCHA
   meta('captcha_provider', 'CAPTCHA Provider', 'CAPTCHA service used on registration, login, and sensitive forms.', 'select', 'CAPTCHA', [

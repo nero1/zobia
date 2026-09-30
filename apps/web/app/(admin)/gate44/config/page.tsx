@@ -232,6 +232,43 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Auth",
   },
 
+  pin_max_failed_attempts: {
+    label: "PIN Lockout: Max Wrong Attempts",
+    description: "Wrong PINs allowed within the window below before the PIN is locked. Default: 5.",
+    type: "number",
+    group: "Auth",
+  },
+  pin_fail_window_minutes: {
+    label: "PIN Lockout: Failure Window (minutes)",
+    description: "Rolling window in which wrong PINs accumulate. Default: 15.",
+    type: "number",
+    group: "Auth",
+  },
+  pin_lockout_minutes: {
+    label: "PIN Lockout: Lock Length (minutes)",
+    description: "How long the PIN stays locked after too many wrong attempts. Default: 15.",
+    type: "number",
+    group: "Auth",
+  },
+  pin_strike_limit: {
+    label: "PIN Lockout: Lockouts Before Long Lock",
+    description: "Number of lockouts within the strike window that escalates to the long lockout. Default: 3.",
+    type: "number",
+    group: "Auth",
+  },
+  pin_strike_window_hours: {
+    label: "PIN Lockout: Strike Window (hours)",
+    description: "Window in which lockouts count as strikes. Default: 24.",
+    type: "number",
+    group: "Auth",
+  },
+  pin_long_lockout_hours: {
+    label: "PIN Lockout: Long Lock Length (hours)",
+    description: "Length of the escalated lockout. Default: 24.",
+    type: "number",
+    group: "Auth",
+  },
+
   // CAPTCHA
   captcha_provider: {
     label: "CAPTCHA Provider",

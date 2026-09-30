@@ -24,18 +24,53 @@
 import bcrypt from "bcryptjs";
 import { redis } from "@/lib/redis";
 import { ApiError } from "@/lib/api/errors";
+import { loadManifest } from "@/lib/manifest";
 
-/** Wrong PINs allowed inside {@link FAIL_WINDOW_SECONDS} before a lockout. */
+/**
+ * Default policy. The live values are admin-editable (x_manifest `pin_*` keys,
+ * /gate44/config -> "Auth"; manifest.pinLockout) and read per call through the
+ * manifest's in-process cache, so a change costs no extra Redis calls.
+ */
 export const PIN_MAX_FAILED_ATTEMPTS = 5;
-/** Rolling window in which failures accumulate. */
 export const PIN_FAIL_WINDOW_SECONDS = 15 * 60;
-/** Length of an ordinary lockout. */
 export const PIN_LOCKOUT_SECONDS = 15 * 60;
-/** Lockouts inside {@link PIN_STRIKE_WINDOW_SECONDS} that escalate to a long lockout. */
 export const PIN_STRIKE_LIMIT = 3;
 export const PIN_STRIKE_WINDOW_SECONDS = 24 * 60 * 60;
-/** Length of the escalated lockout. */
 export const PIN_LONG_LOCKOUT_SECONDS = 24 * 60 * 60;
+
+interface PinPolicy {
+  maxFailedAttempts: number;
+  failWindowSeconds: number;
+  lockoutSeconds: number;
+  strikeLimit: number;
+  strikeWindowSeconds: number;
+  longLockoutSeconds: number;
+}
+
+const DEFAULT_POLICY: PinPolicy = {
+  maxFailedAttempts: PIN_MAX_FAILED_ATTEMPTS,
+  failWindowSeconds: PIN_FAIL_WINDOW_SECONDS,
+  lockoutSeconds: PIN_LOCKOUT_SECONDS,
+  strikeLimit: PIN_STRIKE_LIMIT,
+  strikeWindowSeconds: PIN_STRIKE_WINDOW_SECONDS,
+  longLockoutSeconds: PIN_LONG_LOCKOUT_SECONDS,
+};
+
+async function getPolicy(): Promise<PinPolicy> {
+  try {
+    const c = (await loadManifest()).pinLockout;
+    return {
+      maxFailedAttempts: c.maxFailedAttempts,
+      failWindowSeconds: c.failWindowMinutes * 60,
+      lockoutSeconds: c.lockoutMinutes * 60,
+      strikeLimit: c.strikeLimit,
+      strikeWindowSeconds: c.strikeWindowHours * 3600,
+      longLockoutSeconds: c.longLockoutHours * 3600,
+    };
+  } catch {
+    return DEFAULT_POLICY; // manifest unavailable: fail to the safe defaults
+  }
+}
 
 const failKey = (userId: string) => `pin_fail:${userId}`;
 const lockKey = (userId: string) => `pin_lock:${userId}`;
@@ -64,7 +99,7 @@ export async function assertPinNotLocked(userId: string): Promise<void> {
   const ttl = await redis.ttl(lockKey(userId));
   // ttl: -2 = no key, -1 = key without expiry (treat as locked for a full period)
   if (ttl === -2) return;
-  throw lockedError(ttl > 0 ? ttl : PIN_LOCKOUT_SECONDS);
+  throw lockedError(ttl > 0 ? ttl : (await getPolicy()).lockoutSeconds);
 }
 
 /** Clear the failure counter (correct PIN). */
@@ -79,18 +114,19 @@ export async function resetPinLockout(userId: string): Promise<void> {
 
 /** Record a wrong PIN; throws PIN_LOCKED if this attempt triggers a lockout. */
 async function recordPinFailure(userId: string): Promise<number> {
+  const policy = await getPolicy();
   const failures = await redis.incr(failKey(userId));
-  if (failures === 1) await redis.expire(failKey(userId), PIN_FAIL_WINDOW_SECONDS);
+  if (failures === 1) await redis.expire(failKey(userId), policy.failWindowSeconds);
 
-  if (failures >= PIN_MAX_FAILED_ATTEMPTS) {
+  if (failures >= policy.maxFailedAttempts) {
     const strikes = await redis.incr(strikeKey(userId));
-    if (strikes === 1) await redis.expire(strikeKey(userId), PIN_STRIKE_WINDOW_SECONDS);
-    const lockSeconds = strikes >= PIN_STRIKE_LIMIT ? PIN_LONG_LOCKOUT_SECONDS : PIN_LOCKOUT_SECONDS;
+    if (strikes === 1) await redis.expire(strikeKey(userId), policy.strikeWindowSeconds);
+    const lockSeconds = strikes >= policy.strikeLimit ? policy.longLockoutSeconds : policy.lockoutSeconds;
     await redis.set(lockKey(userId), "1", "EX", lockSeconds);
     await redis.del(failKey(userId));
     throw lockedError(lockSeconds);
   }
-  return PIN_MAX_FAILED_ATTEMPTS - failures;
+  return policy.maxFailedAttempts - failures;
 }
 
 /**

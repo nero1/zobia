@@ -204,6 +204,21 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
+  // PIN lockout policy — admin-editable at /gate44/config ("Auth"); see lib/auth/pinAttempts.ts
+  pinLockout: {
+    /** Wrong PINs allowed inside the fail window before a lockout. */
+    maxFailedAttempts: number;
+    /** Rolling window (minutes) in which wrong PINs accumulate. */
+    failWindowMinutes: number;
+    /** Length (minutes) of an ordinary lockout. */
+    lockoutMinutes: number;
+    /** Lockouts inside the strike window that escalate to the long lockout. */
+    strikeLimit: number;
+    /** Window (hours) in which lockouts count as strikes. */
+    strikeWindowHours: number;
+    /** Length (hours) of the escalated lockout. */
+    longLockoutHours: number;
+  };
   // Leaderboard anonymity — admin-editable at /gate44/config ("Privacy")
   leaderboardAnonymity: {
     /** Master switch. When false nobody is hidden from leaderboards and the setting is not offered. */
@@ -705,6 +720,14 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     costCredits: 100,
     costStars: 1,
     minLevel: 2,
+  },
+  pinLockout: {
+    maxFailedAttempts: 5,
+    failWindowMinutes: 15,
+    lockoutMinutes: 15,
+    strikeLimit: 3,
+    strikeWindowHours: 24,
+    longLockoutHours: 24,
   },
   leaderboardAnonymity: {
     enabled: true,
@@ -1295,6 +1318,14 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
       costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
       minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
+    },
+    pinLockout: {
+      maxFailedAttempts: Math.max(1, parseInt10(kv["pin_max_failed_attempts"], DEFAULT_MANIFEST.pinLockout.maxFailedAttempts)),
+      failWindowMinutes: Math.max(1, parseInt10(kv["pin_fail_window_minutes"], DEFAULT_MANIFEST.pinLockout.failWindowMinutes)),
+      lockoutMinutes:    Math.max(1, parseInt10(kv["pin_lockout_minutes"],     DEFAULT_MANIFEST.pinLockout.lockoutMinutes)),
+      strikeLimit:       Math.max(1, parseInt10(kv["pin_strike_limit"],        DEFAULT_MANIFEST.pinLockout.strikeLimit)),
+      strikeWindowHours: Math.max(1, parseInt10(kv["pin_strike_window_hours"], DEFAULT_MANIFEST.pinLockout.strikeWindowHours)),
+      longLockoutHours:  Math.max(1, parseInt10(kv["pin_long_lockout_hours"],  DEFAULT_MANIFEST.pinLockout.longLockoutHours)),
     },
     leaderboardAnonymity: {
       enabled:  parseBool(kv["leaderboard_anonymity_enabled"] ?? "true", DEFAULT_MANIFEST.leaderboardAnonymity.enabled),
