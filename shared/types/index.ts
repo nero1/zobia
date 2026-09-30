@@ -1212,3 +1212,5 @@ export interface GameLeaderboardRow {
   /** True when the player hides their name on leaderboards; identity fields then read "Anonymous". */
   anonymous?: true;
 }
+
+export * from "./portals";

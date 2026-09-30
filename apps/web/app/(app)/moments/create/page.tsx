@@ -14,6 +14,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
 import { Icon } from "@/components/ui/Icon";
+import { HashtagSuggest } from "@/components/portals/HashtagSuggest";
 import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
 
 const MAX_CONTENT = 500;
@@ -171,6 +172,7 @@ export default function CreateMomentPage() {
               maxLength={MAX_CONTENT}
               className="w-full resize-none rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
             />
+            <HashtagSuggest value={content} onChange={(next) => setContent(next.slice(0, MAX_CONTENT))} />
             <div className="mt-1.5 flex justify-end">
               <span className={`text-xs tabular-nums ${content.length >= MAX_CONTENT ? "text-red-500" : "text-neutral-400"}`}>
                 {content.length}/{MAX_CONTENT}

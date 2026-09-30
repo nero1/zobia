@@ -26,7 +26,7 @@ import { Icon } from "@/components/ui/Icon";
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 const NOT_FOUND_METADATA: Metadata = {
-  title: "Quiz not found — Zobia Social",
+  title: { absolute: "Quiz not found — Zobia Social" },
   description: "This quiz doesn't exist or is no longer available.",
 };
 
@@ -39,7 +39,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const description = quiz.description?.slice(0, 155) ?? `Take "${quiz.title}" — a quiz by @${quiz.creatorUsername ?? "a Zobia Social user"}.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: { title, description, images: [{ url: DEFAULT_OG_IMAGE }], type: "website", siteName: "Zobia Social" },
     twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },

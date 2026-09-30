@@ -12,7 +12,7 @@ import { getServerTranslation } from "@/lib/i18n/server";
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string }> }): Promise<Metadata> {
   const { q } = await searchParams;
-  return { title: q ? `"${q}" — Help Center Search — Zobia Social` : "Search — Help Center — Zobia Social" };
+  return { title: { absolute: q ? `"${q}" — Help Center Search — Zobia Social` : "Search — Help Center — Zobia Social" } };
 }
 
 export default async function HelpSearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {

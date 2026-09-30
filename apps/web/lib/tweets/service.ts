@@ -21,6 +21,7 @@ import { isPlanEligible } from "@/lib/plans/eligibility";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { insertNotification } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
+import { removeContentHashtags, syncContentHashtags } from "@/lib/hashtags/service";
 
 /**
  * Absolute, non-admin-configurable safety ceiling on Tweet content length —
@@ -426,6 +427,15 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
         .where(eq(schema.tweets.id, input.parentTweetId));
     }
 
+    // #hashtags — recorded atomically with the Tweet (replies are tagged too,
+    // so a #lagos reply still counts toward that portal's activity).
+    await syncContentHashtags(tx, {
+      contentType: "tweet",
+      contentId: tweet.id,
+      authorId: input.userId,
+      texts: [input.content],
+    });
+
     let mentionedUserIds: { id: string; username: string }[] = [];
     if (mentionedUsernames.length > 0) {
       const mentionRows = await tx
@@ -556,6 +566,7 @@ export async function deleteTweet(tweetId: string, userId: string): Promise<void
   if (tweet.user_id !== userId) throw forbidden("Cannot delete another user's Tweet");
   const orm = await getDb();
   await orm.update(schema.tweets).set({ deletedAt: sql`NOW()`, isPinned: false }).where(eq(schema.tweets.id, tweetId));
+  await removeContentHashtags("tweet", tweetId);
 }
 
 // ---------------------------------------------------------------------------

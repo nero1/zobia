@@ -9,6 +9,7 @@ import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Icon } from '@/components/ui/Icon';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
+import { HashtagText } from '@/components/portals/HashtagText';
 import { VideoEmbed } from './VideoEmbed';
 import { type Tweet, timeAgo } from './types';
 
@@ -87,7 +88,7 @@ export function TweetCard({
         )}
       </div>
 
-      {tweet.content && <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line">{tweet.content}</p>}
+      {tweet.content && <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line"><HashtagText text={tweet.content} /></p>}
 
       {tweet.imageUrl && (
         <div className="mt-3 max-h-[420px] overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700">

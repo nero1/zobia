@@ -32,6 +32,7 @@ import { applyForumAutoModeration } from "@/lib/forum/moderation";
 import { generateUniqueSlug } from "@/lib/slug";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 
 export type ForumTargetType = "question" | "answer";
 export const MAX_ANSWER_DEPTH = 10;
@@ -242,14 +243,22 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
     if (!catRows[0]) throw badRequest("Unknown category.", "FORUM_UNKNOWN_CATEGORY");
   }
 
-  await orm.insert(schema.forumQuestions).values({
-    id: questionId,
-    authorId: input.userId,
-    categoryId,
-    title: finalTitle,
-    slug,
-    body: mod.filteredBody,
-    status: "visible",
+  await orm.transaction(async (tx) => {
+    await tx.insert(schema.forumQuestions).values({
+      id: questionId,
+      authorId: input.userId,
+      categoryId,
+      title: finalTitle,
+      slug,
+      body: mod.filteredBody,
+      status: "visible",
+    });
+    await syncContentHashtags(tx, {
+      contentType: "forum_question",
+      contentId: questionId,
+      authorId: input.userId,
+      texts: [finalTitle, mod.filteredBody],
+    });
   });
 
   awardForumRewards(

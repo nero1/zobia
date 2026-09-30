@@ -1025,6 +1025,62 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Home Feed",
   },
 
+  // Portals (hashtag mini-portals)
+  feature_portals: {
+    label: "Enable Portals",
+    description: "Master toggle for Hashtags and Portals (/h/<slug>). When off, hashtag pages and feed portal suggestions are hidden and portal APIs return 503.",
+    type: "boolean",
+    group: "Portals",
+  },
+  portals_auto_create_enabled: {
+    label: "Auto-Create Trending Portals",
+    description: "When on, the feed-refresh CRON promotes trending hashtags to auto portals once they pass the thresholds below.",
+    type: "boolean",
+    group: "Portals",
+  },
+  portals_auto_min_posts: {
+    label: "Auto Portal: Minimum Posts",
+    description: "Tagged posts required inside the trending window before a hashtag becomes an auto portal. Default: 20.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_auto_min_distinct_users: {
+    label: "Auto Portal: Minimum Distinct Authors",
+    description: "Distinct authors required inside the trending window (anti-spam). Default: 8.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_trending_window_hours: {
+    label: "Portals Trending Window (hours)",
+    description: "Window used for tag velocity and the auto-portal thresholds. Default: 48.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_archive_after_days: {
+    label: "Archive Quiet Auto Portals After (days)",
+    description: "Auto portals with no tagged activity for this many days are archived (official portals are never auto-archived). Default: 30.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_feed_suggestion_every: {
+    label: "Feed Portal Suggestion Interval",
+    description: "Insert one 'Portals for you' card after this many Home Feed items. 0 turns suggestions off. Default: 8.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_feed_suggestion_max_portals: {
+    label: "Portals Per Suggestion Card",
+    description: "Maximum portals shown in a single feed suggestion card. Default: 6.",
+    type: "number",
+    group: "Portals",
+  },
+  portals_cache_ttl_seconds: {
+    label: "Portal Page Cache TTL (seconds)",
+    description: "How long a portal page payload stays cached. Default: 600 (10 minutes).",
+    type: "number",
+    group: "Portals",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -1140,6 +1196,7 @@ const GROUP_ORDER = [
   "Grace Periods & Save Slots",
   "Business Accounts",
   "Home Feed",
+  "Portals",
   "Miscellaneous",
 ];
 

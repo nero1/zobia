@@ -8943,8 +8943,58 @@ On a slow network the browser painted the app shell before the large Tailwind st
 
 `/settings` crash ("CHAIN_LABELS is not defined") — chain labels now resolve inside the component via i18n; `/api/seasons/current` no longer sent per-user data with `public` CDN caching; the Seasons page no longer crashes on `entry.xp` (API sends `seasonXP`); the Guild War contributor list now reads the API's actual shape; the leaderboard page highlights the viewer's own row; Android PIN removal used the wrong HTTP verb. Migration: `0016_leaderboard_anonymity.sql`.
 
+## 43. Hashtags & Portals (v2.39)
+
+### 43.1 What it is
+
+**Hashtags** make every public piece of content discoverable by topic, place or school, and **Portals** turn a hashtag into a mini-portal page at `/h/<slug>` (for example `/h/lagos`, `/h/uniben`, `/h/edo`, `/h/detroit`) that gathers content from every primitive in one place: a mini discovery feed, rooms, guilds, top contributors, an official forum board, Q&A, wikis, blogs, polls and quizzes. The name **Portals** was chosen because "Communities" already means ClassRooms (`/c/<slug>`) and Community Notes. The page is public, server-rendered and crawlable (`/h` is the directory, `/h/<slug>` a portal), and the vanity alias `zobia.org/#/<slug>` redirects to it client-side (a URL fragment never reaches the server).
+
+Two kinds of portal share one template:
+
+- **Official** portals are curated by admin at `/gate44/portals` (title, tagline, cover, accent colour, which sections show and in what order, an optional official forum board, a place/school keyword, pinning, boost and sponsorship). They carry a verified badge and are never auto-archived.
+- **Auto** portals are created for trending hashtags by the feed-refresh CRON once a tag passes admin thresholds (see 43.4). They are "lazy": only a row is created, and every section is built on the first visit and then cached.
+
+### 43.2 Hashtags
+
+- **Syntax (shared tokenizer, `shared/utils/hashtags.ts`, used by web, PWA and Android).** `#` followed by 2-50 letters, digits or underscores, not preceded by a letter/digit/underscore, `&`, `/` or another `#` (so `# Heading`, `a#b`, `&#39;`, `example.com/#x` and `##x` are not tags), not digits-only (`#1`, `#2024`). Tags are normalised (diacritics removed, lowercased): `#Ọ̀ṣun` and `#osun` are the same tag; `#Lagos` and `#LAGOS` collapse to `lagos`. At most 10 distinct tags are recorded per item.
+- **Where they are recorded** (`lib/hashtags/service.ts`, called inside each create transaction, and on edit): Tweets (content), Moments (text content and caption), blog posts (title, excerpt, body; only while published), Answers questions, forum threads, rooms and classrooms (name, description; public only), wiki pages (title, body), polls, quizzes and guilds (name, description). Tagging never fails or rolls back a post when called outside a transaction (`recordContentHashtags` logs and swallows).
+- **Linking in the UI.** `#tags` in Tweets and Moments render as links to their portal (web `components/portals/HashtagText.tsx`, Android `components/portals/HashtagText.tsx`), as React nodes only (no `innerHTML`). The Tweet and Moment composers show tag autocomplete chips while typing `#fragment` (`GET /api/public/hashtags/search`, debounced, memoised).
+- **Moderation.** Admin can **merge** duplicate tags (`#Uniben` into `#uniben`: links move, the merged tag becomes an alias, old `/h/` links 308 to the survivor, future posts using the old spelling land on the survivor) and **block** abusive tags (links removed, portal suppressed, tag never linked again). Reserved words (`admin`, `gate44`, `api`, `all`, `new`, `trending`, ...) can never become portals.
+- **Data hygiene.** Content tables are polymorphic (`content_hashtags` has no foreign key to content), so deleted/unpublished/hidden content is swept by the feed-refresh CRON and expired Moments by the nightly `daily-core` job; every portal query also re-applies the same visibility filters the Home Feed uses, so a stale link can never surface private, expired, draft or deleted content.
+
+### 43.3 The portal page
+
+`GET /api/public/portals/<slug>` (and the SSR page) return one viewer-independent payload, cached in memory (20 s) and Redis (admin TTL, default 10 minutes) with single-flight recompute, so "dynamic on first load, then cached": a cold portal runs the section queries once, everyone else gets one Redis GET or none. Sections (admin-orderable, each can be hidden per portal; empty sections render nothing): **Discover** (mini feed, Top/New, load-more), **Rooms**, **Guilds** (tagged, or whose city matches the portal's place keyword), **Top contributors** (users who chose to hide from leaderboards are excluded), **Forum** (the linked official board's latest threads plus tagged threads), **Questions & answers**, **Wiki**, **Blogs**, **Polls & quizzes**. Ads use the existing `<AdSlot/>` (`portal_top`, `portal_after_3`, `portal_bottom`). Viewer state (am I following?) is a separate call so the cached payload is shared. Page views and feed-suggestion clicks are counted per day (`portal_stats_daily`), deduped client-side in localStorage.
+
+### 43.4 Trending detection and the lifecycle
+
+Run from `/api/cron/feed-refresh` (external scheduler, see `docs/SETUP.md`), set-based and idempotent: **promote** tags with at least `portals_auto_min_posts` tagged posts from at least `portals_auto_min_distinct_users` distinct authors inside `portals_trending_window_hours` (defaults 20 / 8 / 48h; blocked, merged and reserved tags never qualify), **revive** archived portals that are active again, **archive** auto portals quiet for `portals_archive_after_days` (default 30; never official, pinned, boosted or sponsored portals), **sweep** links to deleted content and recompute counters. Admin can promote an auto portal to official, suppress it (404s publicly) or delete it from `/gate44/portals`.
+
+### 43.5 Feed suggestions and admin boost ("in-house ads")
+
+The Home Feed (`GET /api/feed`, tabs For You / Trending / New) may carry one **"Portals for you"** card per page (`FeedPage.portalSuggestion`, after every `portals_feed_suggestion_every` items, default 8; `0` disables), so web, PWA and the Capacitor app all get identical placement from the one response. Portals are chosen by a seeded weighted sample (seed = user, feed page, hour): weight grows with recent activity and followers, is 1.5x for official and 2x for pinned portals, and is multiplied by up to 11x by the admin **boost dial** (0-100 at `/gate44/portals`, with optional start/end dates; an active sponsorship counts as a boost of 50). Portals the viewer already follows are skipped. Boosted or sponsored portals show a "Promoted" tag. This is the first-party, always-free equivalent of an in-house ad: no `ad_campaigns` row is involved, so admin controls frequency and prominence directly. Impressions, views and clicks per day feed the analytics panel in the portal editor. Suggestions can be dismissed for 24h (per-user localStorage key).
+
+### 43.6 Following, search and navigation
+
+- Users can **follow** a portal (`POST/DELETE /api/portals/<slug>/follow`, optimistic, `follower_count` recomputed exactly); `/h` has Trending / Popular / New tabs, search, and a Following tab cached per user in localStorage (web) or react-query (Android).
+- **Sitewide search** gains a **Portals** category (`types=portals`; `#lagos` and `lagos` both find it; an exact tag match ranks first).
+- **Navigation:** "Portals" entry in the web Navbar/Sidebar and the Android drawer (feature-flagged by `feature_portals`). Nav "active" matching is now path-segment aware, fixing a latent bug where any short route would highlight on longer routes that share its prefix.
+- **Deep links:** `https://zobia.org/h/<slug>` (verified Android App Link, already host-wide) and `zobia://h/<slug>` open the portal screen in the Capacitor app; merged tags follow their alias.
+
+### 43.7 Admin and settings
+
+`/gate44/portals` (web; nav entry "Portals"): Portals tab (status filters, search, create official portal, edit copy/cover/accent/place/board/sections/pin/boost/sponsor, promote, suppress, restore, delete, 30-day views/impressions/clicks/follows) and Hashtags tab (explore, make portal, merge, block/unblock). Settings at `/gate44/config` -> "Portals": `feature_portals`, `portals_auto_create_enabled`, `portals_auto_min_posts`, `portals_auto_min_distinct_users`, `portals_trending_window_hours`, `portals_archive_after_days`, `portals_feed_suggestion_every`, `portals_feed_suggestion_max_portals`, `portals_cache_ttl_seconds`. All admin actions are audit-logged (`admin_portal_*`, `admin_hashtag_*`).
+
+### 43.8 Data model and migration
+
+Migration `0018_hashtags_portals.sql` adds `hashtags`, `content_hashtags`, `portals`, `portal_follows` and `portal_stats_daily` (explicit Supabase GRANTs for `anon`/`authenticated`/`service_role`, RLS enabled with public-read policies only on hashtags, content links and non-suppressed portals), seeds the settings above, and registers the ad placements `portal_top`, `portal_after_3`, `portal_bottom`. Drizzle definitions live in `lib/db/schema.ts`.
+
+### 43.9 Not built (by design, for later)
+
+Sponsored-portal self-serve checkout for brands and schools, per-portal moderator roles and badges, a per-portal chat room, OG share-card images, and paid creator boosts of a portal through `ad_campaigns` (the boost dial is admin-only today).
+
 ---
 
-*ZobiaSocial PRD v2.38*
+*ZobiaSocial PRD v2.39*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

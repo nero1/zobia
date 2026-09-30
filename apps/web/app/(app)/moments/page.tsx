@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { UserBadgeRow } from "@/components/shared/UserBadges";
 import { Icon } from "@/components/ui/Icon";
+import { HashtagText } from "@/components/portals/HashtagText";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +118,7 @@ function MomentCard({
 
       {/* Content */}
       <div className="px-4 pb-3">
-        <p className="text-sm text-neutral-800 dark:text-neutral-200 whitespace-pre-line">{moment.content}</p>
+        <p className="text-sm text-neutral-800 dark:text-neutral-200 whitespace-pre-line"><HashtagText text={moment.content} /></p>
 
         {/* Optional image — capped at 300x300, lazy-loaded */}
         {moment.imageUrl && (

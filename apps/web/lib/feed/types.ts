@@ -5,6 +5,8 @@
  * app/api/cron/feed-refresh).
  */
 
+import type { PortalSuggestion } from "@zobia/shared/types";
+
 export type FeedTab = "for_you" | "trending" | "friends" | "new";
 
 /** Every content type the Home Feed can surface — mirrors lib/ads/repo.ts BoostableContentType. */
@@ -70,6 +72,11 @@ export interface FeedItem {
 export interface FeedPage {
   items: Omit<FeedItem, "tier" | "finalScore">[];
   nextCursor: string | null;
+  /**
+   * "Portals for you" card (see lib/portals/suggestions.ts). Clients render
+   * it after `afterIndex` items of this page; absent/null = no card.
+   */
+  portalSuggestion?: PortalSuggestion | null;
 }
 
 /** A precomputed, cacheable pool of candidate items for one tab (no user-specific data). */

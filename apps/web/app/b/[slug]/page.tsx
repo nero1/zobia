@@ -41,7 +41,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const image = blog.cover_image_url || DEFAULT_OG_IMAGE;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: { title, description, images: [{ url: image }], type: "website", siteName: "Zobia Social" },
     twitter: { card: "summary_large_image", title, description, images: [image] },

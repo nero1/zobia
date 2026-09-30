@@ -18,6 +18,7 @@ import { getRankForXP } from "@/lib/xp/engine";
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { ApiError, badRequest, forbidden } from "@/lib/api/errors";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 
 export const MAX_ACTIVE_MOMENTS_PER_USER = 5;
 
@@ -208,6 +209,14 @@ export async function createMoment(input: CreateMomentInput): Promise<CreateMome
       VALUES (${input.userId}, ${input.content}, ${input.contentType}, ${input.mediaUrl ?? null}, ${input.thumbnailUrl ?? null}, ${input.caption ?? null})
       RETURNING id, expires_at
     `);
+    // #hashtags — only text Moments carry user-authored text in `content`
+    // (image/video Moments store a media reference there), plus the caption.
+    await syncContentHashtags(tx, {
+      contentType: "moment",
+      contentId: rows[0].id,
+      authorId: input.userId,
+      texts: [input.contentType === "text" ? input.content : null, input.caption],
+    });
     return rows[0];
   });
 

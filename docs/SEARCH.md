@@ -4,7 +4,7 @@
 
 A universal search icon/menu item (web, PWA, and the Capacitor Android app)
 opens `/search`, a single results page that searches across content
-categories at once: **People, Blogs, Wikis, Answers, Games**. It supports:
+categories at once: **People, Blogs, Wikis, Answers, Games, Portals** (hashtag portals at `/h/<slug>`; a leading `#` in the query is ignored and an exact tag match ranks first). It supports:
 
 - Multi-select category filters (search only the categories you pick).
 - A date-published filter: This week / This month / This quarter / This

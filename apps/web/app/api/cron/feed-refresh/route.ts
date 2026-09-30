@@ -23,7 +23,10 @@ export const maxDuration = 60;
  *  2. Fold recent content_engagement_signals into weighted user_interests
  *     rows (source='implicit'), then delete signals older than 30 days
  *     (simple TTL cleanup — see migration 0051 header comment).
- *  3. If homeFeed.zobianOfMonthAutoComputeEnabled and no admin override
+ *  3. Portals lifecycle (lib/portals/trending.ts): promote trending hashtags
+ *     to auto portals, revive/archive quiet ones, sweep links to deleted
+ *     content and refresh the feed's portal-suggestion candidates.
+ *  4. If homeFeed.zobianOfMonthAutoComputeEnabled and no admin override
  *     exists for the current month, compute/upsert Zobian of the Month from
  *     monthly XP gain (never overwrites an admin override — see
  *     lib/feed/zobianOfMonth.ts).
@@ -37,6 +40,8 @@ import { logger } from "@/lib/logger";
 import { loadManifest } from "@/lib/manifest";
 import { refreshCandidatePools } from "@/lib/feed/aggregator";
 import { autoComputeZobianOfMonth } from "@/lib/feed/zobianOfMonth";
+import { runPortalLifecycle, type PortalLifecycleResult } from "@/lib/portals/trending";
+import { invalidateSuggestionCache } from "@/lib/portals/suggestions";
 
 const IMPLICIT_SIGNAL_WEIGHTS: Record<string, number> = {
   view: 0.5,
@@ -102,6 +107,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
     pools?: { forYouCount: number; trendingCount: number };
     interests?: { upserted: number; pruned: number };
     zobianOfMonth?: { computed: boolean; userId: string | null; skipped?: boolean };
+    portals?: PortalLifecycleResult;
     errors: string[];
   } = { errors: [] };
 
@@ -129,6 +135,14 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     logger.error({ err }, "[cron:feed-refresh] Failed to auto-compute Zobian of the Month");
     result.errors.push("zobian_of_month");
+  }
+
+  try {
+    result.portals = await runPortalLifecycle();
+    await invalidateSuggestionCache();
+  } catch (err) {
+    logger.error({ err }, "[cron:feed-refresh] Failed to run the portals lifecycle");
+    result.errors.push("portals");
   }
 
   const durationMs = Date.now() - startedAt;

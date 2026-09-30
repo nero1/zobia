@@ -408,7 +408,15 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    setting — see "Leaderboard Anonymity" in `docs/HOW-IT-WORKS.md` and PRD
    §42; no new table, so no Supabase GRANTs needed). `npm run migrate` does
    this for you.
-   Also `0017_pin_lockout_config.sql` (admin-editable PIN lockout policy keys).
+   Also `0017_pin_lockout_config.sql` (admin-editable PIN lockout policy keys),
+   and `0018_hashtags_portals.sql` (Hashtags + Portals: the `hashtags`,
+   `content_hashtags`, `portals`, `portal_follows` and `portal_stats_daily`
+   tables with explicit `anon` / `authenticated` / `service_role` GRANTs and RLS
+   policies per Supabase's new Data-API rule, the `portal_top` /
+   `portal_after_3` / `portal_bottom` ad placements, and the `feature_portals`
+   + `portals_*` x_manifest keys, editable at `/gate44/config` -> "Portals").
+   Nothing else is needed to use Portals: create an official portal at
+   `/gate44/portals`, or let the feed-refresh job below promote trending tags.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
@@ -948,7 +956,7 @@ Because Vercel Hobby limits each path to once per day, sub-daily jobs must be tr
 - Schedule: Every 10-15 minutes
 - HTTP Method: GET or POST
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
-- Purpose: recomputes and caches the Home Dashboard's "For You"/"Trending"/"Friends"/"New" candidate pools (see `docs/HOW-IT-WORKS.md` → "Home Dashboard & Feed"), folds recent implicit engagement signals into `user_interests` and prunes signals older than 30 days, and auto-computes Zobian of the Month for the current calendar month (skipped if an admin has already set a manual override for that month, or if `homeFeed.zobianOfMonthAutoComputeEnabled` is off). A 10-15 minute staleness window is acceptable by design — this endpoint is intentionally NOT in `apps/web/vercel.json`'s daily cron schedule. This job has not been run yet as of this writing; if Home feed tabs look empty or Zobian of the Month is missing, set up this job and trigger it once manually to confirm.
+- Purpose: recomputes and caches the Home Dashboard's "For You"/"Trending"/"Friends"/"New" candidate pools (see `docs/HOW-IT-WORKS.md` → "Home Dashboard & Feed"), folds recent implicit engagement signals into `user_interests` and prunes signals older than 30 days, and auto-computes Zobian of the Month for the current calendar month (skipped if an admin has already set a manual override for that month, or if `homeFeed.zobianOfMonthAutoComputeEnabled` is off). It also runs the Portals lifecycle (promotes trending hashtags to auto portals, revives/archives quiet ones, sweeps hashtag links to deleted content, refreshes the feed's "Portals for you" candidates), so **auto portals and the feed suggestion card only start appearing after this job has run**; official portals you create in `/gate44/portals` work without it. A 10-15 minute staleness window is acceptable by design — this endpoint is intentionally NOT in `apps/web/vercel.json`'s daily cron schedule. This job has not been run yet as of this writing; if Home feed tabs look empty or Zobian of the Month is missing, set up this job and trigger it once manually to confirm.
 
 ### Brand Assets (Home Dashboard logo)
 

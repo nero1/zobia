@@ -15,6 +15,7 @@ import { useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { isNavPathActive } from "@zobia/shared/utils";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -44,6 +45,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/search", label: "Search", icon: "search" },
   { href: "/moments", label: "Moments", icon: "moments", flagKey: "moments" },
   { href: "/tweets", label: "Tweets", icon: "tweets", flagKey: "tweets" },
+  { href: "/h", label: "Portals", icon: "portals", flagKey: "portals" },
   { href: "/answers", label: "Answers", icon: "answers", flagKey: "forum" },
   { href: "/forum", label: "Forum", icon: "forum", flagKey: "bbforum" },
   { href: "/quests", label: "Quests", icon: "quests" },
@@ -196,7 +198,7 @@ export function Sidebar() {
               href={item.href}
               label={item.label}
               icon={item.icon}
-              isActive={pathname?.startsWith(item.href) ?? false}
+              isActive={isNavPathActive(pathname, item.href)}
               isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
               hasNewDot={newDotHrefs[item.href]}
             />
@@ -212,7 +214,7 @@ export function Sidebar() {
                 href={item.href}
                 label={item.label}
                 icon={item.icon}
-                isActive={pathname?.startsWith(item.href) ?? false}
+                isActive={isNavPathActive(pathname, item.href)}
               />
             ))}
           </div>

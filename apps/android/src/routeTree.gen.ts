@@ -71,6 +71,7 @@ import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
 import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
 import { Route as AdminModerationRosterRouteImport } from './routes/admin/moderation-roster'
 import { Route as AdminPollsRouteImport } from './routes/admin/polls'
+import { Route as AdminPortalsRouteImport } from './routes/admin/portals'
 import { Route as AdminProfileThemesRouteImport } from './routes/admin/profile-themes'
 import { Route as AdminQuestBoostsRouteImport } from './routes/admin/quest-boosts'
 import { Route as AdminQuestsRouteImport } from './routes/admin/quests'
@@ -112,6 +113,8 @@ import { Route as GamesLeaderboardsRouteImport } from './routes/games/leaderboar
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as GuildsIndexRouteImport } from './routes/guilds/index'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
+import { Route as HIndexRouteImport } from './routes/h/index'
+import { Route as HSlugRouteImport } from './routes/h/$slug'
 import { Route as HelpIndexRouteImport } from './routes/help/index'
 import { Route as HelpSearchRouteImport } from './routes/help/search'
 import { Route as MarketIndexRouteImport } from './routes/market/index'
@@ -497,6 +500,11 @@ const AdminPollsRoute = AdminPollsRouteImport.update({
   path: '/admin/polls',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPortalsRoute = AdminPortalsRouteImport.update({
+  id: '/admin/portals',
+  path: '/admin/portals',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminProfileThemesRoute = AdminProfileThemesRouteImport.update({
   id: '/admin/profile-themes',
   path: '/admin/profile-themes',
@@ -700,6 +708,16 @@ const GuildsIndexRoute = GuildsIndexRouteImport.update({
 const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
   id: '/guilds/$guildId',
   path: '/guilds/$guildId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HIndexRoute = HIndexRouteImport.update({
+  id: '/h/',
+  path: '/h/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HSlugRoute = HSlugRouteImport.update({
+  id: '/h/$slug',
+  path: '/h/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HelpIndexRoute = HelpIndexRouteImport.update({
@@ -1134,6 +1152,7 @@ export interface FileRoutesByFullPath {
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/moderation-roster': typeof AdminModerationRosterRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/portals': typeof AdminPortalsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quests': typeof AdminQuestsRoute
@@ -1166,6 +1185,7 @@ export interface FileRoutesByFullPath {
   '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/h/$slug': typeof HSlugRoute
   '/help/search': typeof HelpSearchRoute
   '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
@@ -1202,6 +1222,7 @@ export interface FileRoutesByFullPath {
   '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/h/': typeof HIndexRoute
   '/help/': typeof HelpIndexRoute
   '/market/': typeof MarketIndexRoute
   '/merch/': typeof MerchIndexRoute
@@ -1312,6 +1333,7 @@ export interface FileRoutesByTo {
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/moderation-roster': typeof AdminModerationRosterRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/portals': typeof AdminPortalsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quests': typeof AdminQuestsRoute
@@ -1344,6 +1366,7 @@ export interface FileRoutesByTo {
   '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/h/$slug': typeof HSlugRoute
   '/help/search': typeof HelpSearchRoute
   '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
@@ -1380,6 +1403,7 @@ export interface FileRoutesByTo {
   '/forum': typeof ForumIndexRoute
   '/games': typeof GamesIndexRoute
   '/guilds': typeof GuildsIndexRoute
+  '/h': typeof HIndexRoute
   '/help': typeof HelpIndexRoute
   '/market': typeof MarketIndexRoute
   '/merch': typeof MerchIndexRoute
@@ -1491,6 +1515,7 @@ export interface FileRoutesById {
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/moderation-roster': typeof AdminModerationRosterRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/portals': typeof AdminPortalsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quests': typeof AdminQuestsRoute
@@ -1523,6 +1548,7 @@ export interface FileRoutesById {
   '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/h/$slug': typeof HSlugRoute
   '/help/search': typeof HelpSearchRoute
   '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
@@ -1559,6 +1585,7 @@ export interface FileRoutesById {
   '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/h/': typeof HIndexRoute
   '/help/': typeof HelpIndexRoute
   '/market/': typeof MarketIndexRoute
   '/merch/': typeof MerchIndexRoute
@@ -1671,6 +1698,7 @@ export interface FileRouteTypes {
     | '/admin/moderation'
     | '/admin/moderation-roster'
     | '/admin/polls'
+    | '/admin/portals'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quests'
@@ -1703,6 +1731,7 @@ export interface FileRouteTypes {
     | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/h/$slug'
     | '/help/search'
     | '/market/$section'
     | '/merch/$creatorId'
@@ -1739,6 +1768,7 @@ export interface FileRouteTypes {
     | '/forum/'
     | '/games/'
     | '/guilds/'
+    | '/h/'
     | '/help/'
     | '/market/'
     | '/merch/'
@@ -1849,6 +1879,7 @@ export interface FileRouteTypes {
     | '/admin/moderation'
     | '/admin/moderation-roster'
     | '/admin/polls'
+    | '/admin/portals'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quests'
@@ -1881,6 +1912,7 @@ export interface FileRouteTypes {
     | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/h/$slug'
     | '/help/search'
     | '/market/$section'
     | '/merch/$creatorId'
@@ -1917,6 +1949,7 @@ export interface FileRouteTypes {
     | '/forum'
     | '/games'
     | '/guilds'
+    | '/h'
     | '/help'
     | '/market'
     | '/merch'
@@ -2027,6 +2060,7 @@ export interface FileRouteTypes {
     | '/admin/moderation'
     | '/admin/moderation-roster'
     | '/admin/polls'
+    | '/admin/portals'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quests'
@@ -2059,6 +2093,7 @@ export interface FileRouteTypes {
     | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/h/$slug'
     | '/help/search'
     | '/market/$section'
     | '/merch/$creatorId'
@@ -2095,6 +2130,7 @@ export interface FileRouteTypes {
     | '/forum/'
     | '/games/'
     | '/guilds/'
+    | '/h/'
     | '/help/'
     | '/market/'
     | '/merch/'
@@ -2206,6 +2242,7 @@ export interface RootRouteChildren {
   AdminModerationRoute: typeof AdminModerationRoute
   AdminModerationRosterRoute: typeof AdminModerationRosterRoute
   AdminPollsRoute: typeof AdminPollsRoute
+  AdminPortalsRoute: typeof AdminPortalsRoute
   AdminProfileThemesRoute: typeof AdminProfileThemesRoute
   AdminQuestBoostsRoute: typeof AdminQuestBoostsRoute
   AdminQuestsRoute: typeof AdminQuestsRoute
@@ -2238,6 +2275,7 @@ export interface RootRouteChildren {
   GamesLeaderboardsRoute: typeof GamesLeaderboardsRoute
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
+  HSlugRoute: typeof HSlugRoute
   HelpSearchRoute: typeof HelpSearchRoute
   MarketSectionRoute: typeof MarketSectionRoute
   MerchCreatorIdRoute: typeof MerchCreatorIdRoute
@@ -2269,6 +2307,7 @@ export interface RootRouteChildren {
   ForumIndexRoute: typeof ForumIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
   GuildsIndexRoute: typeof GuildsIndexRoute
+  HIndexRoute: typeof HIndexRoute
   HelpIndexRoute: typeof HelpIndexRoute
   MarketIndexRoute: typeof MarketIndexRoute
   MerchIndexRoute: typeof MerchIndexRoute
@@ -2754,6 +2793,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPollsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/portals': {
+      id: '/admin/portals'
+      path: '/admin/portals'
+      fullPath: '/admin/portals'
+      preLoaderRoute: typeof AdminPortalsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/profile-themes': {
       id: '/admin/profile-themes'
       path: '/admin/profile-themes'
@@ -3039,6 +3085,20 @@ declare module '@tanstack/react-router' {
       path: '/guilds/$guildId'
       fullPath: '/guilds/$guildId'
       preLoaderRoute: typeof GuildsGuildIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/h/': {
+      id: '/h/'
+      path: '/h'
+      fullPath: '/h/'
+      preLoaderRoute: typeof HIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/h/$slug': {
+      id: '/h/$slug'
+      path: '/h/$slug'
+      fullPath: '/h/$slug'
+      preLoaderRoute: typeof HSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/help/': {
@@ -3637,6 +3697,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminModerationRoute: AdminModerationRoute,
   AdminModerationRosterRoute: AdminModerationRosterRoute,
   AdminPollsRoute: AdminPollsRoute,
+  AdminPortalsRoute: AdminPortalsRoute,
   AdminProfileThemesRoute: AdminProfileThemesRoute,
   AdminQuestBoostsRoute: AdminQuestBoostsRoute,
   AdminQuestsRoute: AdminQuestsRoute,
@@ -3669,6 +3730,7 @@ const rootRouteChildren: RootRouteChildren = {
   GamesLeaderboardsRoute: GamesLeaderboardsRoute,
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
+  HSlugRoute: HSlugRoute,
   HelpSearchRoute: HelpSearchRoute,
   MarketSectionRoute: MarketSectionRoute,
   MerchCreatorIdRoute: MerchCreatorIdRoute,
@@ -3700,6 +3762,7 @@ const rootRouteChildren: RootRouteChildren = {
   ForumIndexRoute: ForumIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
   GuildsIndexRoute: GuildsIndexRoute,
+  HIndexRoute: HIndexRoute,
   HelpIndexRoute: HelpIndexRoute,
   MarketIndexRoute: MarketIndexRoute,
   MerchIndexRoute: MerchIndexRoute,

@@ -60,6 +60,8 @@ export const PUBLIC_PATHS = {
   // directly rather than an existing convention to mirror).
   poll: (slug: string) => `/poll/${encodeURIComponent(slug)}`,
   quiz: (slug: string) => `/quiz/${encodeURIComponent(slug)}`,
+  // Hashtag Portals — public, crawlable mini-portals, mirrors apps/web's app/h/[slug].
+  portal: (slug: string) => `/h/${encodeURIComponent(slug)}`,
   // Help Center doc/category pages are public on web too — included here so
   // the inbound zobia://help/... universal link resolves without an auth check.
   help: (categorySlug: string) => `/help/${encodeURIComponent(categorySlug)}`,

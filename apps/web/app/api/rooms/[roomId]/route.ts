@@ -26,6 +26,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
+import { recordContentHashtags, syncContentHashtags } from "@/lib/hashtags/service";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -304,6 +305,15 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
       })
       .where(eq(schema.rooms.id, roomId))
       .returning();
+
+    if (updatedRoom && (body.name !== undefined || body.description !== undefined)) {
+      await recordContentHashtags({
+        contentType: updatedRoom.type === "classroom" ? "classroom" : "room",
+        contentId: roomId,
+        authorId: owner.creatorId,
+        texts: updatedRoom.isPublic ? [updatedRoom.name, updatedRoom.description] : [],
+      });
+    }
 
     return NextResponse.json({ room: updatedRoom }, { status: 200 });
   } catch (err) {

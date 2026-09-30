@@ -30,7 +30,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const description = page.bio?.slice(0, 155) ?? `${page.name} on Zobia Social.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: { title, description, images: page.cover_image_url ? [{ url: page.cover_image_url }] : [], type: "website" },
     twitter: { card: "summary_large_image", title, description, images: page.cover_image_url ? [page.cover_image_url] : [] },

@@ -19,6 +19,7 @@ import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { isNavPathActive } from "@zobia/shared/utils";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -57,6 +58,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/search",       labelKey: "nav.search",       icon: "search" },
   { href: "/moments",      labelKey: "nav.moments",      icon: "moments", flagKey: "moments" },
   { href: "/tweets",       labelKey: "nav.tweets",       icon: "tweets", flagKey: "tweets" },
+  { href: "/h",            labelKey: "nav.portals",      icon: "portals", flagKey: "portals" },
   { href: "/answers",      labelKey: "nav.answers",      icon: "answers", flagKey: "forum" },
   { href: "/forum",        labelKey: "nav.bbforum",      icon: "forum", flagKey: "bbforum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "quests" },
@@ -142,7 +144,7 @@ function MobileTabBar() {
     >
       <div className="grid grid-cols-6">
         {bottomTabItems.map((item) => {
-          const isActive = pathname?.startsWith(item.href) ?? false;
+          const isActive = isNavPathActive(pathname, item.href);
           return (
             <Link
               key={item.href}
@@ -299,7 +301,7 @@ function MobileDrawer({
               </Link>
             )}
             {visibleNavItems.map((item) => {
-              const isActive = pathname?.startsWith(item.href) ?? false;
+              const isActive = isNavPathActive(pathname, item.href);
               const isOffForUsers = !!item.flagKey && featureFlags[item.flagKey] === false;
               return (
                 <Link
@@ -337,7 +339,7 @@ function MobileDrawer({
           {/* Secondary nav */}
           <nav className="space-y-0.5" aria-label="Secondary">
             {secondaryNavItems.map((item) => {
-              const isActive = pathname?.startsWith(item.href) ?? false;
+              const isActive = isNavPathActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}
@@ -645,7 +647,7 @@ export function Navbar() {
           {/* Desktop nav links — uses bottomTabItems to stay in sync with the mobile bottom bar */}
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
             {bottomTabItems.map((item) => {
-              const isActive = pathname?.startsWith(item.href) ?? false;
+              const isActive = isNavPathActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}

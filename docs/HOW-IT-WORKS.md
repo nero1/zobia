@@ -116,6 +116,20 @@ Tweets are a permanent (non-expiring) Twitter-style feed at `/tweets`: text + an
 
 **Offline support:** like Moments, Tweets are not queued for offline send — posting (and any image upload) requires an active connection.
 
+### Hashtags & Portals (PRD §43)
+
+Hashtags tag public content; a **Portal** (`/h/<slug>`, e.g. `/h/lagos`, `/h/uniben`) is the mini-portal page for a hashtag, pulling every primitive together. Code: `shared/utils/hashtags.ts` (parser), `lib/hashtags/service.ts` (storage), `lib/portals/*` (repo, page builder, cache, suggestions, lifecycle), `app/h/**` (pages), `app/api/public/portals/**`, `app/api/portals/**`, `app/api/admin/portals/**`, `components/portals/*`; mirrored on the Capacitor app at `apps/android/src/routes/h/*` and `apps/android/src/components/portals/*`.
+
+**How it works:**
+- **Tagging.** `syncContentHashtags(tx, { contentType, contentId, authorId, texts })` is called inside the create transaction of tweets, moments, blog posts (published only), Answers questions, forum threads, rooms/classrooms (public only), wiki pages, polls, quizzes and guilds, and again on edit (blog posts, wiki pages, rooms, guilds). It parses `#tags` with the shared tokenizer, upserts `hashtags` in one statement, follows admin merges (`hashtags.alias_of`), drops blocked tags, and diffs `content_hashtags` so edits add/remove only the difference. Delete paths call `removeContentHashtags`; anything missed is swept by the CRON (below).
+- **Reading.** `lib/portals/content.ts` builds one `UNION ALL` (per-type branches, each LIMIT 40, every column aliased in every branch) joined to `content_hashtags` and filtered with the Home Feed's own visibility rules. "Top" uses the same time-decayed "hot" shape as `velocityScore`; "New" uses keyset pagination.
+- **Caching ("dynamic on first load, then cached").** `lib/portals/page.ts` builds the viewer-independent payload; `lib/portals/cache.ts` serves it from memory (20 s) then Redis (`portal:page:v1:<id>`, TTL = `portals_cache_ttl_seconds`) with single-flight recompute. Follow state is a separate `GET /api/portals/<slug>/follow`, so one cached payload serves every viewer. Admin edits call `invalidatePortalCache`.
+- **Lifecycle (feed-refresh CRON).** `lib/portals/trending.ts` promotes trending tags to auto portals (thresholds: posts AND distinct authors inside the window), revives/archives, and sweeps stale links; the nightly `daily-core` job sweeps links to expired Moments.
+- **Feed suggestions.** `lib/feed/aggregator.ts` attaches `FeedPage.portalSuggestion` (web, PWA and Android render it after the Nth item). `lib/portals/suggestions.ts` holds a cached candidate list (memory 5 min + one shared Redis key, 10 min) and does a seeded weighted sample; the admin boost dial, sponsorship, pinning, official status, activity and followers set the weights; followed portals are excluded. One multi-row upsert records impressions, fire-and-forget.
+- **Offline / per-user storage.** The Following list and dismissed-suggestion flag are cached in localStorage keyed by user id (`zobia:portals:following:v1:<userId>`, `zobia:portals:suggest-dismissed:v1:<userId>`) so accounts sharing a device never see each other's state; the Android app also persists portal queries through react-query. The per-day view dedupe key is intentionally not user scoped (it holds only public portal slugs and a date).
+- **Redis usage.** No per-request Redis calls beyond the single cached-payload GET on a cold instance; suggestions add no per-request Redis call in the steady state; follows, views and impressions are DB-only.
+- **Public routes.** `/h` and `/h/*` are in `middleware.ts` public paths; `/api/public/**` is already public. `/h/<slug>` 308-redirects merged tags, 404s suppressed/blocked/unknown ones, and is `noindex` when archived or thin (fewer than 3 items and not official).
+
 ### Profile Pictures
 
 Custom avatar photo upload with a Facebook-style pan/zoom/crop step, plus a free "switch to a default icon" option — both entry points are `Settings → Profile Photo` on web and Android, both calling the same `POST /api/users/me/avatar` (custom photo) or `PUT /api/users/me` (`avatar_emoji`, default icon) backend routes.
@@ -944,7 +958,7 @@ Admin can configure via **Admin Panel → Config → Floating Notifications**, a
 
 ### Deep Links
 
-All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single source of truth. Universal links via Android App Links use `/.well-known/assetlinks.json`. Referral links use `?r=<referralCode>`. Notification taps carry a route payload that maps to the correct screen via the deep link router.
+All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single source of truth. Hashtag Portals are `https://<host>/h/<slug>` / `zobia://h/<slug>` (handled in `apps/android/src/routes/__root.tsx`; the Android App Link intent filter already covers the whole host). Universal links via Android App Links use `/.well-known/assetlinks.json`. Referral links use `?r=<referralCode>`. Notification taps carry a route payload that maps to the correct screen via the deep link router.
 
 ---
 
@@ -1087,6 +1101,10 @@ sub-boards) at `/gate44/forum`; moderation queue at `/gate44/forum/queue`
 rows with `reported_bb_thread_id`/`reported_bb_post_id` set); settings
 (min level, XP/Credit rewards, auto-moderation, image cost, pot expiry) at
 `/gate44/forum/settings`, also editable at `/gate44/config`.
+
+### Portals Admin (`/gate44/portals`)
+
+Two tabs. **Portals**: filter by status (official / auto / archived / suppressed), search, create an official portal for any tag (creates the hashtag if unused, or promotes the existing auto portal in place), edit title/tagline/description/cover/accent colour/place keyword/official forum board id, reorder and hide sections, pin, set the **boost dial** (0-100, optional start/end) and sponsor name/until, promote, suppress, restore, delete, and read 30-day views/impressions/clicks/follows. **Hashtags**: explore tags by use count, make a portal, **merge** a duplicate into its survivor, **block/unblock**. All writes go through `app/api/admin/portals/**` (admin-only, rate limited, audit-logged as `admin_portal_*` / `admin_hashtag_*`). Tunable thresholds live at `/gate44/config` -> "Portals" (`feature_portals`, `portals_auto_create_enabled`, `portals_auto_min_posts`, `portals_auto_min_distinct_users`, `portals_trending_window_hours`, `portals_archive_after_days`, `portals_feed_suggestion_every`, `portals_feed_suggestion_max_portals`, `portals_cache_ttl_seconds`). The same console is mirrored on the Capacitor app at `apps/android/src/routes/admin/portals.tsx` (AdminUI kit, same API) and listed in the Android admin drawer.
 
 ### Feature Flags (`/api/admin/feature-flags`)
 Feature flags are stored as boolean values in the `x_manifest` table (key `feature_*` convention) and augmented with metadata in the `feature_flags` table (keys match `x_manifest`). The dedicated endpoint `GET/PUT /api/admin/feature-flags` returns enriched flag objects:
@@ -1370,6 +1388,8 @@ All CRON handlers:
 2. Are idempotent — safe to re-run if a previous run was interrupted.
 3. Log failures to Redis (`cron_failure:<handler>:<date>`) for the admin alert system.
 4. Return structured JSON with counts of actions taken and any errors encountered.
+
+**Portals (hashtags) in the CRONs.** `/api/cron/feed-refresh` (external, every 10-15 minutes) now also runs the portals lifecycle (promote / revive / archive / sweep, `lib/portals/trending.ts`) and drops the feed's portal-suggestion candidate cache; `/api/cron/daily-core` deletes hashtag links that point at just-expired Moments. Until `feed-refresh` has run at least once, no auto portals exist and the feed shows no "Portals for you" card (official portals created in `/gate44/portals` work immediately).
 
 **Message History Enforcement (Step 23 of daily CRON)**
 
@@ -1707,6 +1727,8 @@ must be added to the CRON Setup section of `docs/SETUP.md`'s external
 cron-jobs.org list. Until that external job exists, the feed still works
 (cold-cache fallback recomputes synchronously on first request) but never
 refreshes, so trending/popularity data goes stale.
+
+**Portals for you.** After the page is built, `fetchFeedPage` (For You, Trending, New tabs) may attach `portalSuggestion: { afterIndex, portals[] }` (see "Hashtags & Portals"). It never throws into the feed (failures are logged and skipped), needs the page to have at least `portals_feed_suggestion_every` items, and the clients place the card after that many items of the page (web `FeedTabContent` tracks absolute positions across "Load more"; Android maps each infinite-query page's offset). The 4th (Friends) tab has no suggestions.
 
 **Interest tracking data flow:** client interactions log an implicit
 signal (`view`/`open`/`like`/`comment`/`share`) to

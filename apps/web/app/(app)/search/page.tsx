@@ -26,7 +26,7 @@ import { Icon } from "@/components/ui/Icon";
 // Kept in sync with app/api/search/route.ts's own definitions — not imported
 // directly from there to avoid pulling a server route module into the client
 // bundle graph.
-type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games";
+type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games" | "portals";
 type SearchDateRange = "week" | "month" | "quarter" | "year" | "all";
 
 interface SearchResult {
@@ -39,13 +39,14 @@ interface SearchResult {
   published_at: string;
 }
 
-const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games"];
+const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games", "portals"];
 const TYPE_ICON: Record<SearchContentType, string> = {
   people: "👤",
   blogs: "✍️",
   wikis: "📖",
   answers: "❓",
   games: "🎮",
+  portals: "🧭",
 };
 const RANGES: SearchDateRange[] = ["week", "month", "quarter", "year", "all"];
 

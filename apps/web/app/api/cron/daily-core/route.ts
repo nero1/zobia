@@ -11,7 +11,7 @@ export const maxDuration = 55;
  *  1. Reset daily quests
  *  2. Update login streaks (increment yesterday's, reset missed)
  *  3. Award daily login XP
- *  4. Expire moments older than 24 hours
+ *  4. Expire moments older than 24 hours (and sweep their hashtag links)
  *  5. Sweep expired coin-purchased message pins
  *  6. Enforce plan-based message history limits (Free=90d, Plus=180d)
  *
@@ -183,6 +183,14 @@ export const GET = async (req: NextRequest) => {
     results.momentsExpiry = {
       expired: parseInt(expiredMoments.rows[0]?.count ?? "0"),
     };
+    // content_hashtags is polymorphic (no FK), so links to just-deleted
+    // Moments must be swept here or they would linger in tag counts/velocity.
+    const { rowCount: orphanedTags } = await orm.execute(sql`
+      DELETE FROM content_hashtags ch
+      WHERE ch.content_type = 'moment'
+        AND NOT EXISTS (SELECT 1 FROM moments m WHERE m.id = ch.content_id)
+    `);
+    results.momentHashtagSweep = { removed: orphanedTags ?? 0 };
     results.dmMomentsExpiry = {
       expired: parseInt(expiredDmMoments.rows[0]?.count ?? "0"),
     };

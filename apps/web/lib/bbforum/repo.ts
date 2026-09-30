@@ -34,6 +34,7 @@ import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { generateUniqueSlug } from "@/lib/slug";
 import { notFound, forbidden } from "@/lib/api/errors";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 
 export type ContentFormat = "plaintext" | "markdown";
 
@@ -296,6 +297,13 @@ export async function createThread(input: CreateThreadInput, outerTx?: DbOrTx): 
       INSERT INTO bb_posts (thread_id, author_id, body, content_format, image_url, is_op)
       VALUES (${thread.id}, ${input.authorId}, ${input.body.trim()}, ${input.contentFormat}, ${input.imageUrl ?? null}, true)
     `);
+
+    await syncContentHashtags(tx, {
+      contentType: "forum_thread",
+      contentId: thread.id,
+      authorId: input.authorId,
+      texts: [input.title, input.body],
+    });
 
     await tx.execute(sql`
       UPDATE bb_boards SET thread_count = thread_count + 1, post_count = post_count + 1, last_post_at = NOW(), updated_at = NOW() WHERE id = ${input.boardId}

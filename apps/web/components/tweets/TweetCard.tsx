@@ -17,6 +17,7 @@ import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { VideoEmbed } from "./VideoEmbed";
 import { type Tweet, timeAgo } from "./types";
 import { Icon } from "@/components/ui/Icon";
+import { HashtagText } from "@/components/portals/HashtagText";
 
 export function TweetCard({
   tweet,
@@ -114,7 +115,7 @@ export function TweetCard({
 
       <div className="px-4 pb-3">
         {tweet.content && (
-          <p className="whitespace-pre-line text-sm text-neutral-800 dark:text-neutral-200">{tweet.content}</p>
+          <p className="whitespace-pre-line text-sm text-neutral-800 dark:text-neutral-200"><HashtagText text={tweet.content} /></p>
         )}
 
         {tweet.imageUrl && (

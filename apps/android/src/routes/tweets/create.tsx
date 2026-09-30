@@ -17,6 +17,7 @@ import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import type { TweetVideoProvider } from '@/components/tweets/types';
 import { Icon } from '@/components/ui/Icon';
+import { HashtagSuggest } from '@/components/portals/HashtagSuggest';
 
 interface InsufficientFundsInfo {
   costCredits: number;
@@ -183,6 +184,7 @@ function CreateTweetPage() {
           maxLength={lengthPolicy.personalMaxLength}
           className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
         />
+        <HashtagSuggest value={content} onChange={(next) => setContent(next.slice(0, lengthPolicy.personalMaxLength))} />
         <div className="mt-1.5 flex items-center justify-between">
           {content.length > lengthPolicy.defaultMaxLength && !lengthPolicy.isLongFormExempt ? (
             <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">

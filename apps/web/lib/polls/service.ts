@@ -29,6 +29,7 @@ import {
 } from "@/lib/contentTreasury";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
+import { syncContentHashtags } from "@/lib/hashtags/service";
 
 // ---------------------------------------------------------------------------
 // Eligibility
@@ -130,6 +131,12 @@ export async function createPoll(input: CreatePollInput): Promise<PollSummary> {
     for (let i = 0; i < options.length; i++) {
       await tx.execute(sql`INSERT INTO poll_options (poll_id, label, position) VALUES (${pollId}, ${options[i]}, ${i})`);
     }
+    await syncContentHashtags(tx, {
+      contentType: "poll",
+      contentId: pollId,
+      authorId: input.userId,
+      texts: [input.title, input.description],
+    });
   });
 
   awardPollRewards(

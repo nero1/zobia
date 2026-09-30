@@ -118,6 +118,13 @@ function AppShell() {
             return;
           }
 
+          if (slug && prefix === 'h') {
+            // Hashtag Portals (/h/<slug>) — mirrors apps/web's app/h/[slug]/page.tsx;
+            // the screen resolves merged hashtags to their surviving portal itself.
+            navigate({ to: '/h/$slug', params: { slug }, search: {} });
+            return;
+          }
+
           if (slug && prefix === 'poll') {
             navigate({ to: '/polls/$slug', params: { slug } });
             return;
@@ -317,6 +324,7 @@ function AppShell() {
   // Derive title from route
   const getTitle = () => {
     if (pathname === '/home' || pathname === '/') return t('home.title');
+    if (pathname === '/h' || pathname.startsWith('/h/')) return t('portals.title');
     if (pathname.startsWith('/games')) return t('android.games.title');
     if (pathname.startsWith('/rooms')) return t('rooms.title');
     if (pathname.startsWith('/messages')) return t('messages.title');

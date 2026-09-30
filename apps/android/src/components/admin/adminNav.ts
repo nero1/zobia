@@ -23,6 +23,7 @@ export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/forum', labelKey: 'admin.nav.forum', labelDefault: 'Answers', icon: '❓' },
   { href: '/admin/contact-messages', labelKey: 'admin.nav.contactMessages', labelDefault: 'Contact Messages', icon: '✉️' },
   { href: '/admin/polls', labelKey: 'admin.nav.polls', labelDefault: 'Polls', icon: '📊' },
+  { href: '/admin/portals', labelKey: 'admin.nav.portals', labelDefault: 'Portals', icon: '🧭' },
   { href: '/admin/quizzes', labelKey: 'admin.nav.quizzes', labelDefault: 'Quizzes', icon: '🧠' },
   { href: '/admin/community-notes', labelKey: 'admin.nav.communityNotes', labelDefault: 'Community Notes', icon: '📝' },
   { href: '/admin/financial', labelKey: 'admin.nav.financial', labelDefault: 'Financial', icon: '💳' },

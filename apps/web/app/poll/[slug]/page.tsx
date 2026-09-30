@@ -25,7 +25,7 @@ import { Icon } from "@/components/ui/Icon";
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 const NOT_FOUND_METADATA: Metadata = {
-  title: "Poll not found — Zobia Social",
+  title: { absolute: "Poll not found — Zobia Social" },
   description: "This poll doesn't exist or is no longer available.",
 };
 
@@ -38,7 +38,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const description = poll.description?.slice(0, 155) ?? `Vote on "${poll.title}" — a poll by @${poll.creatorUsername ?? "a Zobia Social user"}.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: { title, description, images: [{ url: DEFAULT_OG_IMAGE }], type: "website", siteName: "Zobia Social" },
     twitter: { card: "summary_large_image", title, description, images: [DEFAULT_OG_IMAGE] },

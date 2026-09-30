@@ -10,12 +10,13 @@
 import { useEffect, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import type { ComponentProps } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import AdSlot from '@/components/ads/AdSlot';
 import { Icon } from '@/components/ui/Icon';
 
-type SearchContentType = 'people' | 'blogs' | 'wikis' | 'answers' | 'games';
+type SearchContentType = 'people' | 'blogs' | 'wikis' | 'answers' | 'games' | 'portals';
 type SearchDateRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 interface SearchResult {
@@ -28,19 +29,20 @@ interface SearchResult {
   published_at: string;
 }
 
-const ALL_TYPES: SearchContentType[] = ['people', 'blogs', 'wikis', 'answers', 'games'];
+const ALL_TYPES: SearchContentType[] = ['people', 'blogs', 'wikis', 'answers', 'games', 'portals'];
 const TYPE_ICON: Record<SearchContentType, string> = {
   people: '👤',
   blogs: '✍️',
   wikis: '📖',
   answers: '❓',
   games: '🎮',
+  portals: '🧭',
 };
 const RANGES: SearchDateRange[] = ['week', 'month', 'quarter', 'year', 'all'];
 
 /**
  * The API's `url` field is the web app's short SEO path (/u/<username>,
- * /b/<blogSlug>/<postSlug>, /w/<wikiSlug>/<pageSlug>, /a/<slug>, /g/<slug>) —
+ * /b/<blogSlug>/<postSlug>, /w/<wikiSlug>/<pageSlug>, /a/<slug>, /g/<slug>, /h/<portalSlug>) —
  * this app doesn't have those short public routes, it uses its own longer
  * ones (see src/routes/profile/$username.tsx, blog-posts/$id.tsx,
  * wiki-pages/$id.tsx, answers/$questionId.tsx, games/$slug/index.tsx).
@@ -61,6 +63,8 @@ function resultLinkProps(r: SearchResult): { to: string; params: Record<string, 
       return { to: '/answers/$questionId', params: { questionId: r.id } };
     case 'games':
       return { to: '/games/$slug', params: { slug: lastSegment } };
+    case 'portals':
+      return { to: '/h/$slug', params: { slug: lastSegment } };
   }
 }
 
@@ -202,11 +206,11 @@ function SearchPage() {
           {results.map((r, i) => (
             <div key={`${r.type}:${r.id}`}>
               <Link
-                // Search results span five different destination route
+                // Search results span six different destination route
                 // shapes (see resultLinkProps) — narrower than the
                 // router's generated literal `to` union, so this is cast
                 // rather than fought.
-                {...(resultLinkProps(r) as Record<string, unknown> as any)}
+                {...(resultLinkProps(r) as unknown as ComponentProps<typeof Link>)}
                 className="flex gap-3 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800"
               >
                 {r.thumbnail_url ? (

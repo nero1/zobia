@@ -56,7 +56,14 @@ export type AuditAction =
   | "admin_payment_context_updated"
   | "admin_crypto_rate_override_set"
   | "admin_all_payments_made_free"
-  | "crypto_withdrawal_requested";
+  | "crypto_withdrawal_requested"
+  // Hashtags + Portals (/gate44/portals)
+  | "admin_portal_upsert"
+  | "admin_portal_update"
+  | "admin_portal_delete"
+  | "admin_hashtag_merge"
+  | "admin_hashtag_block"
+  | "admin_hashtag_unblock";
 
 export interface AuditLogParams {
   actorId?: string | null;

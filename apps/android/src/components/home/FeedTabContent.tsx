@@ -18,6 +18,7 @@ import { FeedItemCard, FeedItemCardSkeleton } from './FeedItemCard';
 import AdSlot from '@/components/ads/AdSlot';
 import type { FeedPage, FeedTab } from '@/lib/feed/types';
 import { Icon } from '@/components/ui/Icon';
+import { PortalSuggestionCard } from '@/components/portals/PortalSuggestionCard';
 
 const ADS_EVERY_N_ITEMS = 6;
 
@@ -55,6 +56,17 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
   );
 
   const items = data?.pages.flatMap((p) => p.items) ?? [];
+
+  // "Portals for you": each page may carry one suggestion card positioned
+  // relative to that page; translate to an absolute index in the flat list.
+  const suggestionAt = new Map<number, NonNullable<FeedPage['portalSuggestion']>>();
+  {
+    let offset = 0;
+    for (const p of data?.pages ?? []) {
+      if (p.portalSuggestion) suggestionAt.set(offset + p.portalSuggestion.afterIndex, p.portalSuggestion);
+      offset += p.items.length;
+    }
+  }
 
   if (status === 'pending') {
     return (
@@ -96,6 +108,7 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
         <div key={`${item.contentType}:${item.contentId}:${i}`} className="space-y-3">
           <FeedItemCard item={item} />
           {(i + 1) % ADS_EVERY_N_ITEMS === 0 && <AdSlot placement="home_feed_native" />}
+          {suggestionAt.get(i + 1) && <PortalSuggestionCard portals={suggestionAt.get(i + 1)!.portals} />}
         </div>
       ))}
       <div ref={loaderRef} className="py-4">

@@ -24,7 +24,7 @@ export function buildRoomMetadata(
       }.`;
 
   return {
-    title,
+    title: { absolute: title },
     description,
     openGraph: {
       title,
@@ -46,6 +46,6 @@ export function buildRoomMetadata(
 }
 
 export const NOT_FOUND_METADATA: Metadata = {
-  title: "Not found — Zobia Social",
+  title: { absolute: "Not found — Zobia Social" },
   robots: { index: false },
 };
