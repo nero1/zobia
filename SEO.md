@@ -17,7 +17,7 @@ Public, crawlable, shareable surfaces use short human-readable paths. Internal a
 | Forum question (Answers) | `/a/<slug>` | `app/a/[slug]/page.tsx` | `lib/public/resolveForumQuestion.ts` |
 | Blog | `/b/<slug>` | `app/b/[slug]/page.tsx` | `lib/public/resolveBlog.ts` |
 | Business Page | `/p/<slug>` | `app/p/[slug]/page.tsx` | `lib/public/resolveBusinessPage.ts` |
-| Hashtag Portal | `/h/<slug>` (directory: `/h`) | `app/h/[slug]/page.tsx` | `lib/portals/repo.ts` `resolvePortal` (merged tags 308 to the survivor; suppressed/blocked 404; archived or thin auto portals are `noindex`; vanity `/#/<slug>` redirects client-side) |
+| Hashtag Portal | `/h/<slug>` (directory: `/h`) | `app/h/[slug]/page.tsx` | `lib/portals/repo.ts` `resolvePortal` (merged tags 308 to the survivor; suppressed/blocked 404; archived or thin auto portals and tag pages (a hashtag with content but no portal) are `noindex`; vanity `/#/<slug>` redirects client-side) |
 
 - **Duplicate names** get a numeric suffix with no separator (`/r/dorcas-cuisine`, `/r/dorcas-cuisine2`).
 - **Legacy `/r/<uuid>` links and retired slugs 301-redirect** to the canonical slug (UUID fallback + `slug_redirects` table), so no shared link ever breaks or splits link-equity.

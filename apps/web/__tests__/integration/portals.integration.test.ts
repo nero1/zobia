@@ -76,6 +76,8 @@ import { runPortalLifecycle, sweepStaleContentHashtags } from "@/lib/portals/tre
 import { pickPortalSuggestions, invalidateSuggestionCache } from "@/lib/portals/suggestions";
 import { getDb } from "@/lib/db/drizzle";
 import { fetchFeedPage } from "@/lib/feed/aggregator";
+import { resolveTagPage } from "@/lib/portals/tagPage";
+import { getDiscoverPayload } from "@/lib/portals/discover";
 import { sql } from "drizzle-orm";
 
 let dbAvailable = false;
@@ -326,5 +328,64 @@ describe("hashtags + portals [integration]", () => {
     mockManifest.features.portals = false;
     expect((await fetchFeedPage("new", u.id, null, 20)).portalSuggestion).toBeUndefined();
     mockManifest.features.portals = saved;
+  });
+
+  it("a tag with content but no portal resolves to a read-only tag page; empty, blocked and merged tags behave", async () => {
+    if (!dbAvailable) return;
+    const u = await seedUser();
+    const lonely = tag("lonely");
+    const empty = tag("emptytag");
+    const target = tag("survivor");
+    const alias = tag("aliasof");
+    createdSlugs.push(lonely, empty, target, alias);
+
+    expect(await resolveTagPage(lonely)).toBeNull(); // unknown tag
+    await seedTweet(u.id, `nobody made a portal for #${lonely}`);
+    const page = await resolveTagPage(lonely.toUpperCase());
+    expect(page?.canonicalSlug).toBe(lonely);
+    expect(page?.row.status as string).toBe("tag");
+    expect(page?.row.id).toBe(`tag:${page?.hashtagId}`);
+
+    const payload = await getPortalPayload(page!.row);
+    expect(payload.portal.status).toBe("tag");
+    expect(payload.sections.feed.some((i) => i.contentType === "tweet")).toBe(true);
+
+    // A tag that exists but has no visible content -> null.
+    const orm = await getDb();
+    await orm.execute(sql`INSERT INTO hashtags (slug, display) VALUES (${empty}, ${empty})`);
+    expect(await resolveTagPage(empty)).toBeNull();
+
+    // Blocked -> null.
+    await setHashtagBlocked(lonely, true);
+    expect(await resolveTagPage(lonely)).toBeNull();
+    await setHashtagBlocked(lonely, false);
+
+    // Merged alias resolves to the survivor's tag page.
+    await seedTweet(u.id, `#${target} content`);
+    await seedTweet(u.id, `#${alias} content`);
+    await mergeHashtags(alias, target);
+    expect((await resolveTagPage(alias))?.canonicalSlug).toBe(target);
+  });
+
+  it("the discovery hub payload lists featured, trending tags (with and without portals), places and popular portals", async () => {
+    if (!dbAvailable) return;
+    const u = await seedUser();
+    const placeSlug = tag("place");
+    const plainTag = tag("plainhot");
+    createdSlugs.push(placeSlug, plainTag);
+    await upsertOfficialPortal({ slug: placeSlug, city: "Benin", isPinned: true, title: "Place" }, u.id);
+    await seedTweet(u.id, `in the place #${placeSlug}`);
+    await seedTweet(u.id, `no portal yet #${plainTag}`);
+
+    await invalidateSuggestionCache();
+    const hub = await getDiscoverPayload();
+    expect(hub.featured.map((p) => p.slug)).toContain(placeSlug);
+    expect(hub.places.map((p) => p.slug)).toContain(placeSlug);
+    expect(hub.newest.length).toBeGreaterThan(0);
+    const tagsBySlug = new Map(hub.trendingTags.map((t) => [t.slug, t]));
+    expect(tagsBySlug.get(plainTag)?.hasPortal).toBe(false);
+    expect(tagsBySlug.get(placeSlug)?.hasPortal).toBe(true);
+    // Cached: a second call returns the same snapshot.
+    expect((await getDiscoverPayload()).generatedAt).toBe(hub.generatedAt);
   });
 });

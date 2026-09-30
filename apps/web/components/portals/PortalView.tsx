@@ -21,6 +21,7 @@ import { Icon } from "@/components/ui/Icon";
 import { timeAgo } from "@/components/tweets/types";
 import { HashtagText } from "./HashtagText";
 import { FollowPortalButton } from "./FollowPortalButton";
+import { useAuth } from "@/lib/auth/hooks";
 import { PortalViewTracker } from "./PortalViewTracker";
 import { portalPath } from "@zobia/shared/utils";
 import type { PortalFeedItem, PortalFeedPage, PortalPayload, PortalSectionKey } from "@zobia/types";
@@ -98,6 +99,9 @@ export function PortalView({ initial }: { initial: PortalPayload }) {
   const { t } = useTranslation();
   const { portal, sections } = initial;
   const slug = portal.slug;
+  // A "tag page": a hashtag with content but no portal row. Read-only: no follow, no view counter.
+  const isTag = portal.status === "tag";
+  const { user } = useAuth();
   const accent = portal.accentColor ?? "#0d9488";
 
   const [followers, setFollowers] = useState(portal.followerCount);
@@ -336,7 +340,7 @@ export function PortalView({ initial }: { initial: PortalPayload }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 pb-16">
-      <PortalViewTracker slug={slug} />
+      {!isTag && <PortalViewTracker slug={slug} />}
 
       <header className="-mx-4 mb-4 overflow-hidden sm:mx-0 sm:mt-4 sm:rounded-2xl">
         <div
@@ -360,6 +364,11 @@ export function PortalView({ initial }: { initial: PortalPayload }) {
                   <Icon emoji="🔥" size={11} /> {t("portals.trendingBadge")}
                 </span>
               )}
+              {isTag && (
+                <span className="flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold backdrop-blur">
+                  <Icon emoji="🏷️" size={11} /> {t("portals.tagBadge")}
+                </span>
+              )}
               {portal.status === "archived" && (
                 <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold backdrop-blur">{t("portals.archivedBadge")}</span>
               )}
@@ -375,8 +384,14 @@ export function PortalView({ initial }: { initial: PortalPayload }) {
             {portal.tagline && <p className="text-sm text-neutral-500 dark:text-neutral-400">{portal.tagline}</p>}
             {portal.description && <p className="mt-2 whitespace-pre-line text-sm text-neutral-600 dark:text-neutral-300">{portal.description}</p>}
           </div>
+          {isTag && <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("portals.tagPageHint", { tag: slug })}</p>}
+          {isTag && user?.is_admin && (
+            <Link href={`/gate44/portals?make=${encodeURIComponent(slug)}`} className="inline-block text-sm font-semibold text-primary hover:underline">
+              {t("portals.makeOfficial")}
+            </Link>
+          )}
           <div className="flex flex-wrap items-center gap-3">
-            <FollowPortalButton slug={slug} onCountChange={setFollowers} />
+            {!isTag && <FollowPortalButton slug={slug} onCountChange={setFollowers} />}
             <button
               type="button"
               onClick={share}
@@ -385,8 +400,8 @@ export function PortalView({ initial }: { initial: PortalPayload }) {
               {copied ? t("portals.linkCopied") : t("portals.share")}
             </button>
             <p className="ml-auto text-xs text-neutral-500">
-              {t("portals.followers", { count: followers })}
-              {portal.activityCount > 0 && <> · {t("portals.activeNow", { count: portal.activityCount })}</>}
+              {!isTag && <>{t("portals.followers", { count: followers })}</>}
+              {portal.activityCount > 0 && <>{!isTag && " · "}{t("portals.activeNow", { count: portal.activityCount })}</>}
             </p>
           </div>
         </div>

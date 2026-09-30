@@ -100,8 +100,9 @@ function ItemList({ items }: { items: PortalFeedItem[] }) {
 }
 
 /** Records one view per portal per day (+ a click for `src=feed`), deduped in localStorage. */
-function usePortalView(slug: string, src: string | undefined) {
+function usePortalView(slug: string, src: string | undefined, enabled: boolean) {
   useEffect(() => {
+    if (!enabled) return;
     const today = new Date().toISOString().slice(0, 10);
     let seen: Record<string, string> = {};
     try {
@@ -121,7 +122,7 @@ function usePortalView(slug: string, src: string | undefined) {
         }
       })
       .catch(() => {});
-  }, [slug, src]);
+  }, [slug, src, enabled]);
 }
 
 export function PortalView({ payload, src, referralCode }: { payload: PortalPayload; src?: string; referralCode?: string | null }) {
@@ -129,7 +130,9 @@ export function PortalView({ payload, src, referralCode }: { payload: PortalPayl
   const { portal, sections } = payload;
   const slug = portal.slug;
   const accent = portal.accentColor ?? '#0d9488';
-  usePortalView(slug, src);
+  // A "tag page" (a hashtag with content but no portal row) is read-only: no follow, no view counter.
+  const isTag = portal.status === 'tag';
+  usePortalView(slug, src, !isTag);
 
   const [followers, setFollowers] = useState(portal.followerCount);
   const [sort, setSort] = useState<'top' | 'new'>('top');
@@ -376,6 +379,11 @@ export function PortalView({ payload, src, referralCode }: { payload: PortalPayl
                   <Icon emoji="🔥" size={11} /> {t('portals.trendingBadge')}
                 </span>
               )}
+              {isTag && (
+                <span className="flex items-center gap-1 rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold">
+                  <Icon emoji="🏷️" size={11} /> {t('portals.tagBadge')}
+                </span>
+              )}
               {portal.status === 'archived' && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold">{t('portals.archivedBadge')}</span>}
               {portal.sponsorName && (
                 <span className="rounded-full bg-amber-400/90 px-2 py-0.5 text-[11px] font-bold text-amber-950">{t('portals.sponsoredBy', { name: portal.sponsorName })}</span>
@@ -389,8 +397,9 @@ export function PortalView({ payload, src, referralCode }: { payload: PortalPayl
             {portal.tagline && <p className="text-sm text-neutral-500 dark:text-neutral-400">{portal.tagline}</p>}
             {portal.description && <p className="mt-2 whitespace-pre-line text-sm text-neutral-600 dark:text-neutral-300">{portal.description}</p>}
           </div>
+          {isTag && <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('portals.tagPageHint', { tag: slug })}</p>}
           <div className="flex flex-wrap items-center gap-3">
-            <FollowPortalButton slug={slug} onCountChange={setFollowers} />
+            {!isTag && <FollowPortalButton slug={slug} onCountChange={setFollowers} />}
             <button
               type="button"
               onClick={share}
@@ -399,8 +408,8 @@ export function PortalView({ payload, src, referralCode }: { payload: PortalPayl
               {copied ? t('portals.linkCopied') : t('portals.share')}
             </button>
             <p className="ml-auto text-xs text-neutral-500">
-              {t('portals.followers', { count: followers })}
-              {portal.activityCount > 0 && <> · {t('portals.activeNow', { count: portal.activityCount })}</>}
+              {!isTag && <>{t('portals.followers', { count: followers })}</>}
+              {portal.activityCount > 0 && <>{!isTag && ' · '}{t('portals.activeNow', { count: portal.activityCount })}</>}
             </p>
           </div>
         </div>

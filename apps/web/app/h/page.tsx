@@ -10,10 +10,11 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { loadManifest } from "@/lib/manifest";
 import { listPortals } from "@/lib/portals/repo";
-import { PortalDirectory } from "@/components/portals/PortalDirectory";
+import { PortalDiscoverHub } from "@/components/portals/PortalDiscoverHub";
+import { getDiscoverPayload } from "@/lib/portals/discover";
 import { PortalNav } from "@/components/portals/PortalNav";
 import { PortalDirectoryHeader } from "@/components/portals/PortalDirectoryHeader";
-import type { PortalCard } from "@zobia/types";
+import type { PortalCard, PortalDiscover } from "@zobia/types";
 
 export const metadata: Metadata = {
   title: { absolute: "Portals — Zobia Social" },
@@ -25,19 +26,20 @@ export default async function PortalsDirectoryPage() {
   const manifest = await loadManifest();
   if (!manifest.features.portals) notFound();
 
-  let initial: PortalCard[] = [];
-  try {
-    initial = (await listPortals({ statuses: ["official", "auto"], sort: "trending", limit: 36 }, manifest.portals.trendingWindowHours)).cards;
-  } catch {
-    initial = []; // DB unavailable at render time — the client refetches
-  }
+  // DB unavailable at render time: the client refetches both.
+  const [hub, directory] = await Promise.all([
+    getDiscoverPayload().catch((): PortalDiscover | null => null),
+    listPortals({ statuses: ["official", "auto"], sort: "trending", limit: 36 }, manifest.portals.trendingWindowHours)
+      .then((r) => r.cards)
+      .catch((): PortalCard[] => []),
+  ]);
 
   return (
     <main className="min-h-screen bg-background">
       <PortalNav redirectTo="/h" />
       <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
         <PortalDirectoryHeader />
-        <PortalDirectory initial={initial} />
+        <PortalDiscoverHub initial={hub} directoryInitial={directory} />
       </div>
     </main>
   );

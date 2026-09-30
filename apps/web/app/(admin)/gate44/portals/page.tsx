@@ -181,6 +181,12 @@ export default function AdminPortalsPage() {
     return () => clearTimeout(h);
   }, [q]);
 
+  // Deep link from a tag page: /gate44/portals?make=<slug> opens the create form prefilled.
+  useEffect(() => {
+    const make = new URLSearchParams(window.location.search).get("make");
+    if (make) setEditing({ id: null, form: emptyForm(make) });
+  }, []);
+
   const loadPortals = useCallback(async () => {
     setLoading(true);
     try {

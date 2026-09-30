@@ -14,25 +14,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAuth } from "@/lib/auth/hooks";
+import { useFollowedPortals } from "./useFollowedPortals";
 import { Icon } from "@/components/ui/Icon";
 import { PortalCardTile } from "./PortalCardTile";
 import type { PortalCard } from "@zobia/types";
 
 type Tab = "trending" | "followers" | "new" | "following";
 
-function followKey(userId: string): string {
-  return `zobia:portals:following:v1:${userId}`;
-}
-
-export function PortalDirectory({ initial }: { initial: PortalCard[] }) {
+export function PortalDirectory({ initial, showSearch = true }: { initial: PortalCard[]; showSearch?: boolean }) {
   const { t } = useTranslation();
-  const { user } = useAuth();
-  const userId = user?.id ?? null;
+  const { userId, following } = useFollowedPortals();
   const [tab, setTab] = useState<Tab>("trending");
   const [q, setQ] = useState("");
   const [portals, setPortals] = useState<PortalCard[]>(initial);
-  const [following, setFollowing] = useState<PortalCard[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const reqId = useRef(0);
@@ -67,42 +61,12 @@ export function PortalDirectory({ initial }: { initial: PortalCard[] }) {
     return () => clearTimeout(h);
   }, [tab, q, load]);
 
-  // Following: cached copy first (instant/offline), then network refresh.
-  useEffect(() => {
-    if (!userId) {
-      setFollowing(null);
-      return;
-    }
-    try {
-      const cached = localStorage.getItem(followKey(userId));
-      if (cached) setFollowing(JSON.parse(cached) as PortalCard[]);
-    } catch {
-      /* ignore */
-    }
-    let cancelled = false;
-    fetch("/api/portals/following", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
-        if (cancelled || !json?.data) return;
-        const list = json.data.portals as PortalCard[];
-        setFollowing(list);
-        try {
-          localStorage.setItem(followKey(userId), JSON.stringify(list));
-        } catch {
-          /* ignore */
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
   const tabs: Tab[] = userId ? ["trending", "followers", "new", "following"] : ["trending", "followers", "new"];
   const list = tab === "following" ? following ?? [] : portals;
 
   return (
     <div className="space-y-4">
+      {showSearch && (
       <div className="relative">
         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
           <Icon emoji="🔍" size={16} />
@@ -119,6 +83,7 @@ export function PortalDirectory({ initial }: { initial: PortalCard[] }) {
           className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-9 pr-3 text-sm outline-none focus:border-primary dark:border-neutral-700 dark:bg-neutral-900"
         />
       </div>
+      )}
 
       <div className="flex gap-1 overflow-x-auto" role="tablist">
         {tabs.map((tb) => (

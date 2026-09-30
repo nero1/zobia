@@ -16,6 +16,7 @@ import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateL
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { resolvePortal } from "@/lib/portals/repo";
 import { fetchTaggedFeed } from "@/lib/portals/content";
+import { resolveTagPage } from "@/lib/portals/tagPage";
 
 const querySchema = z.object({
   sort: z.enum(["top", "new"]).default("top"),
@@ -32,9 +33,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 
     const { slug } = await params;
     const resolved = await resolvePortal(slug);
-    if (!resolved) throw notFound("Portal not found");
+    const tagPage = resolved ? null : await resolveTagPage(slug);
+    const hashtagId = resolved?.hashtagId ?? tagPage?.hashtagId;
+    if (!hashtagId) throw notFound("Portal not found");
 
-    const page = await fetchTaggedFeed(resolved.hashtagId, parsed.data);
+    const page = await fetchTaggedFeed(hashtagId, parsed.data);
     return NextResponse.json(
       { success: true, data: page, error: null },
       { headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=120" } }

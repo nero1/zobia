@@ -19,6 +19,7 @@ import AdSlot from '@/components/ads/AdSlot';
 import type { FeedPage, FeedTab } from '@/lib/feed/types';
 import { Icon } from '@/components/ui/Icon';
 import { PortalSuggestionCard } from '@/components/portals/PortalSuggestionCard';
+import { TrendingTagsStrip } from '@/components/portals/TrendingTagsStrip';
 
 const ADS_EVERY_N_ITEMS = 6;
 
@@ -104,6 +105,7 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
 
   return (
     <div className="space-y-3">
+      {tab === 'for_you' && <TrendingTagsStrip />}
       {items.map((item, i) => (
         <div key={`${item.contentType}:${item.contentId}:${i}`} className="space-y-3">
           <FeedItemCard item={item} />
