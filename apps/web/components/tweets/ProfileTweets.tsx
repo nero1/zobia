@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { TweetCard } from "./TweetCard";
-import { type Tweet, mapTweetRow, sendRetweet } from "./types";
+import { type Tweet, mapTweetRow, sendRetweet, optimisticRetweet, applyRetweetResult } from "./types";
 
 export function ProfileTweets({ authorId }: { authorId: string }) {
   const { t } = useTranslation();
@@ -60,10 +60,10 @@ export function ProfileTweets({ authorId }: { authorId: string }) {
   const handleToggleRetweet = useCallback(async (tweetId: string, retweeted: boolean, quoteContent?: string) => {
     // Optimistic flip; `retweeted` is the state BEFORE the click.
     const update = (fn: (tw: Tweet) => Tweet) => setTweets((prev) => prev?.map((tw) => (tw.id === tweetId ? fn(tw) : tw)));
-    update((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    update((tw) => optimisticRetweet(tw, retweeted));
     const result = await sendRetweet(tweetId, retweeted, quoteContent);
-    if (result) update((tw) => ({ ...tw, retweeted: result.retweeted, retweetsCount: result.retweetsCount }));
-    else update((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
+    if (result) update((tw) => applyRetweetResult(tw, result));
+    else update((tw) => optimisticRetweet(tw, !retweeted));
   }, []);
 
   if (tweets === undefined || tweets.length === 0) return null;

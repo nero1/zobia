@@ -4691,6 +4691,8 @@
   "tweets.reply": "Reply",
   "tweets.replyPlaceholder": "Post your reply",
   "tweets.retweet": "Retweet",
+  "tweets.retweetAgain": "Retweet again",
+  "tweets.undoRetweet": "Undo retweet",
   "tweets.retweetedBy": "{{username}} retweeted",
   "tweets.share": "Share",
   "tweets.subtitle": "Short posts and video from the community",

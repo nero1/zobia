@@ -28,6 +28,10 @@ export interface Tweet {
   retweetsCount: number;
   liked: boolean;
   retweeted: boolean;
+  /** How many times the viewer has retweeted this Tweet (0/1 unless it is their own). */
+  myRetweets?: number;
+  /** Set only on the viewer's own Tweets: max times they may retweet it. */
+  selfRetweetCap?: number | null;
   /** Set when this row is a retweet-attributed feed item, not an original post. */
   retweetedById: string | null;
   retweetedByUsername: string | null;
@@ -60,6 +64,8 @@ export function mapTweetRow(r: Record<string, unknown>): Tweet {
     retweetsCount: (r.retweets_count ?? 0) as number,
     liked: Boolean(r.liked),
     retweeted: Boolean(r.retweeted),
+    myRetweets: Number(r.my_retweets ?? (r.retweeted ? 1 : 0)),
+    selfRetweetCap: r.self_retweet_cap == null ? null : Number(r.self_retweet_cap),
     retweetedById: (r.retweeted_by_id ?? null) as string | null,
     retweetedByUsername: (r.retweeted_by_username ?? null) as string | null,
     retweetQuoteContent: (r.retweet_quote_content ?? null) as string | null,
@@ -80,6 +86,31 @@ export function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
+export interface RetweetResult {
+  retweetsCount: number;
+  retweeted: boolean;
+  myRetweets: number;
+}
+
+/** The viewer's live retweet count for a Tweet, tolerating rows without `myRetweets`. */
+export function myRetweetCount(tw: Tweet): number {
+  return tw.myRetweets ?? (tw.retweeted ? 1 : 0);
+}
+
+/**
+ * Optimistic local update. `undo` = true removes one of the viewer's
+ * retweets, false adds one. Reverting is the same call with `!undo`.
+ */
+export function optimisticRetweet(tw: Tweet, undo: boolean): Tweet {
+  const mine = Math.max(0, myRetweetCount(tw) + (undo ? -1 : 1));
+  return { ...tw, myRetweets: mine, retweeted: mine > 0, retweetsCount: Math.max(0, tw.retweetsCount + (undo ? -1 : 1)) };
+}
+
+/** Replaces the optimistic guess with the server's authoritative numbers. */
+export function applyRetweetResult(tw: Tweet, r: RetweetResult): Tweet {
+  return { ...tw, myRetweets: r.myRetweets, retweeted: r.retweeted, retweetsCount: r.retweetsCount };
+}
+
 /**
  * Sends a retweet / quote-retweet / un-retweet request. Resolves the server's
  * authoritative `{ retweetsCount, retweeted }`, or null when the request
@@ -89,7 +120,7 @@ export async function sendRetweet(
   tweetId: string,
   retweeted: boolean,
   quoteContent?: string
-): Promise<{ retweetsCount: number; retweeted: boolean } | null> {
+): Promise<RetweetResult | null> {
   try {
     const res = await fetch(`/api/tweets/${tweetId}/retweet`, {
       method: retweeted ? "DELETE" : "POST",
@@ -99,8 +130,9 @@ export async function sendRetweet(
         : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(quoteContent ? { quoteContent } : {}) }),
     });
     if (!res.ok) return null;
-    const json = (await res.json()) as { data?: { retweetsCount?: number; retweeted?: boolean } };
-    return { retweetsCount: json.data?.retweetsCount ?? 0, retweeted: json.data?.retweeted ?? !retweeted };
+    const json = (await res.json()) as { data?: Partial<RetweetResult> };
+    const myRetweets = json.data?.myRetweets ?? (retweeted ? 0 : 1);
+    return { retweetsCount: json.data?.retweetsCount ?? 0, retweeted: myRetweets > 0, myRetweets };
   } catch {
     return null;
   }

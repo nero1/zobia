@@ -13,7 +13,7 @@ import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { deleteTweet } from "@/lib/tweets/service";
+import { deleteTweet, withSelfRetweetCap } from "@/lib/tweets/service";
 
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
@@ -27,14 +27,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
               t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
               t.is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
               (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
-              (EXISTS (SELECT 1 FROM tweet_retweets tr WHERE tr.tweet_id = t.id AND tr.user_id = ${userId})) AS retweeted
+              (EXISTS (SELECT 1 FROM tweet_retweets tr WHERE tr.tweet_id = t.id AND tr.user_id = ${userId})) AS retweeted,
+              (SELECT COUNT(*)::int FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId}) AS my_retweets
        FROM tweets t JOIN users u ON u.id = t.user_id
        WHERE t.id = ${tweetId} AND t.deleted_at IS NULL
     `);
     const rows = result.rows;
     if (!rows[0]) throw notFound("Tweet not found");
 
-    return NextResponse.json({ success: true, data: rows[0], error: null });
+    return NextResponse.json({ success: true, data: (await withSelfRetweetCap([rows[0]], userId))[0], error: null });
   } catch (err) {
     return handleApiError(err);
   }

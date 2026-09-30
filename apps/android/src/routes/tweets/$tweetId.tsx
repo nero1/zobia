@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { TweetCard } from '@/components/tweets/TweetCard';
-import { mapTweet, type TweetRow } from '@/components/tweets/types';
+import { mapTweet, optimisticRetweet, applyRetweetResult, type RetweetResult, type TweetRow } from '@/components/tweets/types';
 import { PUBLIC_PATHS, referralLink } from '@/lib/deeplinks/routes';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 import { Icon } from '@/components/ui/Icon';
@@ -97,19 +97,17 @@ function TweetDetailPage() {
   };
 
   const handleToggleRetweet = async (id: string, retweeted: boolean, quoteContent?: string) => {
-    const patch = (delta: number, state: boolean) =>
-      qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) =>
-        prev && prev.id === id ? { ...prev, retweeted: state, retweetsCount: Math.max(0, prev.retweetsCount + delta) } : prev
-      );
-    patch(retweeted ? -1 : 1, !retweeted);
+    const patch = (fn: (tw: NonNullable<typeof tweet>) => NonNullable<typeof tweet>) =>
+      qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) => (prev && prev.id === id ? fn(prev) : prev));
+    patch((tw) => optimisticRetweet(tw, retweeted));
     try {
       const res = retweeted
-        ? await apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${id}/retweet`)
-        : await apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${id}/retweet`, quoteContent ? { quoteContent } : {});
+        ? await apiClient.delete<RetweetResult>(`/tweets/${id}/retweet`)
+        : await apiClient.post<RetweetResult>(`/tweets/${id}/retweet`, quoteContent ? { quoteContent } : {});
       const d = res?.data;
-      if (d) qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) => (prev && prev.id === id ? { ...prev, retweeted: d.retweeted, retweetsCount: d.retweetsCount } : prev));
+      if (d) patch((tw) => applyRetweetResult(tw, d));
     } catch {
-      patch(retweeted ? 1 : -1, retweeted);
+      patch((tw) => optimisticRetweet(tw, !retweeted));
     }
   };
 

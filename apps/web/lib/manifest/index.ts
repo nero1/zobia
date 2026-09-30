@@ -248,6 +248,12 @@ export interface ZobiaManifest {
     longMaxLengthWords: number;
     /** Credits charged for a single Tweet over defaultMaxLength, for users who are NOT long-form exempt. */
     longTweetCostCredits: number;
+    /** Level at which NON-paid accounts may retweet their own Tweet more than once. 0 = off. */
+    selfRetweetLevelMin: number;
+    /** Fixed per-Tweet self-retweet cap for non-paid accounts that meet selfRetweetLevelMin. */
+    selfRetweetLevelMax: number;
+    /** Per-Tweet self-retweet cap by plan slug or `business_<tier>` (bigger for pricier plans). */
+    selfRetweetPlanCaps: Record<string, number>;
   };
   /**
    * Profile picture (avatar) change cost for free-plan users. Paid-plan users
@@ -742,6 +748,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     longMinRoles: ["role_admin", "role_moderator", "pro", "max"],
     longMaxLengthWords: 1000,
     longTweetCostCredits: 10,
+    selfRetweetLevelMin: 10,
+    selfRetweetLevelMax: 2,
+    selfRetweetPlanCaps: { plus: 3, pro: 5, max: 10, business_starter: 5, business_growth: 10, business_enterprise: 20 },
   },
   avatarChange: {
     costCredits: 200,
@@ -1100,6 +1109,23 @@ function parseStringArray(value: string | undefined, fallback: string[]): string
   }
 }
 
+/** Parse a JSON object of `{ key: positive integer }`. Bad entries are dropped; returns fallback on any failure. */
+function parseNumberMap(value: string | undefined, fallback: Record<string, number>): Record<string, number> {
+  if (value === undefined) return fallback;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fallback;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      const n = Math.floor(Number(v));
+      if (Number.isFinite(n) && n >= 1) out[k.toLowerCase()] = n;
+    }
+    return out;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Parse a string value as a comma-separated list of integers (e.g. "1,2,4,8,16,32"). Returns fallback on any failure. */
 function parseIntArray(value: string | undefined, fallback: number[]): number[] {
   if (value === undefined) return fallback;
@@ -1340,6 +1366,9 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       longMinRoles:        parseStringArray(kv["tweets_long_min_role"],       DEFAULT_MANIFEST.tweets.longMinRoles),
       longMaxLengthWords:  parseInt10(kv["tweets_long_max_length"],           DEFAULT_MANIFEST.tweets.longMaxLengthWords),
       longTweetCostCredits: parseInt10(kv["tweets_long_tweet_cost_credits"],  DEFAULT_MANIFEST.tweets.longTweetCostCredits),
+      selfRetweetLevelMin: Math.max(0, parseInt10(kv["tweets_self_retweet_level_min"], DEFAULT_MANIFEST.tweets.selfRetweetLevelMin)),
+      selfRetweetLevelMax: Math.max(1, parseInt10(kv["tweets_self_retweet_level_max"], DEFAULT_MANIFEST.tweets.selfRetweetLevelMax)),
+      selfRetweetPlanCaps: parseNumberMap(kv["tweets_self_retweet_plan_caps"], DEFAULT_MANIFEST.tweets.selfRetweetPlanCaps),
     },
     avatarChange: {
       costCredits: parseInt10(kv["avatar_change_cost_credits"], DEFAULT_MANIFEST.avatarChange.costCredits),

@@ -12,7 +12,7 @@ import { useRef, useCallback, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 import { TweetCard } from '@/components/tweets/TweetCard';
-import { mapTweet, type Tweet, type TweetRow } from '@/components/tweets/types';
+import { mapTweet, optimisticRetweet, applyRetweetResult, type Tweet, type RetweetResult, type TweetRow } from '@/components/tweets/types';
 import { Icon } from '@/components/ui/Icon';
 
 type TabKey = 'foryou' | 'friends' | 'following' | 'mentions';
@@ -93,19 +93,19 @@ function TweetsPage() {
   const toggleRetweet = useMutation({
     mutationFn: ({ tweetId, retweeted, quoteContent }: RetweetVars) =>
       retweeted
-        ? apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`)
-        : apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {}),
+        ? apiClient.delete<RetweetResult>(`/tweets/${tweetId}/retweet`)
+        : apiClient.post<RetweetResult>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {}),
     onMutate: ({ tweetId, retweeted }) => {
-      patchFeed(tweetId, (tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+      patchFeed(tweetId, (tw) => optimisticRetweet(tw, retweeted));
     },
     // Reconcile with the server's authoritative count.
     onSuccess: (res, { tweetId }) => {
       const d = res?.data;
-      if (d) patchFeed(tweetId, (tw) => ({ ...tw, retweeted: d.retweeted, retweetsCount: d.retweetsCount }));
+      if (d) patchFeed(tweetId, (tw) => applyRetweetResult(tw, d));
     },
     // Revert the optimistic flip (e.g. retweeting your own tweet is rejected).
     onError: (_err, { tweetId, retweeted }) => {
-      patchFeed(tweetId, (tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
+      patchFeed(tweetId, (tw) => optimisticRetweet(tw, !retweeted));
     },
   });
 

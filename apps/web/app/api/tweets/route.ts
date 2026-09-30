@@ -26,7 +26,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { isAllowedMediaUrl } from "@/lib/security/mediaUrl";
-import { createTweet, parseTweetVideo, TWEETS_HARD_CHAR_CAP } from "@/lib/tweets/service";
+import { createTweet, parseTweetVideo, withSelfRetweetCap, TWEETS_HARD_CHAR_CAP } from "@/lib/tweets/service";
 
 // ---------------------------------------------------------------------------
 // Shared row projections
@@ -41,6 +41,7 @@ function tweetColumns(userId: string): SQL {
     t.is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
     (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
     (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
+    (SELECT COUNT(*)::int FROM tweet_retweets tr3 WHERE tr3.tweet_id = t.id AND tr3.user_id = ${userId}) AS my_retweets,
     NULL::uuid AS retweeted_by_id, NULL::text AS retweeted_by_username, NULL::text AS retweet_quote_content,
     t.created_at AS activity_at, t.id AS feed_id
   `;
@@ -55,6 +56,7 @@ function retweetColumns(userId: string): SQL {
     false AS is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
     (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
     (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
+    (SELECT COUNT(*)::int FROM tweet_retweets tr3 WHERE tr3.tweet_id = t.id AND tr3.user_id = ${userId}) AS my_retweets,
     rt.user_id AS retweeted_by_id, ru.username AS retweeted_by_username, rt.quote_content AS retweet_quote_content,
     rt.created_at AS activity_at, rt.id AS feed_id
   `;
@@ -87,7 +89,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       `);
       const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
-      return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
+      return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(rows, userId), nextCursor }, error: null });
     }
 
     // ---- Profile mode: a single author's tweets + retweets, pinned first --
@@ -124,7 +126,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
       const tweets = [...pinnedRows, ...rows];
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
-      return NextResponse.json({ success: true, data: { tweets, nextCursor }, error: null });
+      return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(tweets, userId), nextCursor }, error: null });
     }
 
     // ---- Mentions: tweets/replies that @mention the caller, newest first --
@@ -141,7 +143,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       `);
       const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
-      return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
+      return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(rows, userId), nextCursor }, error: null });
     }
 
     // ---- Friends: accepted friendships (either direction) — tweets AND
@@ -177,7 +179,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       `);
       const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
-      return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
+      return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(rows, userId), nextCursor }, error: null });
     }
 
     // ---- Following: one-directional follows — tweets AND retweets --------
@@ -202,7 +204,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       `);
       const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
-      return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
+      return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(rows, userId), nextCursor }, error: null });
     }
 
     // ---- For You: query-time "hot" ranking --------------------------------
@@ -266,7 +268,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       rows.length === limit
         ? Buffer.from(JSON.stringify({ score: rows[rows.length - 1].score, id: rows[rows.length - 1].feed_id })).toString("base64")
         : null;
-    return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
+    return NextResponse.json({ success: true, data: { tweets: await withSelfRetweetCap(rows, userId), nextCursor }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

@@ -670,6 +670,24 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "number",
     group: "Tweets",
   },
+  tweets_self_retweet_level_min: {
+    label: "Self-Retweet Unlock Level (non-paid)",
+    description: "Account level (main rank number, 1 = Beginner) at which NON-paid accounts may retweet their own Tweet more than once, up to the fixed maximum below. Everyone else can retweet their own Tweet once. 0 = no level unlock (paid plans only). Default: 10.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_self_retweet_level_max: {
+    label: "Self-Retweet Max (level unlock)",
+    description: "Fixed number of times a qualifying non-paid account (at or above the unlock level) may retweet its own Tweet. Default: 2.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_self_retweet_plan_caps: {
+    label: "Self-Retweet Max by Plan",
+    description: "JSON object mapping a plan or business tier to the max times that account may retweet its own Tweet — give pricier plans bigger numbers. Keys: \"plus\", \"pro\", \"max\", \"business_starter\", \"business_growth\", \"business_enterprise\". A user gets the highest cap that applies to them (plan, business tier, or level unlock); minimum 1. Default: {\"plus\":3,\"pro\":5,\"max\":10,\"business_starter\":5,\"business_growth\":10,\"business_enterprise\":20}.",
+    type: "string",
+    group: "Tweets",
+  },
 
   // Profile Pictures — avatar upload cost for free-plan users (paid-plan
   // users upload for free; switching to a default icon is always free).

@@ -26,6 +26,10 @@ export interface Tweet {
   retweetsCount: number;
   liked: boolean;
   retweeted: boolean;
+  /** How many times the viewer has retweeted this Tweet (0/1 unless it is their own). */
+  myRetweets?: number;
+  /** Set only on the viewer's own Tweets: max times they may retweet it. */
+  selfRetweetCap?: number | null;
   retweetedById: string | null;
   retweetedByUsername: string | null;
   retweetQuoteContent: string | null;
@@ -54,6 +58,8 @@ export interface TweetRow {
   retweets_count: number;
   liked: boolean;
   retweeted: boolean;
+  my_retweets?: number;
+  self_retweet_cap?: number | null;
   retweeted_by_id: string | null;
   retweeted_by_username: string | null;
   retweet_quote_content: string | null;
@@ -83,6 +89,8 @@ export function mapTweet(row: TweetRow): Tweet {
     retweetsCount: row.retweets_count ?? 0,
     liked: Boolean(row.liked),
     retweeted: Boolean(row.retweeted),
+    myRetweets: row.my_retweets ?? (row.retweeted ? 1 : 0),
+    selfRetweetCap: row.self_retweet_cap ?? null,
     retweetedById: row.retweeted_by_id ?? null,
     retweetedByUsername: row.retweeted_by_username ?? null,
     retweetQuoteContent: row.retweet_quote_content ?? null,
@@ -99,4 +107,29 @@ export function timeAgo(iso: string): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h`;
   return `${Math.floor(hrs / 24)}d`;
+}
+
+export interface RetweetResult {
+  retweetsCount: number;
+  retweeted: boolean;
+  myRetweets: number;
+}
+
+/** The viewer's live retweet count for a Tweet, tolerating rows without `myRetweets`. */
+export function myRetweetCount(tw: Tweet): number {
+  return tw.myRetweets ?? (tw.retweeted ? 1 : 0);
+}
+
+/**
+ * Optimistic local update. `undo` = true removes one of the viewer's
+ * retweets, false adds one. Reverting is the same call with `!undo`.
+ */
+export function optimisticRetweet(tw: Tweet, undo: boolean): Tweet {
+  const mine = Math.max(0, myRetweetCount(tw) + (undo ? -1 : 1));
+  return { ...tw, myRetweets: mine, retweeted: mine > 0, retweetsCount: Math.max(0, tw.retweetsCount + (undo ? -1 : 1)) };
+}
+
+/** Replaces the optimistic guess with the server's authoritative numbers. */
+export function applyRetweetResult(tw: Tweet, r: RetweetResult): Tweet {
+  return { ...tw, myRetweets: r.myRetweets, retweeted: r.retweeted, retweetsCount: r.retweetsCount };
 }

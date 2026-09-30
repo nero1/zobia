@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { UserBadgeRow } from "@/components/shared/UserBadges";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { VideoEmbed } from "./VideoEmbed";
-import { type Tweet, timeAgo } from "./types";
+import { type Tweet, timeAgo, myRetweetCount } from "./types";
 import { Icon } from "@/components/ui/Icon";
 
 export function TweetCard({
@@ -39,6 +39,12 @@ export function TweetCard({
   const { t } = useTranslation();
   const [showQuoteBox, setShowQuoteBox] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState("");
+  // Retweets the viewer has made of this Tweet vs. the max they may make.
+  // Only the viewer's own Tweets can exceed 1 (paid plan / level caps).
+  const myRetweets = myRetweetCount(tweet);
+  const retweetCap = tweet.selfRetweetCap ?? 1;
+  const showRetweetCounter = tweet.selfRetweetCap != null && retweetCap > 1;
+  const canRetweetMore = myRetweets < retweetCap;
   const popupId = useId();
   const retweetRef = useRef<HTMLDivElement>(null);
 
@@ -172,7 +178,7 @@ export function TweetCard({
           <div className="relative" ref={retweetRef}>
             <button
               onClick={() => {
-                if (tweet.retweeted) onToggleRetweet(tweet.id, true);
+                if (tweet.retweeted && !canRetweetMore) onToggleRetweet(tweet.id, true);
                 else {
                   if (!showQuoteBox) window.dispatchEvent(new CustomEvent("tweet-retweet-popup-open", { detail: popupId }));
                   setShowQuoteBox((v) => !v);
@@ -189,6 +195,17 @@ export function TweetCard({
             </button>
             {showQuoteBox && (
               <div className="absolute bottom-full left-0 z-20 mb-1 w-64 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-700 dark:bg-neutral-900">
+                {myRetweets > 0 && (
+                  <button
+                    onClick={() => {
+                      onToggleRetweet(tweet.id, true);
+                      setShowQuoteBox(false);
+                    }}
+                    className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                  >
+                    {t("tweets.undoRetweet")}
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     onToggleRetweet(tweet.id, false);
@@ -196,7 +213,7 @@ export function TweetCard({
                   }}
                   className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  <Icon emoji="🔁" size={14} className="mr-1 inline" /> {t("tweets.retweet")}
+                  <Icon emoji="🔁" size={14} className="mr-1 inline" /> {myRetweets > 0 ? t("tweets.retweetAgain") : t("tweets.retweet")}{showRetweetCounter ? ` (${myRetweets}/${retweetCap})` : ""}
                 </button>
                 <textarea
                   value={quoteDraft}

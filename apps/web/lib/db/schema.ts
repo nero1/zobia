@@ -971,10 +971,12 @@ export const tweetRetweets = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     quoteContent: text("quote_content"),
+    /** 1, 2, 3... — only > 1 for retweets of your own Tweet (migration 0018). */
+    seq: smallint("seq").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("idx_tweet_retweets_tweet_user").on(t.tweetId, t.userId),
+    unique: uniqueIndex("idx_tweet_retweets_tweet_user_seq").on(t.tweetId, t.userId, t.seq),
   })
 );
 

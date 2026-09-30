@@ -21,6 +21,7 @@ import { isPlanEligible } from "@/lib/plans/eligibility";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { insertNotification } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
+import { computeSelfRetweetCap } from "./selfRetweetCap";
 
 /**
  * Absolute, non-admin-configurable safety ceiling on Tweet content length —
@@ -564,15 +565,54 @@ export async function deleteTweet(tweetId: string, userId: string): Promise<void
 
 export interface RetweetResult {
   retweetsCount: number;
+  /** True while the caller still has at least one live retweet of this Tweet. */
   retweeted: boolean;
+  /** How many times the caller has retweeted this Tweet (0 or 1 unless it is their own). */
+  myRetweets: number;
+}
+
+// ---------------------------------------------------------------------------
+// Self-retweet caps
+// ---------------------------------------------------------------------------
+
+export async function getSelfRetweetCap(userId: string): Promise<number> {
+  const orm = await getDb();
+  const [manifest, userRows, bizRows] = await Promise.all([
+    loadManifest(),
+    orm.select({ plan: schema.users.plan, xpTotal: schema.users.xpTotal }).from(schema.users).where(eq(schema.users.id, userId)).limit(1),
+    orm
+      .select({ tier: schema.businessAccounts.tier })
+      .from(schema.businessAccounts)
+      .where(and(eq(schema.businessAccounts.userId, userId), eq(schema.businessAccounts.status, "active")))
+      .limit(1),
+  ]);
+  const u = userRows[0];
+  return computeSelfRetweetCap(
+    { plan: u?.plan ?? "free", rankNumber: getRankForXP(Number(u?.xpTotal ?? 0)).rankNumber, businessTier: bizRows[0]?.tier ?? null },
+    manifest.tweets
+  );
+}
+
+/**
+ * Adds `self_retweet_cap` to the rows the viewer authored so clients know
+ * whether "retweet again" is offered. Resolves the cap once, and only when
+ * at least one row is the viewer's own.
+ */
+export async function withSelfRetweetCap<T extends Record<string, unknown>>(rows: T[], userId: string): Promise<T[]> {
+  if (!rows.some((r) => r.user_id === userId)) return rows;
+  const cap = await getSelfRetweetCap(userId);
+  return rows.map((r) => (r.user_id === userId ? { ...r, self_retweet_cap: cap } : r));
 }
 
 /**
  * Retweets (or quote-retweets, when `quoteContent` is set) a Tweet. Same
  * feature/level gate as posting a Tweet — no separate charge, per product
- * decision. Toggle semantics: retweeting an already-retweeted Tweet just
- * updates the quote text (or clears it) rather than erroring, so "change my
- * quote" is retweet-again, not un-retweet-then-retweet.
+ * decision.
+ *
+ * Someone else's Tweet: one retweet per user; retweeting again just updates
+ * the quote text (or clears it). Your OWN Tweet: each call adds another
+ * retweet (so it resurfaces in feeds) until the per-user cap from
+ * {@link getSelfRetweetCap}; past it the request is refused.
  */
 export async function retweetTweet(tweetId: string, userId: string, quoteContent?: string | null): Promise<RetweetResult> {
   await requireFeatureEnabled("tweets");
@@ -581,6 +621,8 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
 
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
+  const isOwn = tweet.user_id === userId;
+  const cap = isOwn ? await getSelfRetweetCap(userId) : 1;
 
   const trimmedQuote = quoteContent?.trim() || null;
   if (trimmedQuote && trimmedQuote.length > TWEETS_HARD_CHAR_CAP) {
@@ -589,22 +631,35 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
 
   const orm = await getDb();
   await orm.transaction(async (tx) => {
+    // Serialise concurrent retweets of the same Tweet so the cap can't be raced past.
+    await tx.execute(sql`SELECT 1 FROM tweets WHERE id = ${tweetId} FOR UPDATE`);
     const existing = await tx
-      .select({ id: schema.tweetRetweets.id })
+      .select({ id: schema.tweetRetweets.id, seq: schema.tweetRetweets.seq })
       .from(schema.tweetRetweets)
       .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)));
-    if (existing[0]) {
+
+    if (existing.length > 0 && !isOwn) {
       await tx
         .update(schema.tweetRetweets)
         .set({ quoteContent: trimmedQuote })
         .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)));
-    } else {
-      await tx.insert(schema.tweetRetweets).values({ tweetId, userId, quoteContent: trimmedQuote });
-      await tx
-        .update(schema.tweets)
-        .set({ retweetsCount: sql`${schema.tweets.retweetsCount} + 1` })
-        .where(eq(schema.tweets.id, tweetId));
+      return;
     }
+    if (existing.length >= cap) {
+      throw forbidden(
+        cap <= 1
+          ? "You have already retweeted your own Tweet."
+          : `You can retweet your own Tweet up to ${cap} times.`,
+        "SELF_RETWEET_LIMIT",
+        { cap, used: existing.length }
+      );
+    }
+    const nextSeq = existing.reduce((m, r) => Math.max(m, r.seq), 0) + 1;
+    await tx.insert(schema.tweetRetweets).values({ tweetId, userId, quoteContent: trimmedQuote, seq: nextSeq });
+    await tx
+      .update(schema.tweets)
+      .set({ retweetsCount: sql`${schema.tweets.retweetsCount} + 1` })
+      .where(eq(schema.tweets.id, tweetId));
   });
 
   if (mentionedInQuote(trimmedQuote).length > 0) {
@@ -632,14 +687,27 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
     ).catch((err) => logger.error({ err }, "[tweets] retweet mention notification insert failed"));
   }
 
-  const rows = await orm.select({ retweetsCount: schema.tweets.retweetsCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
-  return { retweetsCount: rows[0]?.retweetsCount ?? 0, retweeted: true };
+  return retweetState(tweetId, userId);
+}
+
+async function retweetState(tweetId: string, userId: string): Promise<RetweetResult> {
+  const orm = await getDb();
+  const [rows, mine] = await Promise.all([
+    orm.select({ retweetsCount: schema.tweets.retweetsCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1),
+    orm
+      .select({ n: sql<number>`COUNT(*)::int` })
+      .from(schema.tweetRetweets)
+      .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId))),
+  ]);
+  const myRetweets = Number(mine[0]?.n ?? 0);
+  return { retweetsCount: rows[0]?.retweetsCount ?? 0, retweeted: myRetweets > 0, myRetweets };
 }
 
 function mentionedInQuote(quote: string | null): string[] {
   return parseTweetMentions(quote);
 }
 
+/** Undoes the caller's most recent retweet of a Tweet (their only one, unless it is their own Tweet). */
 export async function unretweetTweet(tweetId: string, userId: string): Promise<RetweetResult> {
   await requireFeatureEnabled("tweets");
   const tweet = await getTweet(tweetId);
@@ -647,18 +715,20 @@ export async function unretweetTweet(tweetId: string, userId: string): Promise<R
 
   const orm = await getDb();
   await orm.transaction(async (tx) => {
-    const deleted = await tx
-      .delete(schema.tweetRetweets)
+    await tx.execute(sql`SELECT 1 FROM tweets WHERE id = ${tweetId} FOR UPDATE`);
+    const latest = await tx
+      .select({ id: schema.tweetRetweets.id })
+      .from(schema.tweetRetweets)
       .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)))
-      .returning({ id: schema.tweetRetweets.id });
-    if (deleted.length > 0) {
-      await tx
-        .update(schema.tweets)
-        .set({ retweetsCount: sql`GREATEST(${schema.tweets.retweetsCount} - 1, 0)` })
-        .where(eq(schema.tweets.id, tweetId));
-    }
+      .orderBy(sql`${schema.tweetRetweets.seq} DESC`)
+      .limit(1);
+    if (!latest[0]) return;
+    await tx.delete(schema.tweetRetweets).where(eq(schema.tweetRetweets.id, latest[0].id));
+    await tx
+      .update(schema.tweets)
+      .set({ retweetsCount: sql`GREATEST(${schema.tweets.retweetsCount} - 1, 0)` })
+      .where(eq(schema.tweets.id, tweetId));
   });
 
-  const rows = await orm.select({ retweetsCount: schema.tweets.retweetsCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
-  return { retweetsCount: rows[0]?.retweetsCount ?? 0, retweeted: false };
+  return retweetState(tweetId, userId);
 }

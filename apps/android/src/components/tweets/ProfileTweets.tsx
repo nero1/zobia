@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { TweetCard } from './TweetCard';
-import { mapTweet, type Tweet, type TweetRow } from './types';
+import { mapTweet, optimisticRetweet, applyRetweetResult, type Tweet, type RetweetResult, type TweetRow } from './types';
 
 export function ProfileTweets({ authorId }: { authorId: string }) {
   const { t } = useTranslation();
@@ -39,15 +39,15 @@ export function ProfileTweets({ authorId }: { authorId: string }) {
   const handleToggleRetweet = async (tweetId: string, retweeted: boolean, quoteContent?: string) => {
     const patch = (fn: (tw: Tweet) => Tweet) =>
       qc.setQueryData<typeof tweets>(['tweets', 'profile', authorId], (prev) => prev?.map((tw) => (tw.id === tweetId ? fn(tw) : tw)));
-    patch((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    patch((tw) => optimisticRetweet(tw, retweeted));
     try {
       const res = retweeted
-        ? await apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`)
-        : await apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {});
+        ? await apiClient.delete<RetweetResult>(`/tweets/${tweetId}/retweet`)
+        : await apiClient.post<RetweetResult>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {});
       const d = res?.data;
-      if (d) patch((tw) => ({ ...tw, retweeted: d.retweeted, retweetsCount: d.retweetsCount }));
+      if (d) patch((tw) => applyRetweetResult(tw, d));
     } catch {
-      patch((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
+      patch((tw) => optimisticRetweet(tw, !retweeted));
     }
   };
 

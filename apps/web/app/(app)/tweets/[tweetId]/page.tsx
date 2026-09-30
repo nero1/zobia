@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { TweetCard } from "@/components/tweets/TweetCard";
-import { type Tweet, mapTweetRow, sendRetweet } from "@/components/tweets/types";
+import { type Tweet, mapTweetRow, sendRetweet, optimisticRetweet, applyRetweetResult } from "@/components/tweets/types";
 
 export default function TweetDetailPage() {
   const { t } = useTranslation();
@@ -119,10 +119,10 @@ export default function TweetDetailPage() {
       setTweet((prev) => (prev && prev.id === id ? fn(prev) : prev));
       setReplies((prev) => prev.map((tw) => (tw.id === id ? fn(tw) : tw)));
     };
-    update((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    update((tw) => optimisticRetweet(tw, retweeted));
     const result = await sendRetweet(id, retweeted, quoteContent);
-    if (result) update((tw) => ({ ...tw, retweeted: result.retweeted, retweetsCount: result.retweetsCount }));
-    else update((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
+    if (result) update((tw) => applyRetweetResult(tw, result));
+    else update((tw) => optimisticRetweet(tw, !retweeted));
   }, []);
 
   const handleDelete = useCallback(
