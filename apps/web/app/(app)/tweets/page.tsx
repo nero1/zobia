@@ -14,7 +14,7 @@ import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { TweetCard } from "@/components/tweets/TweetCard";
-import { type Tweet, mapTweetRow } from "@/components/tweets/types";
+import { type Tweet, mapTweetRow, sendRetweet } from "@/components/tweets/types";
 import { Icon } from "@/components/ui/Icon";
 
 type TabKey = "foryou" | "friends" | "following" | "mentions";
@@ -118,23 +118,12 @@ export default function TweetsPage() {
   }, []);
 
   const handleToggleRetweet = useCallback(async (tweetId: string, retweeted: boolean, quoteContent?: string) => {
-    setTweets((prev) =>
-      prev?.map((tw) => (tw.id === tweetId ? { ...tw, retweeted: !retweeted, retweetsCount: tw.retweetsCount + (retweeted ? -1 : 1) } : tw))
-    );
-    try {
-      if (retweeted) {
-        await fetch(`/api/tweets/${tweetId}/retweet`, { method: "DELETE", credentials: "include" });
-      } else {
-        await fetch(`/api/tweets/${tweetId}/retweet`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(quoteContent ? { quoteContent } : {}),
-        });
-      }
-    } catch {
-      // Non-fatal — UI stays optimistic
-    }
+    // Optimistic flip; `retweeted` is the state BEFORE the click.
+    const update = (fn: (tw: Tweet) => Tweet) => setTweets((prev) => prev?.map((tw) => (tw.id === tweetId ? fn(tw) : tw)));
+    update((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    const result = await sendRetweet(tweetId, retweeted, quoteContent);
+    if (result) update((tw) => ({ ...tw, retweeted: result.retweeted, retweetsCount: result.retweetsCount }));
+    else update((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
   }, []);
 
   return (
@@ -201,7 +190,7 @@ export default function TweetsPage() {
       ) : (
         <div className="space-y-4">
           {tweets.map((tw) => (
-            <TweetCard key={tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} />
+            <TweetCard key={tw.feedId ?? tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} />
           ))}
           {cursor && (
             <div className="flex justify-center pt-2">

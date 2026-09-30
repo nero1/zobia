@@ -30,6 +30,8 @@ export interface Tweet {
   retweetedByUsername: string | null;
   retweetQuoteContent: string | null;
   createdAt: string;
+  /** Unique per feed row (a tweet and its retweets share `id`); use for list keys. */
+  feedId?: string;
 }
 
 export interface TweetRow {
@@ -57,6 +59,7 @@ export interface TweetRow {
   retweet_quote_content: string | null;
   created_at: string;
   activity_at?: string;
+  feed_id?: string;
 }
 
 export function mapTweet(row: TweetRow): Tweet {
@@ -84,6 +87,7 @@ export function mapTweet(row: TweetRow): Tweet {
     retweetedByUsername: row.retweeted_by_username ?? null,
     retweetQuoteContent: row.retweet_quote_content ?? null,
     createdAt: row.activity_at ?? row.created_at,
+    feedId: row.feed_id ?? row.id,
   };
 }
 

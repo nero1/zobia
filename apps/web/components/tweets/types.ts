@@ -33,6 +33,8 @@ export interface Tweet {
   retweetedByUsername: string | null;
   retweetQuoteContent: string | null;
   createdAt: string;
+  /** Unique per feed row (a tweet and its retweets share `id`); use for React keys. */
+  feedId?: string;
 }
 
 /** Maps a raw API row (snake_case) to the client Tweet shape. */
@@ -62,6 +64,7 @@ export function mapTweetRow(r: Record<string, unknown>): Tweet {
     retweetedByUsername: (r.retweeted_by_username ?? null) as string | null,
     retweetQuoteContent: (r.retweet_quote_content ?? null) as string | null,
     createdAt: (r.activity_at ?? r.created_at) as string,
+    feedId: ((r.feed_id ?? r.id) as string),
   };
 }
 
@@ -75,4 +78,30 @@ export function timeAgo(iso: string): string {
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d`;
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
+/**
+ * Sends a retweet / quote-retweet / un-retweet request. Resolves the server's
+ * authoritative `{ retweetsCount, retweeted }`, or null when the request
+ * failed (network error or non-2xx, e.g. retweeting your own tweet).
+ */
+export async function sendRetweet(
+  tweetId: string,
+  retweeted: boolean,
+  quoteContent?: string
+): Promise<{ retweetsCount: number; retweeted: boolean } | null> {
+  try {
+    const res = await fetch(`/api/tweets/${tweetId}/retweet`, {
+      method: retweeted ? "DELETE" : "POST",
+      credentials: "include",
+      ...(retweeted
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(quoteContent ? { quoteContent } : {}) }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as { data?: { retweetsCount?: number; retweeted?: boolean } };
+    return { retweetsCount: json.data?.retweetsCount ?? 0, retweeted: json.data?.retweeted ?? !retweeted };
+  } catch {
+    return null;
+  }
 }

@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { TweetCard } from './TweetCard';
-import { mapTweet, type TweetRow } from './types';
+import { mapTweet, type Tweet, type TweetRow } from './types';
 
 export function ProfileTweets({ authorId }: { authorId: string }) {
   const { t } = useTranslation();
@@ -36,12 +36,19 @@ export function ProfileTweets({ authorId }: { authorId: string }) {
     void apiClient[liked ? 'delete' : 'post'](`/tweets/${tweetId}/like`);
   };
 
-  const handleToggleRetweet = (tweetId: string, retweeted: boolean, quoteContent?: string) => {
-    qc.setQueryData<typeof tweets>(['tweets', 'profile', authorId], (prev) =>
-      prev?.map((tw) => (tw.id === tweetId ? { ...tw, retweeted: !retweeted, retweetsCount: tw.retweetsCount + (retweeted ? -1 : 1) } : tw))
-    );
-    if (retweeted) void apiClient.delete(`/tweets/${tweetId}/retweet`);
-    else void apiClient.post(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {});
+  const handleToggleRetweet = async (tweetId: string, retweeted: boolean, quoteContent?: string) => {
+    const patch = (fn: (tw: Tweet) => Tweet) =>
+      qc.setQueryData<typeof tweets>(['tweets', 'profile', authorId], (prev) => prev?.map((tw) => (tw.id === tweetId ? fn(tw) : tw)));
+    patch((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    try {
+      const res = retweeted
+        ? await apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`)
+        : await apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {});
+      const d = res?.data;
+      if (d) patch((tw) => ({ ...tw, retweeted: d.retweeted, retweetsCount: d.retweetsCount }));
+    } catch {
+      patch((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
+    }
   };
 
   return (
@@ -54,7 +61,7 @@ export function ProfileTweets({ authorId }: { authorId: string }) {
       </div>
       <div className="space-y-3">
         {tweets.map((tw) => (
-          <TweetCard key={tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} isOwnProfile={isOwnProfile} />
+          <TweetCard key={tw.feedId ?? tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} isOwnProfile={isOwnProfile} />
         ))}
       </div>
     </div>

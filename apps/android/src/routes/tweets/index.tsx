@@ -12,7 +12,7 @@ import { useRef, useCallback, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 import { TweetCard } from '@/components/tweets/TweetCard';
-import { mapTweet, type TweetRow } from '@/components/tweets/types';
+import { mapTweet, type Tweet, type TweetRow } from '@/components/tweets/types';
 import { Icon } from '@/components/ui/Icon';
 
 type TabKey = 'foryou' | 'friends' | 'following' | 'mentions';
@@ -80,22 +80,32 @@ function TweetsPage() {
     [toggleLike]
   );
 
+  type RetweetVars = { tweetId: string; retweeted: boolean; quoteContent?: string };
+  const patchFeed = (tweetId: string, fn: (tw: Tweet) => Tweet) =>
+    qc.setQueryData<typeof data>(['tweets', 'feed', tab], (prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        pages: prev.pages.map((page) => ({ ...page, items: page.items.map((tw) => (tw.id === tweetId ? fn(tw) : tw)) })),
+      };
+    });
+
   const toggleRetweet = useMutation({
-    mutationFn: ({ tweetId, retweeted, quoteContent }: { tweetId: string; retweeted: boolean; quoteContent?: string }) =>
-      retweeted ? apiClient.delete(`/tweets/${tweetId}/retweet`) : apiClient.post(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {}),
+    mutationFn: ({ tweetId, retweeted, quoteContent }: RetweetVars) =>
+      retweeted
+        ? apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`)
+        : apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${tweetId}/retweet`, quoteContent ? { quoteContent } : {}),
     onMutate: ({ tweetId, retweeted }) => {
-      qc.setQueryData<typeof data>(['tweets', 'feed', tab], (prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          pages: prev.pages.map((page) => ({
-            ...page,
-            items: page.items.map((tw) =>
-              tw.id === tweetId ? { ...tw, retweeted: !retweeted, retweetsCount: tw.retweetsCount + (retweeted ? -1 : 1) } : tw
-            ),
-          })),
-        };
-      });
+      patchFeed(tweetId, (tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    },
+    // Reconcile with the server's authoritative count.
+    onSuccess: (res, { tweetId }) => {
+      const d = res?.data;
+      if (d) patchFeed(tweetId, (tw) => ({ ...tw, retweeted: d.retweeted, retweetsCount: d.retweetsCount }));
+    },
+    // Revert the optimistic flip (e.g. retweeting your own tweet is rejected).
+    onError: (_err, { tweetId, retweeted }) => {
+      patchFeed(tweetId, (tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
     },
   });
 
@@ -170,7 +180,7 @@ function TweetsPage() {
       )}
 
       {tweets.map((tw) => (
-        <TweetCard key={tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} />
+        <TweetCard key={tw.feedId ?? tw.id} tweet={tw} onToggleLike={handleToggleLike} onToggleRetweet={handleToggleRetweet} />
       ))}
 
       <div ref={loaderRef} className="py-4">

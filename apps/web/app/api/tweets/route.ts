@@ -42,7 +42,7 @@ function tweetColumns(userId: string): SQL {
     (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
     (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
     NULL::uuid AS retweeted_by_id, NULL::text AS retweeted_by_username, NULL::text AS retweet_quote_content,
-    t.created_at AS activity_at
+    t.created_at AS activity_at, t.id AS feed_id
   `;
 }
 
@@ -56,7 +56,7 @@ function retweetColumns(userId: string): SQL {
     (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
     (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
     rt.user_id AS retweeted_by_id, ru.username AS retweeted_by_username, rt.quote_content AS retweet_quote_content,
-    rt.created_at AS activity_at
+    rt.created_at AS activity_at, rt.id AS feed_id
   `;
 }
 
@@ -205,11 +205,13 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
     }
 
-    // ---- For You: query-time "hot" ranking (top-level tweets only) --------
+    // ---- For You: query-time "hot" ranking --------------------------------
     // score = likes decayed by age (standard "hot" formula: likes / (age_h + 2)^1.5),
     // boosted 1.5x when the author is a friend or someone the viewer follows.
-    // Computed per-request — no cron/background job. Cursor is a base64 JSON
-    // {score, id} pair, since the ranking key isn't a plain column.
+    // Retweets by the viewer, their friends and follows also surface (attributed
+    // "X retweeted"), aged from the retweet time. Computed per-request — no
+    // cron/background job. Cursor is a base64 JSON {score, id} pair, since the
+    // ranking key isn't a plain column; id is feed_id (tweet id or retweet id).
     let cursorScore: number | null = null;
     let cursorId: string | null = null;
     if (cursor) {
@@ -237,17 +239,32 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               ) THEN 1.5 ELSE 1.0 END) AS score
          FROM tweets t JOIN users u ON u.id = t.user_id
          WHERE t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
+         UNION ALL
+         SELECT ${retweetColumns(userId)},
+           ((t.likes_count + 1)::float / POWER(EXTRACT(EPOCH FROM (NOW() - rt.created_at)) / 3600.0 + 2, 1.5)) * 1.5 AS score
+         FROM tweet_retweets rt
+         JOIN tweets t ON t.id = rt.tweet_id AND t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
+         JOIN users u ON u.id = t.user_id
+         JOIN users ru ON ru.id = rt.user_id
+         WHERE rt.user_id = ${userId}
+            OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = ${userId} AND fo.following_id = rt.user_id)
+            OR EXISTS (
+              SELECT 1 FROM friendships f
+              WHERE f.status = 'accepted'
+                AND ((f.requester_id = ${userId} AND f.addressee_id = rt.user_id)
+                  OR (f.addressee_id = ${userId} AND f.requester_id = rt.user_id))
+            )
        )
        SELECT * FROM scored
-       WHERE ${cursorScore}::float8 IS NULL OR (score, id) < (${cursorScore}::float8, ${cursorId}::uuid)
-       ORDER BY score DESC, id DESC
+       WHERE ${cursorScore}::float8 IS NULL OR (score, feed_id) < (${cursorScore}::float8, ${cursorId}::uuid)
+       ORDER BY score DESC, feed_id DESC
        LIMIT ${limit}
     `);
     const rows = result.rows;
 
     const nextCursor =
       rows.length === limit
-        ? Buffer.from(JSON.stringify({ score: rows[rows.length - 1].score, id: rows[rows.length - 1].id })).toString("base64")
+        ? Buffer.from(JSON.stringify({ score: rows[rows.length - 1].score, id: rows[rows.length - 1].feed_id })).toString("base64")
         : null;
     return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
   } catch (err) {

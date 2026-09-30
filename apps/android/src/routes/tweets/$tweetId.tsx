@@ -96,14 +96,21 @@ function TweetDetailPage() {
     void apiClient[liked ? 'delete' : 'post'](`/tweets/${id}/like`);
   };
 
-  const handleToggleRetweet = (id: string, retweeted: boolean, quoteContent?: string) => {
-    const patch = (tw: { retweeted: boolean; retweetsCount: number }) => ({
-      retweeted: !retweeted,
-      retweetsCount: tw.retweetsCount + (retweeted ? -1 : 1),
-    });
-    qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) => (prev && prev.id === id ? { ...prev, ...patch(prev) } : prev));
-    if (retweeted) void apiClient.delete(`/tweets/${id}/retweet`);
-    else void apiClient.post(`/tweets/${id}/retweet`, quoteContent ? { quoteContent } : {});
+  const handleToggleRetweet = async (id: string, retweeted: boolean, quoteContent?: string) => {
+    const patch = (delta: number, state: boolean) =>
+      qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) =>
+        prev && prev.id === id ? { ...prev, retweeted: state, retweetsCount: Math.max(0, prev.retweetsCount + delta) } : prev
+      );
+    patch(retweeted ? -1 : 1, !retweeted);
+    try {
+      const res = retweeted
+        ? await apiClient.delete<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${id}/retweet`)
+        : await apiClient.post<{ retweetsCount: number; retweeted: boolean }>(`/tweets/${id}/retweet`, quoteContent ? { quoteContent } : {});
+      const d = res?.data;
+      if (d) qc.setQueryData<typeof tweet>(['tweets', 'detail', tweetId], (prev) => (prev && prev.id === id ? { ...prev, retweeted: d.retweeted, retweetsCount: d.retweetsCount } : prev));
+    } catch {
+      patch(retweeted ? 1 : -1, retweeted);
+    }
   };
 
   const handleDelete = async (id: string) => {

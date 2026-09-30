@@ -17,7 +17,7 @@ import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { TweetCard } from "@/components/tweets/TweetCard";
-import { type Tweet, mapTweetRow } from "@/components/tweets/types";
+import { type Tweet, mapTweetRow, sendRetweet } from "@/components/tweets/types";
 
 export default function TweetDetailPage() {
   const { t } = useTranslation();
@@ -114,24 +114,15 @@ export default function TweetDetailPage() {
   }, []);
 
   const handleToggleRetweet = useCallback(async (id: string, retweeted: boolean, quoteContent?: string) => {
-    const patch = (list: Tweet[]) =>
-      list.map((tw) => (tw.id === id ? { ...tw, retweeted: !retweeted, retweetsCount: tw.retweetsCount + (retweeted ? -1 : 1) } : tw));
-    setTweet((prev) => (prev && prev.id === id ? patch([prev])[0] : prev));
-    setReplies((prev) => patch(prev));
-    try {
-      if (retweeted) {
-        await fetch(`/api/tweets/${id}/retweet`, { method: "DELETE", credentials: "include" });
-      } else {
-        await fetch(`/api/tweets/${id}/retweet`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(quoteContent ? { quoteContent } : {}),
-        });
-      }
-    } catch {
-      // Non-fatal
-    }
+    // Optimistic flip; `retweeted` is the state BEFORE the click.
+    const update = (fn: (tw: Tweet) => Tweet) => {
+      setTweet((prev) => (prev && prev.id === id ? fn(prev) : prev));
+      setReplies((prev) => prev.map((tw) => (tw.id === id ? fn(tw) : tw)));
+    };
+    update((tw) => ({ ...tw, retweeted: !retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? -1 : 1)) }));
+    const result = await sendRetweet(id, retweeted, quoteContent);
+    if (result) update((tw) => ({ ...tw, retweeted: result.retweeted, retweetsCount: result.retweetsCount }));
+    else update((tw) => ({ ...tw, retweeted, retweetsCount: Math.max(0, tw.retweetsCount + (retweeted ? 1 : -1)) }));
   }, []);
 
   const handleDelete = useCallback(

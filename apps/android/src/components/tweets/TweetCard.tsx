@@ -4,7 +4,7 @@
  * Mirrors apps/web/components/tweets/TweetCard.tsx.
  */
 
-import { useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Icon } from '@/components/ui/Icon';
@@ -32,6 +32,26 @@ export function TweetCard({
   const { t } = useTranslation();
   const [showQuoteBox, setShowQuoteBox] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState('');
+  const popupId = useId();
+  const retweetRef = useRef<HTMLDivElement>(null);
+
+  // Only one retweet popup may be open at a time: opening one broadcasts its
+  // id and every other card closes its own. Tapping outside also closes it.
+  useEffect(() => {
+    if (!showQuoteBox) return;
+    const onOtherOpened = (e: Event) => {
+      if ((e as CustomEvent<string>).detail !== popupId) setShowQuoteBox(false);
+    };
+    const onOutside = (e: Event) => {
+      if (retweetRef.current && !retweetRef.current.contains(e.target as Node)) setShowQuoteBox(false);
+    };
+    window.addEventListener('tweet-retweet-popup-open', onOtherOpened);
+    document.addEventListener('pointerdown', onOutside);
+    return () => {
+      window.removeEventListener('tweet-retweet-popup-open', onOtherOpened);
+      document.removeEventListener('pointerdown', onOutside);
+    };
+  }, [showQuoteBox, popupId]);
 
   return (
     <article className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
@@ -110,11 +130,14 @@ export function TweetCard({
         </Link>
 
         {onToggleRetweet && (
-          <div className="relative">
+          <div className="relative" ref={retweetRef}>
             <button
               onClick={() => {
                 if (tweet.retweeted) onToggleRetweet(tweet.id, true);
-                else setShowQuoteBox((v) => !v);
+                else {
+                  if (!showQuoteBox) window.dispatchEvent(new CustomEvent('tweet-retweet-popup-open', { detail: popupId }));
+                  setShowQuoteBox((v) => !v);
+                }
               }}
               className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
                 tweet.retweeted ? 'border-green-300 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
@@ -147,8 +170,7 @@ export function TweetCard({
                     setShowQuoteBox(false);
                     setQuoteDraft('');
                   }}
-                  disabled={!quoteDraft.trim()}
-                  className="mt-1.5 w-full rounded-lg bg-primary-600 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                  className="mt-1.5 w-full rounded-lg bg-primary-600 py-1.5 text-xs font-semibold text-white"
                 >
                   {t('tweets.quoteRetweet')}
                 </button>
