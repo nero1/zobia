@@ -28,6 +28,20 @@ const NOISE_PATTERNS = [
   "about:srcdoc",
 ];
 
+const RECENT_WINDOW_MS = 10 * 60_000;
+const MAX_RECENT = 200;
+const recent = new Map<string, number>();
+
+/** True if this violation was already recorded by this instance within the window. */
+function seenRecently(key: string): boolean {
+  const now = Date.now();
+  const at = recent.get(key);
+  if (at !== undefined && now - at < RECENT_WINDOW_MS) return true;
+  if (recent.size >= MAX_RECENT) recent.clear();
+  recent.set(key, now);
+  return false;
+}
+
 function isNoise(report: Record<string, unknown>): boolean {
   const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
   const sourceFile = String(report["source-file"] ?? report["sourceFile"] ?? "");
@@ -64,13 +78,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   if (reports.length > 0) {
-    const orm = await getDb();
+    let orm: Awaited<ReturnType<typeof getDb>> | null = null;
     for (const report of reports) {
       if (isNoise(report)) continue;
 
       const documentUri = String(report["document-uri"] ?? report["documentURL"] ?? "");
       const violatedDirective = String(report["violated-directive"] ?? report["effectiveDirective"] ?? "");
       const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
+
+      // A blocked resource is usually reported by every page view; once per
+      // warm instance per window is enough to raise the alert (which also
+      // dedupes in the DB). Skips the DB round-trip, saving Active CPU.
+      if (seenRecently(`${violatedDirective}:${blockedUri}`)) continue;
+      orm ??= await getDb();
 
       // Persist to system_alerts (best-effort — never fail the response)
       raiseAlert(orm, {

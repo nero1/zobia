@@ -397,13 +397,13 @@ export const GET = async (req: NextRequest) => {
             `).catch(() => {}),
             orm.execute(sql`
               UPDATE guild_alliances SET wars_drawn = wars_drawn + 1, updated_at = NOW()
-              WHERE id = ANY(${bothAlliances}::uuid[])
+              WHERE id = ANY(${sql.param(bothAlliances)}::uuid[])
             `).catch(() => {}),
             orm.execute(sql`
               UPDATE guilds SET wars_drawn = wars_drawn + 1, updated_at = NOW()
               WHERE id IN (
                 SELECT guild_id FROM guild_alliance_members
-                WHERE alliance_id = ANY(${bothAlliances}::uuid[])
+                WHERE alliance_id = ANY(${sql.param(bothAlliances)}::uuid[])
               )
             `).catch(() => {}),
           ]);
@@ -413,7 +413,7 @@ export const GET = async (req: NextRequest) => {
             SELECT DISTINCT gm.user_id
             FROM guild_members gm
             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-            WHERE gam.alliance_id = ANY(${bothAlliances}::uuid[]) AND gm.left_at IS NULL
+            WHERE gam.alliance_id = ANY(${sql.param(bothAlliances)}::uuid[]) AND gm.left_at IS NULL
           `);
           const ALLIANCE_WAR_DRAW_XP = Math.floor(ALLIANCE_WAR_VICTORY_XP / 2);
           await Promise.allSettled(
@@ -440,7 +440,7 @@ export const GET = async (req: NextRequest) => {
                    false, NOW()
             FROM guild_members gm
             JOIN guild_alliance_members gam ON gam.guild_id = gm.guild_id
-            WHERE gam.alliance_id = ANY(${bothAlliances}::uuid[]) AND gm.left_at IS NULL
+            WHERE gam.alliance_id = ANY(${sql.param(bothAlliances)}::uuid[]) AND gm.left_at IS NULL
           `).catch(() => {});
         } else {
           const winnerId = score1 > score2 ? war.alliance_1_id : war.alliance_2_id;
@@ -724,7 +724,7 @@ export const GET = async (req: NextRequest) => {
       if (coinDisc.rows.length > 0) {
         await orm.execute(sql`
           INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-          SELECT unnest(${coinDisc.rows.map(r => r.user_id)}::uuid[]), 'coins', unnest(${coinDisc.rows.map(r => r.ledger_sum)}::bigint[]), unnest(${coinDisc.rows.map(r => r.wallet_balance)}::bigint[]), NOW()
+          SELECT unnest(${sql.param(coinDisc.rows.map(r => r.user_id))}::uuid[]), 'coins', unnest(${sql.param(coinDisc.rows.map(r => r.ledger_sum))}::bigint[]), unnest(${sql.param(coinDisc.rows.map(r => r.wallet_balance))}::bigint[]), NOW()
           ON CONFLICT (user_id, asset_type) DO UPDATE
             SET ledger_sum = EXCLUDED.ledger_sum, wallet_balance = EXCLUDED.wallet_balance,
                 detected_at = NOW(), resolved = FALSE
@@ -734,7 +734,7 @@ export const GET = async (req: NextRequest) => {
       if (starDisc.rows.length > 0) {
         await orm.execute(sql`
           INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-          SELECT unnest(${starDisc.rows.map(r => r.user_id)}::uuid[]), 'stars', unnest(${starDisc.rows.map(r => r.ledger_sum)}::bigint[]), unnest(${starDisc.rows.map(r => r.wallet_balance)}::bigint[]), NOW()
+          SELECT unnest(${sql.param(starDisc.rows.map(r => r.user_id))}::uuid[]), 'stars', unnest(${sql.param(starDisc.rows.map(r => r.ledger_sum))}::bigint[]), unnest(${sql.param(starDisc.rows.map(r => r.wallet_balance))}::bigint[]), NOW()
           ON CONFLICT (user_id, asset_type) DO UPDATE
             SET ledger_sum = EXCLUDED.ledger_sum, wallet_balance = EXCLUDED.wallet_balance,
                 detected_at = NOW(), resolved = FALSE

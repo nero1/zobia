@@ -305,7 +305,7 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
   const { rows: existingVotes } = await orm.execute<{ option_id: string }>(sql`SELECT option_id FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${userId}`);
   if (existingVotes.length > 0) throw badRequest("You already voted on this poll.", "POLL_ALREADY_VOTED");
 
-  const { rows: optionRows } = await orm.execute<{ id: string }>(sql`SELECT id FROM poll_options WHERE poll_id = ${pollId} AND id = ANY(${optionIds}::uuid[])`);
+  const { rows: optionRows } = await orm.execute<{ id: string }>(sql`SELECT id FROM poll_options WHERE poll_id = ${pollId} AND id = ANY(${sql.param(optionIds)}::uuid[])`);
   if (optionRows.length !== optionIds.length) throw badRequest("Unknown poll option.", "POLL_UNKNOWN_OPTION");
 
   await orm.transaction(async (tx) => {

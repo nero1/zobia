@@ -42,8 +42,11 @@ async function archiveTable(
   sourceTable: string,
   archiveTableName: string,
   columns: string,
-  cutoff: Date
+  cutoff: Date,
+  options: { ageColumn?: string; extraWhere?: string } = {}
 ): Promise<number> {
+  const ageColumn = options.ageColumn ?? "created_at";
+  const extraWhere = options.extraWhere ? ` AND ${options.extraWhere}` : "";
   const orm = await getDb();
   let totalArchived = 0;
 
@@ -51,7 +54,7 @@ async function archiveTable(
     const result = await orm.transaction(async (tx) => {
       const selectResult = await tx.execute(sql`
         SELECT id FROM ${sql.raw(sourceTable)}
-        WHERE created_at < ${cutoff.toISOString()}
+        WHERE ${sql.raw(ageColumn)} < ${cutoff.toISOString()}${sql.raw(extraWhere)}
         LIMIT ${BATCH_SIZE}
         FOR UPDATE SKIP LOCKED
       `);
@@ -65,11 +68,11 @@ async function archiveTable(
         INSERT INTO ${sql.raw(archiveTableName)} (${sql.raw(columns)}, archived_at)
         SELECT ${sql.raw(columns)}, NOW()
         FROM ${sql.raw(sourceTable)}
-        WHERE id = ANY(${ids}::uuid[])
+        WHERE id = ANY(${sql.param(ids)}::uuid[])
       `);
 
       await tx.execute(sql`
-        DELETE FROM ${sql.raw(sourceTable)} WHERE id = ANY(${ids}::uuid[])
+        DELETE FROM ${sql.raw(sourceTable)} WHERE id = ANY(${sql.param(ids)}::uuid[])
       `);
 
       return sourceRows.length;
@@ -130,18 +133,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // unbounded table growth. Rows older than the cutoff that are resolved
     // (audit_discrepancies) or have already been processed (rank_up_events)
     // are pruned to keep the live tables small.
+    // Only RESOLVED findings are archived (an open discrepancy must stay
+    // visible to /api/cron/reconcile-balances and the admin), aged by
+    // detected_at — the table has no created_at column.
     const auditDiscArchived = await archiveTable(
       "audit_discrepancies",
       "audit_discrepancies_archive",
-      "id, user_id, asset_type, ledger_sum, wallet_balance, detected_at, resolved, notes",
-      cutoff
+      "id, user_id, asset_type, ledger_sum, wallet_balance, detected_at, resolved, resolved_at, notes",
+      cutoff,
+      { ageColumn: "detected_at", extraWhere: "resolved = true" }
     );
     results.push({ table: "audit_discrepancies", archived: auditDiscArchived });
 
     const rankUpArchived = await archiveTable(
       "rank_up_events",
       "rank_up_events_archive",
-      "id, user_id, old_rank, new_rank, xp_at_rank_up, created_at",
+      "id, user_id, rank_from, rank_to, xp_at_event, created_at",
       cutoff
     );
     results.push({ table: "rank_up_events", archived: rankUpArchived });

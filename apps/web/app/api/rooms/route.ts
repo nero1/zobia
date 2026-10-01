@@ -292,7 +292,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // are surfaced higher in discovery (PRD §4 — quiz results silently configure home feed)
     const vibeCategoryBoost =
       vibeCategories.length > 0
-        ? sql`CASE WHEN r.category = ANY(${vibeCategories}::TEXT[]) THEN 100 ELSE 0 END + `
+        ? sql`CASE WHEN r.category = ANY(${sql.param(vibeCategories)}::TEXT[]) THEN 100 ELSE 0 END + `
         : sql``;
 
     // In non-trending mode, rooms with health < 40 are sorted last (PRD §10).
@@ -754,7 +754,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           const notifPayload = { roomId: room.id, roomName: room.name, city: room.city };
           await orm.execute(sql`
             INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-            SELECT unnest(${userIds}::uuid[]), 'new_city_room', ${JSON.stringify(notifPayload)}::jsonb, FALSE, NOW()
+            SELECT unnest(${sql.param(userIds)}::uuid[]), 'new_city_room', ${JSON.stringify(notifPayload)}::jsonb, FALSE, NOW()
           `);
           sendPushNotificationBatch(
             nomadUsers.map((u) => ({

@@ -170,7 +170,7 @@ export async function reconcileSavesForUser(
   const db = await getDb();
   if (deleteIds && deleteIds.length > 0) {
     const result = await db.execute<{ id: string }>(
-      sql`DELETE FROM game_saves WHERE id = ANY(${deleteIds}::uuid[]) AND user_id = ${userId} RETURNING id`
+      sql`DELETE FROM game_saves WHERE id = ANY(${sql.param(deleteIds)}::uuid[]) AND user_id = ${userId} RETURNING id`
     );
     return result.rows.map((r) => r.id);
   }

@@ -226,7 +226,7 @@ export async function completeLesson(
         and(
           eq(schema.classroomLessonCompletions.roomId, params.roomId),
           eq(schema.classroomLessonCompletions.userId, params.userId),
-          sql`${schema.classroomLessonCompletions.moduleId} = ANY(${moduleIds}::text[])`
+          sql`${schema.classroomLessonCompletions.moduleId} = ANY(${sql.param(moduleIds)}::text[])`
         )
       );
     const completedCount = Number(countRow?.n ?? 0);

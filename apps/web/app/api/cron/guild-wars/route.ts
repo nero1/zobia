@@ -88,7 +88,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         // Collect all member user IDs from both guilds
         const membersResult = await orm.execute<GuildMemberRow>(sql`
           SELECT user_id FROM guild_members
-          WHERE guild_id = ANY(${[war.challenger_guild_id, war.defender_guild_id]}::uuid[]) AND left_at IS NULL
+          WHERE guild_id = ANY(${sql.param([war.challenger_guild_id, war.defender_guild_id])}::uuid[]) AND left_at IS NULL
         `);
 
         // Insert in-app notifications for all members — reference_id = war id
@@ -102,8 +102,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           const refIds = userIds.map(() => `guild_war_final_hour:${war.id}`);
           await orm.execute(sql`
             INSERT INTO notifications (user_id, type, title, body, metadata, reference_id)
-            SELECT unnest(${userIds}::uuid[]), unnest(${types}::text[]), unnest(${titles}::text[]),
-                   unnest(${bodies}::text[]), unnest(${metas}::jsonb[]), unnest(${refIds}::text[])
+            SELECT unnest(${sql.param(userIds)}::uuid[]), unnest(${sql.param(types)}::text[]), unnest(${sql.param(titles)}::text[]),
+                   unnest(${sql.param(bodies)}::text[]), unnest(${sql.param(metas)}::jsonb[]), unnest(${sql.param(refIds)}::text[])
             ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
           `);
         }
@@ -162,7 +162,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const closedRooms = await orm.execute<{ id: string }>(sql`
       UPDATE rooms
       SET is_active = false, updated_at = NOW()
-      WHERE (type = 'drop' OR room_type = 'drop')
+      WHERE type = 'drop'
         AND is_active = true
         AND drop_ends_at IS NOT NULL
         AND drop_ends_at < ${now.toISOString()}
@@ -299,11 +299,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                false,
                sub.ref_id,
                NOW()
-        FROM (SELECT unnest(${downgraded.map(d => d.captain_id)}::uuid[]) AS captain_id,
-                     unnest(${downgraded.map(d => d.id)}::text[]) AS guild_id,
-                     unnest(${downgraded.map(d => d.old_tier)}::text[]) AS old_tier,
-                     unnest(${downgraded.map(d => d.new_tier)}::text[]) AS new_tier,
-                     unnest(${refIds}::text[]) AS ref_id) sub
+        FROM (SELECT unnest(${sql.param(downgraded.map(d => d.captain_id))}::uuid[]) AS captain_id,
+                     unnest(${sql.param(downgraded.map(d => d.id))}::text[]) AS guild_id,
+                     unnest(${sql.param(downgraded.map(d => d.old_tier))}::text[]) AS old_tier,
+                     unnest(${sql.param(downgraded.map(d => d.new_tier))}::text[]) AS new_tier,
+                     unnest(${sql.param(refIds)}::text[]) AS ref_id) sub
         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
       `).catch(() => {});
 

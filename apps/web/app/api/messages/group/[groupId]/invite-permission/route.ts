@@ -58,14 +58,14 @@ export const PATCH = withAuth(async (
   if (body.grant?.length) {
     await orm.execute(sql`
       UPDATE group_chat_members SET can_invite = TRUE
-      WHERE group_chat_id = ${groupId} AND user_id = ANY(${body.grant}::uuid[])
+      WHERE group_chat_id = ${groupId} AND user_id = ANY(${sql.param(body.grant)}::uuid[])
     `);
   }
 
   if (body.revoke?.length) {
     await orm.execute(sql`
       UPDATE group_chat_members SET can_invite = FALSE
-      WHERE group_chat_id = ${groupId} AND user_id = ANY(${body.revoke}::uuid[])
+      WHERE group_chat_id = ${groupId} AND user_id = ANY(${sql.param(body.revoke)}::uuid[])
     `);
   }
 

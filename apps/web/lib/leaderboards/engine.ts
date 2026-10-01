@@ -417,7 +417,7 @@ export async function getLeaderboard(
                       AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text
             END AS rank
           FROM leaderboard_snapshots ls
-          RIGHT JOIN (SELECT unnest(${missingIds}::uuid[]) AS user_id) target ON ls.user_id = target.user_id
+          RIGHT JOIN (SELECT unnest(${sql.param(missingIds)}::uuid[]) AS user_id) target ON ls.user_id = target.user_id
             AND ls.track = 'main' AND ls.scope = 'global' AND ls.season_id IS NULL
         `);
         const rankRows = rankResult.rows as { user_id: string; rank: string | null; has_snapshot: boolean }[];

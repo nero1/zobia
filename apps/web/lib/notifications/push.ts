@@ -394,7 +394,7 @@ export async function pollPushReceipts(): Promise<number> {
           await orm.execute(sql`
             UPDATE push_tickets SET status = 'error', error_code = v.err_code,
                  checked_at = NOW(), resolved_at = NOW()
-             FROM (SELECT unnest(${errorDetails.map((e) => e.id)}::uuid[]) AS id, unnest(${errorDetails.map((e) => e.errCode)}::text[]) AS err_code) v
+             FROM (SELECT unnest(${sql.param(errorDetails.map((e) => e.id))}::uuid[]) AS id, unnest(${sql.param(errorDetails.map((e) => e.errCode))}::text[]) AS err_code) v
              WHERE push_tickets.id = v.id
           `);
         }

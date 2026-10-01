@@ -152,14 +152,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (discXpIds.length > 0) {
       await orm.execute(sql`
         INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-        SELECT unnest(${discXpIds}::uuid[]), 'xp', unnest(${discXpLedger.map(String)}::bigint[]), unnest(${discXpBal.map(String)}::bigint[]), NOW()
+        SELECT unnest(${sql.param(discXpIds)}::uuid[]), 'xp', unnest(${sql.param(discXpLedger.map(String))}::bigint[]), unnest(${sql.param(discXpBal.map(String))}::bigint[]), NOW()
       `).catch(() => {});
     }
 
     if (discCoinIds.length > 0) {
       await orm.execute(sql`
         INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-        SELECT unnest(${discCoinIds}::uuid[]), 'coins', unnest(${discCoinLedger.map(String)}::bigint[]), unnest(${discCoinBal.map(String)}::bigint[]), NOW()
+        SELECT unnest(${sql.param(discCoinIds)}::uuid[]), 'coins', unnest(${sql.param(discCoinLedger.map(String))}::bigint[]), unnest(${sql.param(discCoinBal.map(String))}::bigint[]), NOW()
       `).catch(() => {});
     }
 
@@ -213,7 +213,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (fixXpIds.length > 0) {
       await orm.execute(sql`
         UPDATE users SET xp_total = updates.val::bigint, updated_at = NOW()
-        FROM (SELECT unnest(${fixXpIds}::uuid[]) AS uid, unnest(${fixXpValues.map(String)}::text[]) AS val) updates
+        FROM (SELECT unnest(${sql.param(fixXpIds)}::uuid[]) AS uid, unnest(${sql.param(fixXpValues.map(String))}::text[]) AS val) updates
         WHERE id = updates.uid
       `).catch(() => {});
     }
@@ -242,7 +242,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (fixCoinIds.length > 0) {
       await orm.execute(sql`
         UPDATE users SET coin_balance = updates.val::bigint, updated_at = NOW()
-        FROM (SELECT unnest(${fixCoinIds}::uuid[]) AS uid, unnest(${fixCoinValues.map(String)}::text[]) AS val) updates
+        FROM (SELECT unnest(${sql.param(fixCoinIds)}::uuid[]) AS uid, unnest(${sql.param(fixCoinValues.map(String))}::text[]) AS val) updates
         WHERE id = updates.uid
       `).catch(() => {});
     }

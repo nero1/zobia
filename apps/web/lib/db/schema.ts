@@ -2424,6 +2424,35 @@ export const xpEventsArchive = pgTable("xp_events_archive", {
     .defaultNow(),
 });
 
+/** Migration 0020: resolved audit_discrepancies moved out by /api/cron/archive-ledgers. */
+export const auditDiscrepanciesArchive = pgTable("audit_discrepancies_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  assetType: text("asset_type").notNull(),
+  ledgerSum: bigint("ledger_sum", { mode: "bigint" }).notNull(),
+  walletBalance: bigint("wallet_balance", { mode: "bigint" }).notNull(),
+  detectedAt: timestamp("detected_at", { withTimezone: true }),
+  resolved: boolean("resolved").notNull().default(false),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  notes: text("notes"),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+/** Migration 0020: old rank_up_events moved out by /api/cron/archive-ledgers. */
+export const rankUpEventsArchive = pgTable("rank_up_events_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  rankFrom: text("rank_from"),
+  rankTo: text("rank_to"),
+  xpAtEvent: bigint("xp_at_event", { mode: "bigint" }),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const payments = pgTable("payments", {
   id: uuidPk(),
   userId: uuid("user_id")

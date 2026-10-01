@@ -81,9 +81,27 @@ export function isCacheableRead(config: InternalAxiosRequestConfig): boolean {
   return method === 'get' && policyFor(config) !== null;
 }
 
+/**
+ * Background writes that cannot change anything this cache holds (ad
+ * impression batches, the presence heartbeat, referral visits). They fire
+ * constantly, so letting them clear the cache would defeat it. Paths are
+ * relative to /api.
+ */
+const CACHE_NEUTRAL_WRITES = new Set(['/ads/events', '/presence', '/referrals/visit']);
+
+/** True when a write to `path` (relative to /api, or a full /api URL) should clear the cache. */
+export function writeInvalidatesReadCache(path: string): boolean {
+  let p = path.split('?')[0];
+  const apiIdx = p.indexOf('/api/');
+  if (apiIdx !== -1) p = p.slice(apiIdx + 4);
+  return !CACHE_NEUTRAL_WRITES.has(p);
+}
+
+/** A state-changing write (non-GET, not a background beacon). */
 export function isWriteRequest(config: InternalAxiosRequestConfig): boolean {
   const method = (config.method ?? 'get').toLowerCase();
-  return method !== 'get' && method !== 'head' && method !== 'options';
+  if (method === 'get' || method === 'head' || method === 'options') return false;
+  return writeInvalidatesReadCache(config.url ?? '');
 }
 
 function cacheKey(config: InternalAxiosRequestConfig): string {

@@ -67,6 +67,35 @@ export const READ_CACHE_POLICIES: Readonly<Record<string, ReadCachePolicy>> = {
   },
 };
 
+/**
+ * Background writes that cannot change anything this cache holds (ad
+ * impression beacons, the presence heartbeat, referral visit counts, CSP
+ * reports). They fire constantly, so letting them clear the cache would
+ * defeat it.
+ */
+const CACHE_NEUTRAL_WRITES = new Set([
+  "/api/ads/events",
+  "/api/presence",
+  "/api/referrals/visit",
+  "/api/security/csp-report",
+]);
+
+/** True when a write to `pathname` should clear the read cache. */
+export function writeInvalidatesReadCache(pathname: string): boolean {
+  return !CACHE_NEUTRAL_WRITES.has(pathname);
+}
+
+type InvalidateListener = () => void;
+const invalidateListeners = new Set<InvalidateListener>();
+
+/** Run `cb` whenever the read cache is dropped (e.g. lib/ads/clientServe.ts). */
+export function onReadCacheInvalidate(cb: InvalidateListener): () => void {
+  invalidateListeners.add(cb);
+  return () => {
+    invalidateListeners.delete(cb);
+  };
+}
+
 interface Snapshot {
   status: number;
   statusText: string;
@@ -140,4 +169,11 @@ export function invalidateReadCache(): void {
   generation += 1;
   cache.clear();
   inflight.clear();
+  invalidateListeners.forEach((cb) => {
+    try {
+      cb();
+    } catch {
+      // a listener must never break invalidation
+    }
+  });
 }

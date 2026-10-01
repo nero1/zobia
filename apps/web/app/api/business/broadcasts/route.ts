@@ -214,7 +214,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         INSERT INTO creator_broadcasts
           (sender_id, recipient_id, content, message_type, reference_id, business_account_id)
         SELECT ${business.user_id}, u, ${body.content}, 'business_broadcast', ${broadcastRecord.id}, ${business.id}
-        FROM UNNEST(${userIds}::uuid[]) AS u
+        FROM UNNEST(${sql.param(userIds)}::uuid[]) AS u
       `);
 
       return broadcastRecord;

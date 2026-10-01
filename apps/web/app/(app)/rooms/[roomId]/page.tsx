@@ -33,6 +33,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 import { UserBadgeRow, RewardBadge } from "@/components/shared/UserBadges";
 import { Icon } from "@/components/ui/Icon";
+import { setVisibleInterval } from "@/lib/polling/visibleInterval";
 
 // Resolved at build time. When undefined there is no push provider configured
 // and the 3-second baseline poll is the sole live channel.
@@ -1317,8 +1318,8 @@ export default function RoomPage() {
       } catch { /* non-fatal */ }
     };
     void fetchTopGifters();
-    const id = setInterval(() => void fetchTopGifters(), 30_000);
-    return () => { cancelled = true; clearInterval(id); };
+    const stop = setVisibleInterval(() => void fetchTopGifters(), 30_000);
+    return () => { cancelled = true; stop(); };
   }, [roomId]);
 
   // Fetch current user
@@ -1498,8 +1499,8 @@ export default function RoomPage() {
       } catch { /* non-fatal — Redis fails open server-side */ }
     };
     void beat();
-    const id = setInterval(() => void beat(), 45_000);
-    return () => { cancelled = true; clearInterval(id); };
+    const stop = setVisibleInterval(() => void beat(), 45_000);
+    return () => { cancelled = true; stop(); };
   }, [roomId, room]);
 
   const presenceAdmitted = presence?.admitted ?? true;

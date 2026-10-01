@@ -106,7 +106,7 @@ export async function getAvailableProfileThemes(
     const rows = await orm
       .select({ storeItemId: schema.userCosmetics.storeItemId })
       .from(schema.userCosmetics)
-      .where(and(eq(schema.userCosmetics.userId, userId), sql`${schema.userCosmetics.storeItemId} = ANY(${storeItemIds}::uuid[])`));
+      .where(and(eq(schema.userCosmetics.userId, userId), sql`${schema.userCosmetics.storeItemId} = ANY(${sql.param(storeItemIds)}::uuid[])`));
     rows.forEach((r) => ownedSet.add(r.storeItemId));
   }
 
@@ -227,8 +227,8 @@ export interface AdminUpdateProfileThemeInput {
 export async function adminUpdateProfileTheme(themeId: string, input: AdminUpdateProfileThemeInput): Promise<void> {
   const setClauses: ReturnType<typeof sql>[] = [];
   if (input.enabled !== undefined) setClauses.push(sql`enabled = ${input.enabled}`);
-  if (input.includedForPlans !== undefined) setClauses.push(sql`included_for_plans = ${input.includedForPlans}::text[]`);
-  if (input.includedForBusinessTiers !== undefined) setClauses.push(sql`included_for_business_tiers = ${input.includedForBusinessTiers}::text[]`);
+  if (input.includedForPlans !== undefined) setClauses.push(sql`included_for_plans = ${sql.param(input.includedForPlans)}::text[]`);
+  if (input.includedForBusinessTiers !== undefined) setClauses.push(sql`included_for_business_tiers = ${sql.param(input.includedForBusinessTiers)}::text[]`);
   if (input.creditsCost !== undefined) setClauses.push(sql`credits_cost = ${input.creditsCost}`);
   if (input.starsCost !== undefined) setClauses.push(sql`stars_cost = ${input.starsCost}`);
   if (setClauses.length === 0) return;

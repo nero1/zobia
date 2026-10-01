@@ -161,7 +161,7 @@ export const GET = async (req: NextRequest) => {
       await orm.execute(sql`
         UPDATE user_inactivity_events
         SET push_email_notified = true
-        FROM (SELECT unnest(${notifiedIds}::uuid[]) AS uid, unnest(${notifiedDays}::int[]) AS days) upd
+        FROM (SELECT unnest(${sql.param(notifiedIds)}::uuid[]) AS uid, unnest(${sql.param(notifiedDays)}::int[]) AS days) upd
         WHERE user_id = upd.uid AND inactive_days = upd.days AND push_email_notified = false
       `).catch((err) => {
         logger.error({ err }, '[daily-notify] Failed to mark notifications as sent');
@@ -208,7 +208,7 @@ export const GET = async (req: NextRequest) => {
     if (successIds.length > 0) {
       await orm.execute(sql`
         UPDATE user_inactivity_events SET telegram_notified = true
-        WHERE user_id = ANY(${successIds}::uuid[]) AND telegram_notified = false
+        WHERE user_id = ANY(${sql.param(successIds)}::uuid[]) AND telegram_notified = false
       `).catch(() => {});
     }
     results.telegramReengagement = { sent: successIds.length };

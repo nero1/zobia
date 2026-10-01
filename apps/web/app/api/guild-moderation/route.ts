@@ -79,7 +79,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       whereParts.push(sql`r.status = ${safeStatus}`);
     }
     if (!isPlatformStaff) {
-      whereParts.push(sql`COALESCE(r.reported_guild_id, gmsg.guild_id) = ANY(${scopedGuildIds}::uuid[])`);
+      whereParts.push(sql`COALESCE(r.reported_guild_id, gmsg.guild_id) = ANY(${sql.param(scopedGuildIds)}::uuid[])`);
     }
     const whereClause = sql.join(whereParts, sql` AND `);
 

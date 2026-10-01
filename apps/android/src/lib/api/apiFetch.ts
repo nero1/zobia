@@ -9,7 +9,7 @@
 
 import { env } from '@/lib/env';
 import { getCachedToken, refreshAccessToken, setCachedToken, signalUnauthenticated } from '@/lib/api/client';
-import { invalidateReadCache } from '@/lib/api/readCache';
+import { invalidateReadCache, writeInvalidatesReadCache } from '@/lib/api/readCache';
 
 const MAX_ATTEMPTS = 4;
 const RETRY_BASE_MS = 500;
@@ -49,7 +49,7 @@ export async function apiFetch(
   const requestInit = { ...init, headers };
   // A write may change what /users/me and /auth/me return (balance, XP, profile).
   const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method) && writeInvalidatesReadCache(url);
   if (isWrite) invalidateReadCache();
   let lastError: unknown;
   let didRefresh = false;

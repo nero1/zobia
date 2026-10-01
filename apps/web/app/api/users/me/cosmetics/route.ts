@@ -103,7 +103,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       SELECT
          u.active_frame_id,
          COALESCE(
-           ARRAY_AGG(ub.badge_key) FILTER (WHERE ub.badge_key = ANY(${VALID_FRAME_IDS}::text[])),
+           ARRAY_AGG(ub.badge_key) FILTER (WHERE ub.badge_key = ANY(${sql.param(VALID_FRAME_IDS)}::text[])),
            '{}'::text[]
          ) AS owned_frames
        FROM users u

@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { Icon } from "@/components/ui/Icon";
 import { RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";
+import { setVisibleInterval } from "@/lib/polling/visibleInterval";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -236,8 +237,8 @@ function ActiveWarBanner({ war, guildId }: { war: ActiveWar; guildId: string }) 
         .catch(() => {});
     };
     load();
-    const interval = setInterval(load, 60_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    const stop = setVisibleInterval(load, 60_000);
+    return () => { cancelled = true; stop(); };
   }, [war.id]);
 
   // Split contributors by own guild vs opponent

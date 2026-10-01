@@ -103,7 +103,11 @@ const nextConfig = {
       { protocol: "https", hostname: "telegram.org" },
     ],
   },
-  serverExternalPackages: ["pg", "ioredis"],
+  // pino/pino-pretty must stay external: when webpack bundles pino, its
+  // transport worker (thread-stream's lib/worker.js) cannot be resolved, the
+  // worker thread dies and every later logger call throws "the worker has
+  // exited", turning ordinary requests into 500s in `next dev`.
+  serverExternalPackages: ["pg", "ioredis", "pino", "pino-pretty"],
   // Vercel Hobby "Function Storage" (Deployment Storage, 10 GB) is the sum of
   // every retained deployment's function bundles, so every byte traced into a
   // function is paid once per deployment. Drop files that are never read at

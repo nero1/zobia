@@ -1,5 +1,5 @@
 "use client";
-import { cachedRead, invalidateReadCache, readCacheKey } from "@/lib/cache/readCache";
+import { cachedRead, invalidateReadCache, readCacheKey, writeInvalidatesReadCache } from "@/lib/cache/readCache";
 
 /**
  * lib/auth/sessionExpiredBus.ts
@@ -251,7 +251,13 @@ export function installSessionExpiryFetchGuard(): void {
     // briefly; any write may change what they return, so it drops the cache
     // both before it is sent and after it completes. See lib/cache/readCache.ts.
     const cacheKey = sameOriginApi && parsed ? readCacheKey(parsed, method) : null;
-    const isWrite = sameOriginApi && method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+    const isWrite =
+      sameOriginApi &&
+      parsed !== null &&
+      method !== "GET" &&
+      method !== "HEAD" &&
+      method !== "OPTIONS" &&
+      writeInvalidatesReadCache(parsed.pathname);
     if (isWrite) invalidateReadCache();
 
     const res = cacheKey

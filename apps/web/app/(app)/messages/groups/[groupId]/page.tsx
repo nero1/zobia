@@ -18,6 +18,7 @@ import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { authFetch } from "@/lib/api/authFetch";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
+import { setVisibleInterval } from "@/lib/polling/visibleInterval";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -398,8 +399,8 @@ export default function GroupConversationPage() {
       } catch { /* non-fatal — fail open, matches server-side fail-open */ }
     }
     void heartbeat();
-    const interval = setInterval(() => void heartbeat(), 45_000);
-    return () => { cancelled = true; clearInterval(interval); };
+    const stop = setVisibleInterval(() => void heartbeat(), 45_000);
+    return () => { cancelled = true; stop(); };
   }, [groupId]);
 
   // Newest message timestamp seen — drives delta polling (?after=).

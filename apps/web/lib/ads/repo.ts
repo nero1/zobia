@@ -231,12 +231,15 @@ export async function getBoostableContentSummary(
     case "room":
     case "classroom": {
       const rows = await orm
-        .select({ creator_id: schema.rooms.creatorId, name: schema.rooms.name, description: schema.rooms.description, cover_image_url: schema.rooms.coverImageUrl })
+        .select({ creator_id: schema.rooms.creatorId, name: schema.rooms.name, description: schema.rooms.description, cover_image_url: schema.rooms.coverImageUrl, type: schema.rooms.type })
         .from(schema.rooms)
         .where(and(eq(schema.rooms.id, contentId), sql`${schema.rooms.deletedAt} IS NULL`))
         .limit(1);
       const r = rows[0];
       if (!r) return null;
+      // A "classroom" boost must target a classroom room, and a "room" boost
+      // must not (classrooms have their own placement/landing page).
+      if ((contentType === "classroom") !== (r.type === "classroom")) return null;
       return { ownerId: r.creator_id, title: r.name, body: r.description, imageUrl: r.cover_image_url };
     }
     case "wiki_page": {
