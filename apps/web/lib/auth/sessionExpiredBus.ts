@@ -1,4 +1,5 @@
 "use client";
+import { cachedIdentityFetch, identityCacheKey, invalidateIdentityCache } from "./identityCache";
 
 /**
  * lib/auth/sessionExpiredBus.ts
@@ -135,6 +136,7 @@ export function markSessionExpired(): void {
  */
 export function clearAuthCookies(): Promise<void> {
   clearSessionHint();
+  invalidateIdentityCache();
   return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
     .then(() => undefined)
     .catch(() => undefined);
@@ -221,26 +223,39 @@ export function installSessionExpiryFetchGuard(): void {
   originalFetch = window.fetch.bind(window);
   const base = originalFetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const res = await base(input, init);
+    let parsed: URL | null = null;
+    try {
+      const rawUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      parsed = new URL(rawUrl, window.location.origin);
+    } catch {
+      // Malformed/opaque URL — don't let guard logic break the request.
+    }
+    const sameOriginApi =
+      parsed !== null && parsed.origin === window.location.origin && parsed.pathname.startsWith("/api/");
+    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+
+    // Identity reads (/api/users/me, /api/auth/me) are shared and cached
+    // briefly; any write may change what they return, so it drops the cache
+    // both before it is sent and after it completes. See lib/auth/identityCache.ts.
+    const identityKey = sameOriginApi && parsed ? identityCacheKey(parsed, method) : null;
+    const isWrite = sameOriginApi && method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+    if (isWrite) invalidateIdentityCache();
+
+    const res = identityKey
+      ? await cachedIdentityFetch(identityKey, () => base(input, init))
+      : await base(input, init);
+
+    if (isWrite) invalidateIdentityCache();
     if (isLogoutRequest(input)) clearSessionHint();
     if (res.status === 401) {
-      try {
-        const rawUrl =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url;
-        const parsed = new URL(rawUrl, window.location.origin);
-        if (
-          parsed.origin === window.location.origin &&
-          parsed.pathname.startsWith("/api/") &&
-          !isExemptApiPath(parsed.pathname)
-        ) {
-          markSessionExpired();
-        }
-      } catch {
-        // Malformed/opaque URL — don't let guard logic break the response.
+      invalidateIdentityCache();
+      if (sameOriginApi && parsed && !isExemptApiPath(parsed.pathname)) {
+        markSessionExpired();
       }
     }
     return res;

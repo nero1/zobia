@@ -23,6 +23,13 @@ import { env } from '@/lib/env';
 import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 import { reportRequestStart, reportRequestEnd } from '@/lib/loading/requestActivity';
 import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
+import {
+  defaultAdapterFor,
+  invalidateIdentityCache,
+  isIdentityRead,
+  isWriteRequest,
+  withIdentityCache,
+} from '@/lib/api/identityCache';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -33,7 +40,10 @@ export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
 let _cachedToken: string | null = null;
 
-export function setCachedToken(t: string | null): void { _cachedToken = t; }
+export function setCachedToken(t: string | null): void {
+  if (t !== _cachedToken) invalidateIdentityCache();
+  _cachedToken = t;
+}
 export function getCachedToken(): string | null { return _cachedToken; }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +76,7 @@ function notifyUnauthenticated(): void {
  */
 export function signalUnauthenticated(): void {
   _cachedToken = null;
+  invalidateIdentityCache();
   setSessionExpiresAtFromToken(null);
   _autoSignOutReason = 'session_expired';
   if (_notifiedUnauthenticated) return;
@@ -152,7 +163,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       if (!newToken) return null;
 
       await secureSet(JWT_KEY, newToken);
-      _cachedToken = newToken;
+      setCachedToken(newToken);
       setSessionExpiresAtFromToken(newToken);
 
       const newRefreshToken = res.data.refreshToken;
@@ -224,6 +235,29 @@ apiClient.interceptors.response.use(
   },
   (error: AxiosError) => {
     reportRequestEnd();
+    return Promise.reject(error);
+  },
+);
+
+// Identity cache — GET /users/me and /auth/me are shared and reused for a
+// minute; any write drops them (lib/api/identityCache.ts). Registered before
+// the auth interceptor below, and axios runs request interceptors last-added
+// first, so this sees the final Authorization header it keys the cache on.
+apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  if (isWriteRequest(config)) {
+    invalidateIdentityCache();
+  } else if (isIdentityRead(config)) {
+    config.adapter = withIdentityCache(defaultAdapterFor(config));
+  }
+  return config;
+});
+apiClient.interceptors.response.use(
+  (response) => {
+    if (isWriteRequest(response.config)) invalidateIdentityCache();
+    return response;
+  },
+  (error: AxiosError) => {
+    if (error.config && isWriteRequest(error.config)) invalidateIdentityCache();
     return Promise.reject(error);
   },
 );

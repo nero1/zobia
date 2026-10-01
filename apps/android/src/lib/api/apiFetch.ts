@@ -46,6 +46,10 @@ export async function apiFetch(
   }
 
   const requestInit = { ...init, headers };
+  // A write may change what /users/me and /auth/me return (balance, XP, profile).
+  const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
+  const isWrite = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+  if (isWrite) invalidateIdentityCache();
   let lastError: unknown;
   let didRefresh = false;
 
