@@ -4260,7 +4260,7 @@ How the app keeps each deployment small:
 2. **Trace excludes** (`next.config.js` → `outputFileTracingExcludes`):
    - API route handlers drop their `*_client-reference-manifest.js` (about 85 KB per route; route handlers never use it, Next loads it with `handleMissing`). Pages keep theirs because server rendering needs it.
    - The musl builds of sharp/libvips are dropped (Vercel runs glibc Linux). sharp itself is only traced into the four image-upload routes that call `lib/storage/compress.ts`.
-3. **Fewer deployments.** `vercel.json` deploys only `main` (`git.deploymentEnabled`), and `scripts/vercel-ignore-build.sh` skips `main` commits that do not touch `apps/web`, `shared`, the root package manifests or `patches`.
+3. **Fewer deployments.** `scripts/vercel-ignore-build.sh` (`ignoreCommand` in `vercel.json`) skips every build whose `VERCEL_ENV` is not `production`, so only Vercel's configured Production Branch builds (no branch name is hardcoded), and also skips production commits that do not touch `apps/web`, `shared`, the root package manifests or `patches`. Skipped builds appear as Canceled and store no functions.
 4. **Measuring.** `npm run analyze:functions` (in `apps/web`, after `next build`) reproduces the builder's grouping from the trace files and prints the estimated per-deployment size, the groups, the heaviest routes and the heaviest packages.
 
 Nothing here changes runtime behaviour on the web app, the PWA or the Capacitor Android app: the Android app talks to the same API routes, and the excluded files are never read at runtime.
