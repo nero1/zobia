@@ -205,6 +205,8 @@ To cut Redis/invocation load further, configure a **realtime provider** (see *Re
 
 ### Vercel Hobby storage ("Function Storage", 10 GB)
 
+> Full reasoning and every rule behind this section: `docs/HOW-IT-WORKS.md` → *Running on Vercel Hobby (free plan): reference*.
+
 The Hobby plan's **Function Storage** (Deployment Storage) allowance is not runtime usage. It is the total size of the function bundles of **every deployment Vercel still retains**, across all projects in the team. Traffic does not fill it; the number of retained deployments multiplied by the size of each one does. Since September 2026 Vercel keeps each Hobby project's 3 most recent production deployments, its 3 most recent deployments of any type, the current production deployment, and any deployment that is aliased or belongs to a branch that still exists. Over 10 GB, everything else is deleted immediately, and new deployments can be blocked until you are back under.
 
 What the repo does about it (no setup needed, it ships in `apps/web/vercel.json` and `apps/web/next.config.js`):
