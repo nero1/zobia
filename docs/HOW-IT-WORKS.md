@@ -3079,7 +3079,7 @@ admin-selected data isn't deleted right away — it survives a **grace period** 
 
 The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs in a single Vercel function invocation, which risked timing out under sustained DAU load. (It is retired: `/api/cron/daily` now only answers 410 Gone and lists its replacements.) The solution:
 
-1. **Split into 7 staggered daily slots**: each slot runs once per day at a different UTC hour, spread across the night (23:00–05:00 UTC = midnight–6am WAT). Every CRON route exports `maxDuration = 300` (the Vercel Hobby maximum with Fluid Compute, billed only for active CPU time). One shared value matters: Vercel packs routes into the same function only when their config is identical, so per-route timeouts would each add a function to every deployment (see *Deployment size and Vercel Function Storage*).
+1. **Split into 7 staggered daily slots**: each slot runs once per day at a different UTC hour, spread across the night (23:00–05:00 UTC = midnight–6am WAT). Every CRON route exports `maxDuration = 300` (the Vercel Hobby maximum with Fluid Compute, billed only for active CPU time). One shared value matters: Vercel packs routes into the same function only when their config is identical, so per-route timeouts would each add a function to every deployment (see *Running on Vercel Hobby (free plan): reference*).
 2. **No Redis for CRON state** — idempotency is enforced by the `cron_state` PostgreSQL table using a conditional `INSERT ... ON CONFLICT DO UPDATE WHERE value_ts < today`. A second invocation on the same calendar day resolves to `rowCount = 0` and returns immediately. Zero extra Redis reads per CRON slot.
 3. **Set-based SQL everywhere** — per-row loops replaced with `INSERT ... SELECT`, CTEs with `RETURNING`, and `unnest()` batch operations. A 5000-guild contribution-alert loop (5000 × 3 queries = 15 000 round-trips) is now a 3-query CTE that runs in one round-trip.
 4. **Limited-concurrency HTTP** — external HTTP calls (Telegram, push) use a `withConcurrency(items, limit, fn)` helper instead of `Promise.all` (which would fan out hundreds of simultaneous HTTP requests) or a serial `for` loop (which would needlessly stretch the run).
@@ -4247,23 +4247,60 @@ rediscover one crash at a time.
 
 ---
 
-## Deployment size and Vercel Function Storage
+## Running on Vercel Hobby (free plan): reference
 
-Vercel's Hobby **Function Storage** (10 GB) is the sum of the function bundles of every deployment Vercel retains, not runtime usage. Each deployment of this app is the set of serverless functions the Next.js builder (`@vercel/next`) produces:
+This is the full reasoning behind the hosting rules. The short checklist lives in the PRD (section 22, *Guiding Constraints*); the click-by-click owner steps live in `docs/SETUP.md` → *Vercel Hobby storage*. Nothing here changes runtime behaviour on the web app, the PWA or the Capacitor Android app: the Android app calls the same API routes, and every excluded file is one that is never read at runtime.
 
-- Every server route gets a trace file (`.next/server/**/*.nft.json`) listing the files it needs at runtime.
-- The builder packs routes into functions of up to ~250 MB. Route handlers and pages are packed separately, and routes are only packed together when their function config (`maxDuration`, `memory`, regions, ...) is identical. Each function stores its own copy of the union of its routes' files, so shared runtime code is duplicated once per function.
+### What "Function Storage" counts
 
-How the app keeps each deployment small:
+Vercel's Hobby **Function Storage** (Deployment Storage, 10 GB) is the total size of the function bundles of **every deployment Vercel still retains**, across all projects in the team. It is not runtime usage: traffic does not fill it, deployment count multiplied by deployment size does. Since September 2026 a Hobby project retains its 3 most recent production deployments, its 3 most recent deployments of any type, the current production deployment, and any deployment that is aliased or belongs to a branch that still exists. Once over 10 GB, everything else is deleted immediately and new deployments can be blocked until usage is back under.
 
-1. **One CRON config.** All `app/api/cron/*` routes export `maxDuration = 300`; no other route sets `maxDuration`. This gives 3 functions (pages, API routes, CRONs) instead of 7. `lib/cron/__tests__/maxDuration.test.ts` enforces it.
-2. **Trace excludes** (`next.config.js` → `outputFileTracingExcludes`):
-   - API route handlers drop their `*_client-reference-manifest.js` (about 85 KB per route; route handlers never use it, Next loads it with `handleMissing`). Pages keep theirs because server rendering needs it.
-   - The musl builds of sharp/libvips are dropped (Vercel runs glibc Linux). sharp itself is only traced into the four image-upload routes that call `lib/storage/compress.ts`.
-3. **Fewer deployments.** `scripts/vercel-ignore-build.sh` (`ignoreCommand` in `vercel.json`) skips every build whose `VERCEL_ENV` is not `production`, so only Vercel's configured Production Branch builds (no branch name is hardcoded), and also skips production commits that do not touch `apps/web`, `shared`, the root package manifests or `patches`. Skipped builds appear as Canceled and store no functions.
-4. **Measuring.** `npm run analyze:functions` (in `apps/web`, after `next build`) reproduces the builder's grouping from the trace files and prints the estimated per-deployment size, the groups, the heaviest routes and the heaviest packages.
+Before this work, every pushed branch (including every AI/agent session branch) produced a preview deployment that its still-existing branch kept protected, and each deployment was about 155 MB of function files in 7 function groups. That is how a single tester could exhaust the allowance within an hour of pushes.
 
-Nothing here changes runtime behaviour on the web app, the PWA or the Capacitor Android app: the Android app talks to the same API routes, and the excluded files are never read at runtime.
+### Deploys: only the production branch, no hardcoded branch name
+
+`apps/web/scripts/vercel-ignore-build.sh` runs as the Ignored Build Step (`ignoreCommand` in `apps/web/vercel.json`) from `apps/web` before every build. Exit 0 skips the build, exit 1 builds. It decides in this order:
+
+1. `FORCE_VERCEL_BUILD=1` → build. Set it on the Production environment only (set on all environments it would build every branch) and remove it afterwards.
+2. `VERCEL_ENV` set and not `production` → skip. Vercel sets `VERCEL_ENV=production` only for the branch chosen under Project Settings → Git → Production Branch, whatever that branch is called, and `preview` for every other branch. Renaming or switching the production branch therefore needs no code change.
+3. Otherwise diff `VERCEL_GIT_PREVIOUS_SHA` (the last successful deployment) against `HEAD`, falling back to `HEAD^` when that commit is outside Vercel's shallow clone. No changes under `apps/web`, `shared`, the root `package.json` / `package-lock.json` or `patches` → skip (Android-only, Expo-only, docs-only and load-test-only commits never deploy). Changes, or no base commit to compare with → build.
+
+Each run logs one JSON line (`env`, `ref`, `decision`, `reason`) in the build log. Skipped builds appear in *Deployments* as **Canceled** and store no functions.
+
+`git.deploymentEnabled` with a branch name (for example `{"**": false, "main": true}`) is deliberately not used: if the production branch were ever renamed, that rule would silently block production deploys too. Feature branches and PRs are verified by GitHub Actions CI instead of Vercel previews.
+
+### Small functions
+
+How the Next.js builder (`@vercel/next`) turns a build into functions:
+
+- Every server route has a trace file (`.next/server/**/*.nft.json`) listing the files it needs at runtime.
+- Routes are packed into functions of up to about 250 MB (uncompressed). Route handlers and pages are packed separately, and routes are only packed together when their function config (`maxDuration`, `memory`, regions, and similar) is identical.
+- Each function stores its own copy of the union of its routes' files, so shared runtime code is paid once per function.
+
+Rules that follow from that:
+
+1. **No per-route function config.** Ordinary routes never export `maxDuration` or `memory`. All `app/api/cron/*` routes export the same `maxDuration = 300` (the Hobby maximum with Fluid Compute; billing is for active CPU time, so a high ceiling costs nothing unless a job uses it). That gives 3 functions (pages, API routes, CRONs) instead of 7. `lib/cron/__tests__/maxDuration.test.ts` fails if any CRON differs or any other route sets `maxDuration`.
+2. **Exclude files never read at runtime** (`next.config.js` → `outputFileTracingExcludes`; globs resolve relative to `apps/web`, so hoisted packages are matched through `../../node_modules/...` as well as `node_modules/...`):
+   - `"/api/**"` drops each route handler's `*_client-reference-manifest.js`, about 85 KB per route and about 50 MB per deployment. Route handlers never use the RSC client manifest; Next loads it with `handleMissing`. Pages keep theirs because server rendering needs it. Verified by deleting the files from a production build, running `next start` and calling API routes (they answered normally).
+   - The musl builds of sharp/libvips (`@img/sharp-libvips-linuxmusl-*`, `@img/sharp-linuxmusl-*`, about 16 MB) are dropped; Vercel functions run on glibc Linux.
+3. **Heavy libraries only where used.** sharp is traced only into the four image-upload routes that call `lib/storage/compress.ts`; exceljs only into the admin export route. When a shared module needs a heavy library, load it with `await import()` inside the function, never at the top level.
+4. **Build-only tools in devDependencies** (`drizzle-kit`, TypeScript, linters, test runners), so they can never be traced into a function.
+5. **Measure.** After `next build`, run `npm run analyze:functions` in `apps/web` (`-- --json` for machine-readable output). `scripts/report-function-size.mjs` reproduces the builder's grouping from the trace files and `functions-config-manifest.json` and prints the estimated per-deployment size, the groups, the heaviest routes and the heaviest packages. Targets: well under 100 MB per deployment and 3 or fewer function groups. A heavy package showing up in the median route means a shared module imports it at the top level. Current result: about 155 MB in 7 groups before, about 77 MB in 3 groups after (uncompressed; Vercel stores zipped bundles, so the billed figure is lower but moves the same way).
+
+### Fewer invocations
+
+Function invocations and active CPU are separate Hobby quotas. Public pages are static or ISR where possible, and global values (app manifest, notices, leaderboard totals and similar) are served with `s-maxage` CDN cache headers instead of being recomputed per request. Client polling backs off when idle and pauses in hidden tabs (see *Redis Cost Controls*).
+
+### Crons
+
+Vercel Hobby crons run at most once a day, so `vercel.json` only holds the 7 staggered daily slots. Anything more frequent is triggered by an external scheduler (cron-jobs.org or similar) calling the route with `Authorization: Bearer <CRON_SECRET>`; `lib/cron/auth.ts` accepts nothing else. Every CRON is idempotent through a `cron_state` guard, so retries, overlapping triggers and a run cut short by a redeploy are safe. Do not design around a 10-second limit: with Fluid Compute the limit is the configured `maxDuration` (300 seconds); jobs still process work in batches and should finish well within it.
+
+### Platform settings and hygiene
+
+- **Fluid Compute stays on** (Project Settings → Functions). Without it the Hobby limit is 60 seconds and a 300-second `maxDuration` fails the deploy. A deploy succeeding only proves the setting is accepted; it does not prove any job has needed that long (most CRONs have not been run yet).
+- **Production Branch** is set explicitly under Project Settings → Git; the ignore script follows whatever is set there.
+- **GitHub "Automatically delete head branches"** (Settings → General → Pull Requests) is on, so merged branches stop protecting their old deployments.
+- **Pruning:** Deployments → filter *Preview* → select and delete; or `vercel list` then `vercel remove <deployment-url> --safe` (skips aliased deployments). Usage is under team Settings → Usage and updates within a few hours.
 
 ## Season end (CRON and admin "End season early")
 
