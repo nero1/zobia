@@ -203,6 +203,30 @@ The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless 
 
 To cut Redis/invocation load further, configure a **realtime provider** (see *Realtime Setup*). When connected, chat surfaces drop to a 30s reconcile poll and receive messages over the provider's WebSocket instead — no extra Redis. Presence heartbeats remain at 45s and self-expire via short Redis TTLs, so they do not need explicit cleanup calls.
 
+### Vercel Hobby storage ("Function Storage", 10 GB)
+
+The Hobby plan's **Function Storage** (Deployment Storage) allowance is not runtime usage. It is the total size of the function bundles of **every deployment Vercel still retains**, across all projects in the team. Traffic does not fill it; the number of retained deployments multiplied by the size of each one does. Since September 2026 Vercel keeps each Hobby project's 3 most recent production deployments, its 3 most recent deployments of any type, the current production deployment, and any deployment that is aliased or belongs to a branch that still exists. Over 10 GB, everything else is deleted immediately, and new deployments can be blocked until you are back under.
+
+What the repo does about it (no setup needed, it ships in `apps/web/vercel.json` and `apps/web/next.config.js`):
+
+| Measure | Where | Effect |
+|---|---|---|
+| Only `main` deploys | `vercel.json` → `git.deploymentEnabled` (`"**": false, "main": true`) | Pushes to feature branches (including every AI/agent session branch) no longer create preview deployments. PRs are still verified by GitHub Actions CI. |
+| Ignored Build Step | `vercel.json` → `ignoreCommand` runs `apps/web/scripts/vercel-ignore-build.sh` | A `main` commit that changes nothing under `apps/web`, `shared`, the root `package.json`/`package-lock.json` or `patches` (Android/Expo-only, docs-only, load-test-only commits) is skipped, so no deployment is stored. Set `FORCE_VERCEL_BUILD=1` in the project env to force one build. |
+| Smaller bundles | `next.config.js` → `outputFileTracingExcludes` | API route handlers no longer carry the ~85 KB RSC client manifest each (they never read it, ~50 MB per deployment), and the unused musl build of sharp/libvips (~16 MB) is dropped. |
+| Fewer function groups | every `app/api/cron/*` route exports `maxDuration = 300` | Vercel only packs routes with identical function config together; five different CRON timeouts used to create five extra functions, each with its own copy of the runtime. A unit test (`lib/cron/__tests__/maxDuration.test.ts`) keeps it that way. |
+
+Net effect measured with `npm run analyze:functions`: about 155 MB to about 77 MB of uncompressed function files per deployment, and 7 function groups down to 3.
+
+**One-time cleanup (do this once after merging):**
+1. In the Vercel dashboard open the project → **Deployments**, filter by *Preview*, select the old ones and delete them. Keep the current production deployment (it cannot be deleted anyway). With the CLI: `vercel list` then `vercel remove <deployment-url>` (add `--safe` to skip anything that is aliased).
+2. Delete merged branches on GitHub: Vercel protects deployments of branches that still exist. In the GitHub repo **Settings → General → Pull Requests**, turn on **Automatically delete head branches** so merged branches (and their deployment protection) go away on their own.
+3. Usage updates within a few hours under **Settings → Usage** (team level).
+
+**Keeping it small:** after `next build`, run `npm run analyze:functions` from `apps/web` (add `-- --json` for machine-readable output). It lists the function groups, the heaviest routes and the heaviest packages. Watch for a heavy library showing up in the median route: that means a shared module imports it at the top level and it should be moved behind a dynamic `await import()` in the route that needs it. Do not add `export const maxDuration` (or `memory`) to individual non-CRON routes; each distinct value creates another function group.
+
+**Fluid Compute must stay on** (it is the default for new projects, under *Settings → Functions*). It is what allows the 300-second CRON `maxDuration` on Hobby; without it the limit is 60 seconds and the build fails.
+
 ---
 
 ## Environment Variables Reference
@@ -877,7 +901,7 @@ Vercel Hobby Plan allows up to 100 CRON jobs, but **each can only run once per d
 
 ### Daily CRON slots (Vercel-native, already configured in `vercel.json`)
 
-The 7 daily slots are staggered hourly through the night so each finishes well within Vercel's 10-second function timeout. All are idempotent (DB-based guard key in `cron_state`).
+The 7 daily slots are staggered hourly through the night to spread database load. Every CRON route (daily and sub-daily) exports `maxDuration = 300`, the Hobby maximum with Fluid Compute; billing is for active CPU time, so the high ceiling costs nothing unless a job actually needs it, and using one value everywhere keeps all CRONs in a single function (see *Vercel Hobby storage*). All are idempotent (DB-based guard key in `cron_state`).
 
 | UTC time | Route | Responsibilities |
 |---|---|---|

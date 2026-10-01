@@ -72,6 +72,7 @@ import {
   getSeasonPhase,
   isSeasonActive,
   resetSeasonRankings,
+  endSeason,
   archiveSeasonForUser,
   distributeSeasonRewards,
   type Season,
@@ -254,20 +255,34 @@ describe("getSeasonPhase", () => {
 // ---------------------------------------------------------------------------
 
 describe("resetSeasonRankings", () => {
+  /** The season is still active: the claim UPDATE ... RETURNING returns its id. */
+  function mockActiveSeason(seasonId: string) {
+    mockQuery.mockImplementation((text: string) => {
+      if (text.startsWith('update "seasons"') && text.includes("returning")) {
+        return Promise.resolve({ rows: [[seasonId]], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+  }
+
   it("archives rankings before resetting them", async () => {
-    await resetSeasonRankings("season-1", mockDb);
+    mockActiveSeason("season-1");
+    await expect(resetSeasonRankings("season-1", mockDb)).resolves.toBe(true);
 
     const queries = mockQuery.mock.calls.map(([text]) => text as string);
-    const archiveQuery = queries.find((q) => q.includes("INSERT INTO season_rank_archives"));
-    const resetQuery = queries.find((q) => q.includes('update "user_season_passes"'));
-    const deactivateQuery = queries.find((q) => q.includes('update "seasons"') && q.includes('"is_active"'));
+    const archiveIdx = queries.findIndex((q) => q.includes("INSERT INTO season_rank_archives"));
+    const resetIdx = queries.findIndex((q) => q.includes('update "user_season_passes"'));
+    const deactivateIdx = queries.findIndex((q) => q.includes('update "seasons"') && q.includes('"is_active"'));
 
-    expect(archiveQuery).toBeDefined();
-    expect(resetQuery).toBeDefined();
-    expect(deactivateQuery).toBeDefined();
+    expect(archiveIdx).toBeGreaterThan(-1);
+    expect(resetIdx).toBeGreaterThan(archiveIdx);
+    // The season is claimed (marked inactive) before anything else runs.
+    expect(deactivateIdx).toBeGreaterThan(-1);
+    expect(deactivateIdx).toBeLessThan(archiveIdx);
   });
 
   it("resets season_xp to 0 in user_season_passes", async () => {
+    mockActiveSeason("season-42");
     await resetSeasonRankings("season-42", mockDb);
 
     const call = mockQuery.mock.calls.find(
@@ -282,7 +297,8 @@ describe("resetSeasonRankings", () => {
     expect(params).toContain("season-42");
   });
 
-  it("marks the season as inactive", async () => {
+  it("marks the season inactive and 'ended', only while it is still active", async () => {
+    mockActiveSeason("season-5");
     await resetSeasonRankings("season-5", mockDb);
 
     const call = mockQuery.mock.calls.find(
@@ -292,7 +308,70 @@ describe("resetSeasonRankings", () => {
     const [sql, params] = call as [string, unknown[]];
     expect(sql).toContain('"is_active" = $1');
     expect(params[0]).toBe(false);
+    expect(params).toContain("ended");
     expect(params).toContain("season-5");
+    // Guarded by WHERE ... is_active = true so a second caller is a no-op.
+    expect(sql).toMatch(/where .*"is_active" = \$\d+/);
+    expect(params[params.length - 1]).toBe(true);
+  });
+
+  it("does nothing and returns false when the season was already ended", async () => {
+    // Default mock: the claim UPDATE matches no rows.
+    await expect(resetSeasonRankings("season-7", mockDb)).resolves.toBe(false);
+
+    const queries = mockQuery.mock.calls.map(([text]) => text as string);
+    expect(queries.some((q) => q.includes("INSERT INTO season_rank_archives"))).toBe(false);
+    expect(queries.some((q) => q.includes('update "user_season_passes"'))).toBe(false);
+    expect(queries.some((q) => q.includes("UPDATE users u"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// endSeason
+// ---------------------------------------------------------------------------
+
+describe("endSeason", () => {
+  it("is a no-op when the season is no longer active", async () => {
+    await expect(endSeason("season-9", "Old Season", mockDb)).resolves.toEqual({
+      ended: false,
+      ceremonyRoomId: null,
+    });
+    expect(mockCreditCoins).not.toHaveBeenCalled();
+    const queries = mockQuery.mock.calls.map(([text]) => text as string);
+    expect(queries.some((q) => q.includes("INSERT INTO rooms"))).toBe(false);
+  });
+
+  it("resets rankings, pays rewards, then opens the ceremony room", async () => {
+    mockQuery.mockImplementation((text: string) => {
+      // Ranking reset claim: UPDATE seasons SET is_active=false ... RETURNING id
+      if (text.startsWith('update "seasons"') && text.includes('"is_active"') && text.includes("returning")) {
+        return Promise.resolve({ rows: [["season-1"]], rowCount: 1 });
+      }
+      // Reward claim: UPDATE seasons SET status='distributing' ... RETURNING id, pool
+      if (text.startsWith('update "seasons"') && text.includes("returning")) {
+        return Promise.resolve({ rows: [["season-1", 1000]], rowCount: 1 });
+      }
+      if (text.includes('from "season_rank_archives"')) {
+        return Promise.resolve({ rows: [["user-1", 1]], rowCount: 1 });
+      }
+      if (text.includes('from "users"')) {
+        return Promise.resolve({ rows: [["admin-1"]], rowCount: 1 });
+      }
+      if (text.includes("INSERT INTO rooms")) {
+        return Promise.resolve({ rows: [{ id: "room-1" }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
+    });
+
+    const result = await endSeason("season-1", "Season One", mockDb);
+
+    expect(result).toEqual({ ended: true, ceremonyRoomId: "room-1" });
+    expect(mockCreditCoins).toHaveBeenCalledWith("user-1", 1000, "season_reward", "season:season-1:user-1", expect.any(String), expect.anything());
+    const queries = mockQuery.mock.calls.map(([text]) => text as string);
+    const archiveIdx = queries.findIndex((q) => q.includes("INSERT INTO season_rank_archives"));
+    const roomIdx = queries.findIndex((q) => q.includes("INSERT INTO rooms"));
+    expect(archiveIdx).toBeGreaterThan(-1);
+    expect(roomIdx).toBeGreaterThan(archiveIdx);
   });
 });
 

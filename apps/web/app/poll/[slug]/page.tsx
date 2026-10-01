@@ -21,8 +21,8 @@ import { PollVoteCard } from "@/components/polls/PollVoteCard";
 import { PollShareButton } from "@/components/polls/PollShareButton";
 import { FundTreasuryModal } from "@/components/polls/FundTreasuryModal";
 import { Icon } from "@/components/ui/Icon";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
-const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 const NOT_FOUND_METADATA: Metadata = {
   title: { absolute: "Poll not found — Zobia Social" },

@@ -22,8 +22,8 @@ import { generateStructuredData } from "@/lib/seo/metadata";
 import { formatShortDate } from "@/lib/format/date";
 import { WikiEditCta } from "@/components/wiki/WikiEditCta";
 import { Icon } from "@/components/ui/Icon";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
-const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string; pageSlug: string }> }): Promise<Metadata> {
   const { slug, pageSlug } = await params;

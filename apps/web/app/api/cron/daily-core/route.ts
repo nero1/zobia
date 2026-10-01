@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-export const maxDuration = 55;
+export const maxDuration = 300;
 
 /**
  * app/api/cron/daily-core/route.ts

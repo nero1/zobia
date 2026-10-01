@@ -1375,9 +1375,9 @@ replaces the old copy-pasted per-provider Redis circuit-breaker block.
 
 ### CRON Architecture
 
-**Vercel Hobby (1 daily CRON)**
-- Configured in `apps/web/vercel.json`: `/api/cron/daily` at `0 0 * * *` (midnight UTC).
-- Handles: daily quest reset, login streak updates, re-engagement checks (3/7/14/30/90-day inactivity), nemesis refresh (Sundays), season transitions.
+**Vercel Hobby (once-daily CRONs)**
+- Configured in `apps/web/vercel.json`: 7 staggered daily slots, `/api/cron/daily-core` (23:00 UTC) through `/api/cron/daily-platform` (05:00 UTC). See *CRON Architecture → Slot assignments* below for what each one runs. The old single `/api/cron/daily` route is retired (410 Gone).
+- Season transitions (ending seasons whose `ends_at` has passed, activating the next one) run in `daily-platform`.
 
 **cron-jobs.org (sub-daily jobs)**
 - `/api/cron/guild-wars` — every 1 hour: Final Hour transitions, war resolution.
@@ -1796,7 +1796,7 @@ Returns HTTP 200 when all checks pass. Returns HTTP 503 when one or more checks 
 
 This ensures zero dropped requests during rolling deploys on Vercel and other container-based platforms.
 
-**CRON SIGTERM handling:** The daily CRON handler (`/api/cron/daily`) additionally registers a module-level `process.once('SIGTERM', ...)` handler that sets a `_shuttingDown` flag and schedules `process.exit(0)` after a 10-second drain window. The GET handler checks this flag at its entry point and returns immediately with `{ success: false, reason: 'SHUTTING_DOWN' }` if a shutdown is already in progress, preventing any new CRON work from starting mid-deploy.
+**CRON and shutdown:** CRON routes have no shutdown handling of their own; the shared `instrumentation.ts` drain above applies to them too. They do not need more: every slot is idempotent through its `cron_state` guard, so a run cut short by a redeploy is simply picked up by the next scheduled (or manually re-triggered) run.
 
 ### Database Provider Abstraction
 
@@ -3077,12 +3077,12 @@ admin-selected data isn't deleted right away — it survives a **grace period** 
 
 ### Design principles
 
-The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs in a single Vercel function invocation. On Vercel Hobby, that function has a 10-second wall-clock limit — long enough to time out under sustained DAU load. The solution:
+The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs in a single Vercel function invocation, which risked timing out under sustained DAU load. (It is retired: `/api/cron/daily` now only answers 410 Gone and lists its replacements.) The solution:
 
-1. **Split into 7 staggered daily slots** — each slot runs once per day at a different UTC hour, spread across the night (23:00–05:00 UTC = midnight–6am WAT). Every slot has a 10-second timeout (`export const maxDuration = 10`) and completes comfortably within it.
+1. **Split into 7 staggered daily slots**: each slot runs once per day at a different UTC hour, spread across the night (23:00–05:00 UTC = midnight–6am WAT). Every CRON route exports `maxDuration = 300` (the Vercel Hobby maximum with Fluid Compute, billed only for active CPU time). One shared value matters: Vercel packs routes into the same function only when their config is identical, so per-route timeouts would each add a function to every deployment (see *Deployment size and Vercel Function Storage*).
 2. **No Redis for CRON state** — idempotency is enforced by the `cron_state` PostgreSQL table using a conditional `INSERT ... ON CONFLICT DO UPDATE WHERE value_ts < today`. A second invocation on the same calendar day resolves to `rowCount = 0` and returns immediately. Zero extra Redis reads per CRON slot.
 3. **Set-based SQL everywhere** — per-row loops replaced with `INSERT ... SELECT`, CTEs with `RETURNING`, and `unnest()` batch operations. A 5000-guild contribution-alert loop (5000 × 3 queries = 15 000 round-trips) is now a 3-query CTE that runs in one round-trip.
-4. **Limited-concurrency HTTP** — external HTTP calls (Telegram, push) use a `withConcurrency(items, limit, fn)` helper instead of `Promise.all` (which would fan out hundreds of simultaneous HTTP requests) or a serial `for` loop (which would exhaust the 10-second budget).
+4. **Limited-concurrency HTTP** — external HTTP calls (Telegram, push) use a `withConcurrency(items, limit, fn)` helper instead of `Promise.all` (which would fan out hundreds of simultaneous HTTP requests) or a serial `for` loop (which would needlessly stretch the run).
 5. **Shared auth helper** — `apps/web/lib/cron/auth.ts` exports `validateCronSecret` (timing-safe `timingSafeEqual`) and `checkCronIdempotency` (DB guard). Every CRON file imports these two functions — no duplicated auth code.
 
 ### Slot assignments
@@ -4244,3 +4244,35 @@ were all hardened with optional chaining (and a small number of
 `?? fallback` / `?? false` coercions where the result fed into a prop or
 variable typed as non-nullable) rather than left for the next person to
 rediscover one crash at a time.
+
+---
+
+## Deployment size and Vercel Function Storage
+
+Vercel's Hobby **Function Storage** (10 GB) is the sum of the function bundles of every deployment Vercel retains, not runtime usage. Each deployment of this app is the set of serverless functions the Next.js builder (`@vercel/next`) produces:
+
+- Every server route gets a trace file (`.next/server/**/*.nft.json`) listing the files it needs at runtime.
+- The builder packs routes into functions of up to ~250 MB. Route handlers and pages are packed separately, and routes are only packed together when their function config (`maxDuration`, `memory`, regions, ...) is identical. Each function stores its own copy of the union of its routes' files, so shared runtime code is duplicated once per function.
+
+How the app keeps each deployment small:
+
+1. **One CRON config.** All `app/api/cron/*` routes export `maxDuration = 300`; no other route sets `maxDuration`. This gives 3 functions (pages, API routes, CRONs) instead of 7. `lib/cron/__tests__/maxDuration.test.ts` enforces it.
+2. **Trace excludes** (`next.config.js` → `outputFileTracingExcludes`):
+   - API route handlers drop their `*_client-reference-manifest.js` (about 85 KB per route; route handlers never use it, Next loads it with `handleMissing`). Pages keep theirs because server rendering needs it.
+   - The musl builds of sharp/libvips are dropped (Vercel runs glibc Linux). sharp itself is only traced into the four image-upload routes that call `lib/storage/compress.ts`.
+3. **Fewer deployments.** `vercel.json` deploys only `main` (`git.deploymentEnabled`), and `scripts/vercel-ignore-build.sh` skips `main` commits that do not touch `apps/web`, `shared`, the root package manifests or `patches`.
+4. **Measuring.** `npm run analyze:functions` (in `apps/web`, after `next build`) reproduces the builder's grouping from the trace files and prints the estimated per-deployment size, the groups, the heaviest routes and the heaviest packages.
+
+Nothing here changes runtime behaviour on the web app, the PWA or the Capacitor Android app: the Android app talks to the same API routes, and the excluded files are never read at runtime.
+
+## Season end (CRON and admin "End season early")
+
+`lib/seasons/seasonEngine.ts` `endSeason(seasonId, name, db)` is the single end-of-season transition, used by both the `daily-platform` CRON (for active seasons whose `ends_at` has passed) and the admin **End Season Early** action (`DELETE /api/admin/seasons/:id`, on `/gate44/seasons` and the Android admin Seasons screen):
+
+1. `resetSeasonRankings` claims the season with `UPDATE seasons SET is_active = false, status = 'ended' ... WHERE id = $1 AND is_active = true RETURNING id`. If no row comes back, someone else already ended it and nothing happens. This makes the whole transition idempotent and safe if the CRON and an admin race.
+2. In the same transaction it archives final ranks into `season_rank_archives`, zeroes `user_season_passes.season_xp`/`season_rank`, and re-syncs `users.season_xp` to any other active season. Main XP, track XP and levels, coins, stars and inventory are untouched (PRD *Season Reset*).
+3. `distributeSeasonRewards` atomically moves `status` from `ended` to `distributing`, pays the top-10 reward pool, then marks it `completed`.
+4. `createSeasonCeremonyRoom` opens the 48-hour closing-ceremony room.
+
+The admin action first pulls `ends_at` forward to now, so profile and stats Season History (which lists archived seasons by `ends_at`) shows when the season actually ended.
+

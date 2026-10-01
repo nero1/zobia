@@ -28,8 +28,8 @@ import { listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
 import { BlogPostLayout } from "@/components/blogs/layouts/BlogPostLayout";
 import { db } from "@/lib/db";
 import { Icon } from "@/components/ui/Icon";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
-const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string; postSlug: string }> }): Promise<Metadata> {
   const { slug, postSlug } = await params;

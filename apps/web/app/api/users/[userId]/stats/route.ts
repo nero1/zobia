@@ -244,32 +244,29 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
         })
       );
 
-      // NOTE (schema gap): this joins on `seasons.theme_emoji` and
-      // `seasons.ended_at`, neither of which exists on the Drizzle `seasons`
-      // schema (it has `theme` and `startsAt`/`endsAt` instead). The original
-      // raw-SQL version referenced the same non-existent columns and relied
-      // on the surrounding `.catch()` to swallow the resulting DB error,
-      // always yielding an empty `seasonHistory`. Preserved verbatim via a
-      // raw `sql` escape rather than silently "fixing" behavior that may be
-      // depended on elsewhere — flagging as a real schema gap to resolve
-      // separately.
+      // Past seasons the user was ranked in (season_rank_archives rows are
+      // written when a season ends, which also marks it inactive). This used
+      // to select non-existent seasons.theme_emoji / seasons.ended_at columns,
+      // so it always failed and the history was always empty.
       const seasonRows = await orm
-        .execute<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>(
-          sql`SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
-              FROM season_rank_archives sra
-              JOIN seasons s ON s.id = sra.season_id
-              WHERE sra.user_id = ${userId} AND s.ended_at IS NOT NULL
-              ORDER BY s.ended_at DESC LIMIT 24`
-        )
-        .then((r) => r.rows)
-        .catch(() => [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>);
+        .select({
+          id: schema.seasons.id,
+          name: schema.seasons.name,
+          endedAt: schema.seasons.endsAt,
+          finalRank: schema.seasonRankArchives.finalRank,
+        })
+        .from(schema.seasonRankArchives)
+        .innerJoin(schema.seasons, eq(schema.seasons.id, schema.seasonRankArchives.seasonId))
+        .where(and(eq(schema.seasonRankArchives.userId, userId), eq(schema.seasons.isActive, false)))
+        .orderBy(desc(schema.seasons.endsAt))
+        .limit(24);
 
       seasonHistory = seasonRows.map((s) => ({
         id: s.id,
         name: s.name,
-        themeEmoji: s.theme_emoji ?? "🏆",
-        year: s.ended_at ? new Date(s.ended_at).getFullYear() : new Date().getFullYear(),
-        finalRank: s.final_rank ?? null,
+        themeEmoji: "🏆",
+        year: new Date(s.endedAt).getFullYear(),
+        finalRank: s.finalRank ?? null,
       }));
     } else {
       const globalRank = await getUserRank(userId, "main", "global", orm);

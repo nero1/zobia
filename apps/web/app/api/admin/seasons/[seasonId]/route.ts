@@ -15,12 +15,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { distributeSeasonRewards } from "@/lib/seasons/seasonEngine";
+import { endSeason } from "@/lib/seasons/seasonEngine";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -125,21 +126,30 @@ export const DELETE = withAdminAuth(async (
       throw badRequest("Season is already inactive");
     }
 
-    // Distribute rewards to top 10 performers, then mark as inactive.
-    let rewardsDistributedCount = 0;
-    await distributeSeasonRewards(seasonId, orm).then(() => { rewardsDistributedCount = 10; }).catch(() => {});
-
+    // Pull ends_at forward to now (the season stays active until endSeason
+    // claims it), then run the exact same end-of-season transition as the
+    // daily-platform CRON: archive + reset rankings, pay the top-10 reward
+    // pool, open the closing-ceremony room. Previously this route paid
+    // rewards *before* the season was marked 'ended', so the payout claim
+    // always skipped, and it then deactivated the season so the CRON never
+    // picked it up either: rankings were never reset and no rewards paid.
     await orm
       .update(schema.seasons)
-      .set({ isActive: false, endsAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.seasons.id, seasonId));
+      .set({ endsAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.seasons.id, seasonId), eq(schema.seasons.isActive, true)));
+
+    const { ended, ceremonyRoomId } = await endSeason(seasonId, existing[0].name, orm);
+    if (!ended) {
+      throw badRequest("Season is already inactive");
+    }
+    logger.info({ seasonId, adminId: auth.user.sub, ceremonyRoomId }, "[admin/seasons] season ended early");
 
     return NextResponse.json({
       success: true,
       data: {
         seasonId,
         seasonName: existing[0].name,
-        rewardsDistributed: rewardsDistributedCount,
+        ceremonyRoomId,
         message: "Season ended and rewards distributed.",
       },
       error: null,

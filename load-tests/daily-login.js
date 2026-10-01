@@ -2,12 +2,14 @@
  * k6 load test — Daily login CRON endpoint
  *
  * Simulates the thundering herd after midnight reset: 500 concurrent
- * users hitting the daily CRON endpoint simultaneously.
- * PRD §28 requires this test to run at 500 VUs.
+ * callers hitting the first daily CRON slot simultaneously (e.g. a
+ * misconfigured external scheduler retrying). PRD §28 requires this test to
+ * run at 500 VUs. Exactly one call may do the work; every other call must hit
+ * the cron_state idempotency guard and return `{ skipped: true }` quickly.
  *
  * Scenario:
- *  - GET /api/cron/daily
- *  - Authenticated with the CRON_SECRET header
+ *  - GET /api/cron/daily-core (the old /api/cron/daily is retired, 410)
+ *  - Authenticated with `Authorization: Bearer <CRON_SECRET>`
  *  - 500 VUs — models the spike immediately after midnight when all
  *    users attempt to claim their daily login bonus
  *  - Assert response status 200 and acceptable response time
@@ -54,15 +56,15 @@ export const options = {
 // ---------------------------------------------------------------------------
 
 export default function dailyLoginCronLoad() {
-  const url = `${BASE_URL}/api/cron/daily`;
+  const url = `${BASE_URL}/api/cron/daily-core`;
 
   // CRON secret must be provided via environment variable
   const cronSecret = __ENV.K6_CRON_SECRET || __ENV.CRON_SECRET || '';
 
   const params = {
     headers: {
-      'x-cron-secret': cronSecret,
-      'Content-Type': 'application/json',
+      // validateCronSecret (lib/cron/auth.ts) only accepts a Bearer token.
+      Authorization: `Bearer ${cronSecret}`,
     },
     tags: { name: 'daily-login-cron' },
   };
@@ -73,7 +75,7 @@ export default function dailyLoginCronLoad() {
   cronDuration.add(res.timings.duration);
 
   const success = check(res, {
-    'daily cron: status is 200 or 202': (r) => r.status === 200 || r.status === 202,
+    'daily cron: status is 200': (r) => r.status === 200,
     'daily cron: response has body': (r) => r.body !== null && r.body.length > 0,
     'daily cron: response time < 2000ms': (r) => r.timings.duration < 2000,
     'daily cron: not a 5xx error': (r) => r.status < 500,
