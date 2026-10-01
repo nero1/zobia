@@ -4,7 +4,7 @@
  * Terms of Service – public, statically rendered.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { Metadata } from "next";
 import { Icon } from "@/components/ui/Icon";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { Icon } from "@/components/ui/Icon";
 
 interface ErrorProps {

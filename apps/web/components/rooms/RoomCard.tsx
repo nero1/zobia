@@ -17,7 +17,7 @@
  * <RoomCard room={room} onJoin={handleJoin} onToggleFavorite={handleFavorite} />
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 import { useCurrency } from "@/lib/hooks/useCurrency";

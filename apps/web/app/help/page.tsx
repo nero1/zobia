@@ -11,7 +11,7 @@ export const revalidate = 300;
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { loadManifest } from "@/lib/manifest";
 import { listCategories } from "@/lib/help/service";
 import { HelpSearchBox } from "@/components/help/HelpSearchBox";

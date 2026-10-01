@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { Icon } from "@/components/ui/Icon";
 
 interface NavUser { username: string | null; avatar_emoji: string | null }

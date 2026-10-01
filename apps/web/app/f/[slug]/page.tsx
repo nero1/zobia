@@ -11,7 +11,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { serializeJsonLd } from "@/lib/seo/metadata";
 import { notFound } from "next/navigation";
 import { getThreadBySlug, listPostsInThread, incrementThreadViewCount } from "@/lib/bbforum/repo";

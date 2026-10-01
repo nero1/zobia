@@ -12,7 +12,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 // ---------------------------------------------------------------------------
 // Inner component (needs useSearchParams, so must be inside Suspense)

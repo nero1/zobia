@@ -1,5 +1,5 @@
 "use client";
-import { cachedIdentityFetch, identityCacheKey, invalidateIdentityCache } from "./identityCache";
+import { cachedRead, invalidateReadCache, readCacheKey } from "@/lib/cache/readCache";
 
 /**
  * lib/auth/sessionExpiredBus.ts
@@ -65,6 +65,14 @@ export function clearSessionHint(): void {
     window.localStorage.removeItem(HAD_SESSION_KEY);
   } catch {
     // ignore
+  }
+  // The signed-out user's cached reads and shared realtime connection must
+  // not survive into the next session on this tab (logout is a client-side
+  // navigation, not a reload). Imported lazily: the realtime module pulls in
+  // the Ably SDK only when it was actually used.
+  invalidateReadCache();
+  if (typeof window !== "undefined") {
+    void import("@/lib/realtime/ablyShared").then(({ closeAbly }) => closeAbly()).catch(() => {});
   }
 }
 
@@ -136,7 +144,7 @@ export function markSessionExpired(): void {
  */
 export function clearAuthCookies(): Promise<void> {
   clearSessionHint();
-  invalidateIdentityCache();
+  invalidateReadCache();
   return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
     .then(() => undefined)
     .catch(() => undefined);
@@ -239,21 +247,21 @@ export function installSessionExpiryFetchGuard(): void {
       parsed !== null && parsed.origin === window.location.origin && parsed.pathname.startsWith("/api/");
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
 
-    // Identity reads (/api/users/me, /api/auth/me) are shared and cached
+    // Hot reads (identity, home widgets, badge, ads) are shared and cached
     // briefly; any write may change what they return, so it drops the cache
-    // both before it is sent and after it completes. See lib/auth/identityCache.ts.
-    const identityKey = sameOriginApi && parsed ? identityCacheKey(parsed, method) : null;
+    // both before it is sent and after it completes. See lib/cache/readCache.ts.
+    const cacheKey = sameOriginApi && parsed ? readCacheKey(parsed, method) : null;
     const isWrite = sameOriginApi && method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
-    if (isWrite) invalidateIdentityCache();
+    if (isWrite) invalidateReadCache();
 
-    const res = identityKey
-      ? await cachedIdentityFetch(identityKey, () => base(input, init))
+    const res = cacheKey
+      ? await cachedRead(cacheKey, () => base(input, init))
       : await base(input, init);
 
-    if (isWrite) invalidateIdentityCache();
+    if (isWrite) invalidateReadCache();
     if (isLogoutRequest(input)) clearSessionHint();
     if (res.status === 401) {
-      invalidateIdentityCache();
+      invalidateReadCache();
       if (sameOriginApi && parsed && !isExemptApiPath(parsed.pathname)) {
         markSessionExpired();
       }

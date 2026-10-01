@@ -11,7 +11,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { notFound } from "next/navigation";
 import { getQuizBySlug, recordQuizView, getQuizTreasury } from "@/lib/quizzes/service";
 import { getOptionalServerUser } from "@/lib/auth/serverUser";

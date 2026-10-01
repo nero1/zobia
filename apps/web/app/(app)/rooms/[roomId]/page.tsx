@@ -16,7 +16,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { TopGifters } from "@/components/rooms/TopGifters";
 import { RoomRewardPanel } from "@/components/rooms/RoomRewardPanel";

@@ -14,7 +14,7 @@
  * text without links.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { portalPath, splitHashtags } from "@zobia/shared/utils";
 
 interface HashtagTextProps {

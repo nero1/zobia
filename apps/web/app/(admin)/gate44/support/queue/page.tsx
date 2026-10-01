@@ -11,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 
 type TicketStatus = "open" | "pending" | "escalated" | "resolved" | "closed";

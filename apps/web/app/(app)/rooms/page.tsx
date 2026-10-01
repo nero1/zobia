@@ -12,7 +12,7 @@
 
 import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { RoomCard, RoomListRow, type RoomCardData } from "@/components/rooms/RoomCard";
 import { useCurrency } from "@/lib/hooks/useCurrency";

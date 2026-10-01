@@ -7,7 +7,7 @@
  * (lib/classroom/limits.ts: plan + creator tier gating). Hidden at "detailed".
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 
 export function StatsTierNote({ tier }: { tier: string }) {

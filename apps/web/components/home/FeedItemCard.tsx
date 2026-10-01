@@ -9,7 +9,7 @@
  * lib/feed/deeplink.ts).
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { deepLinkPathFor } from "@/lib/feed/deeplink";
 import { Icon } from "@/components/ui/Icon";

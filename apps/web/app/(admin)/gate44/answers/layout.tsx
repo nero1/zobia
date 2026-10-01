@@ -9,7 +9,7 @@
  * fixes that by rendering the tab bar around every nested page.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { usePathname } from "next/navigation";
 
 const TABS = [

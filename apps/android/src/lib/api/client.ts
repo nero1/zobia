@@ -25,11 +25,11 @@ import { reportRequestStart, reportRequestEnd } from '@/lib/loading/requestActiv
 import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
 import {
   defaultAdapterFor,
-  invalidateIdentityCache,
-  isIdentityRead,
+  invalidateReadCache,
+  isCacheableRead,
   isWriteRequest,
-  withIdentityCache,
-} from '@/lib/api/identityCache';
+  withReadCache,
+} from '@/lib/api/readCache';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -40,9 +40,24 @@ export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
 let _cachedToken: string | null = null;
 
+type TokenChangeListener = (token: string | null) => void;
+const tokenChangeListeners = new Set<TokenChangeListener>();
+
+/** Subscribe to access-token changes (sign-in, refresh, sign-out). Returns an unsubscribe function. */
+export function onCachedTokenChange(cb: TokenChangeListener): () => void {
+  tokenChangeListeners.add(cb);
+  return () => {
+    tokenChangeListeners.delete(cb);
+  };
+}
+
 export function setCachedToken(t: string | null): void {
-  if (t !== _cachedToken) invalidateIdentityCache();
+  if (t === _cachedToken) return;
+  invalidateReadCache();
   _cachedToken = t;
+  tokenChangeListeners.forEach((cb) => {
+    try { cb(t); } catch {}
+  });
 }
 export function getCachedToken(): string | null { return _cachedToken; }
 
@@ -75,8 +90,7 @@ function notifyUnauthenticated(): void {
  * divergent copies of the same cleanup logic (ZSB-03/ZSB-08).
  */
 export function signalUnauthenticated(): void {
-  _cachedToken = null;
-  invalidateIdentityCache();
+  setCachedToken(null);
   setSessionExpiresAtFromToken(null);
   _autoSignOutReason = 'session_expired';
   if (_notifiedUnauthenticated) return;
@@ -239,25 +253,26 @@ apiClient.interceptors.response.use(
   },
 );
 
-// Identity cache — GET /users/me and /auth/me are shared and reused for a
-// minute; any write drops them (lib/api/identityCache.ts). Registered before
+// Read cache — hot GETs (/users/me, /auth/me, home widgets, ad slots) are
+// shared and reused for a short TTL; any write drops them
+// (lib/api/readCache.ts). Registered before
 // the auth interceptor below, and axios runs request interceptors last-added
 // first, so this sees the final Authorization header it keys the cache on.
 apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (isWriteRequest(config)) {
-    invalidateIdentityCache();
-  } else if (isIdentityRead(config)) {
-    config.adapter = withIdentityCache(defaultAdapterFor(config));
+    invalidateReadCache();
+  } else if (isCacheableRead(config)) {
+    config.adapter = withReadCache(defaultAdapterFor(config));
   }
   return config;
 });
 apiClient.interceptors.response.use(
   (response) => {
-    if (isWriteRequest(response.config)) invalidateIdentityCache();
+    if (isWriteRequest(response.config)) invalidateReadCache();
     return response;
   },
   (error: AxiosError) => {
-    if (error.config && isWriteRequest(error.config)) invalidateIdentityCache();
+    if (error.config && isWriteRequest(error.config)) invalidateReadCache();
     return Promise.reject(error);
   },
 );
@@ -271,7 +286,7 @@ apiClient.interceptors.request.use(
     }
     const token = await secureGet(JWT_KEY);
     if (token) {
-      _cachedToken = token;
+      setCachedToken(token);
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;

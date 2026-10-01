@@ -15,7 +15,7 @@
  * piece that needs t() is pulled into a client component like this one).
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";
 

@@ -8,7 +8,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { listBoardTree } from "@/lib/bbforum/repo";
 import { Icon } from "@/components/ui/Icon";
 

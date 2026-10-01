@@ -6,7 +6,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { notFound, redirect } from "next/navigation";
 import { listDocsByCategory, resolveCategorySlug, type HelpDifficulty } from "@/lib/help/service";
 import { getServerTranslation } from "@/lib/i18n/server";

@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { ALERT_PRIORITY_LEVELS } from "@/lib/alerts/types";
 
 interface MonitoringData {

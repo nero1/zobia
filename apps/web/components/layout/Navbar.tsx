@@ -12,7 +12,7 @@
 
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { clsx } from "clsx";

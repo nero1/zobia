@@ -16,7 +16,7 @@
  * distinct without re-deriving the whole design system per theme.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { formatShortDate } from "@/lib/format/date";
 import type { BlogHomeLayoutProps, HomeArticle } from "./types";
 import { Icon } from "@/components/ui/Icon";

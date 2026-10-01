@@ -13,7 +13,7 @@
  * portal: they open a read-only tag page.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";

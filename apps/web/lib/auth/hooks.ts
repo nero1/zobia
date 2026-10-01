@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
 import { hasSessionHint, markSessionActive, markSessionExpired, rawFetch } from '@/lib/auth/sessionExpiredBus';
-import { cachedIdentityFetch } from '@/lib/auth/identityCache';
+import { cachedRead } from '@/lib/cache/readCache';
 
 export interface AuthUser {
   id: string;
@@ -40,11 +40,11 @@ interface AuthState {
 let _authPromise: Promise<AuthUser | null> | null = null;
 
 // Shared with every other /api/auth/me reader through the identity cache
-// (lib/auth/identityCache.ts), so a page render costs at most one request.
+// (lib/cache/readCache.ts), so a page render costs at most one request.
 // rawFetch keeps this out of the global 401 guard, which would otherwise
 // announce "session expired" before the silent refresh below gets a chance.
 const authMeFetch = () =>
-  cachedIdentityFetch('/api/auth/me', () => rawFetch('/api/auth/me', { credentials: 'include' }));
+  cachedRead('/api/auth/me', () => rawFetch('/api/auth/me', { credentials: 'include' }));
 
 async function requestAuthMe(): Promise<AuthUser | null> {
   let res = await authMeFetch();

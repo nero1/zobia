@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { Icon } from "@/components/ui/Icon";

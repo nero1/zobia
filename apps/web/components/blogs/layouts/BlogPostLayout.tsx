@@ -15,7 +15,7 @@
  */
 
 import type { ReactNode } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { LayoutVariant, ThemeTokens } from "@/lib/blogs/themes";
 import type { HomeCategory, HomePageRow } from "./types";
 

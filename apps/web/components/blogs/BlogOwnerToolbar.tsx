@@ -16,7 +16,7 @@
  * there) — see components/blogs/PostBody.tsx's own note on this.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 export function BlogOwnerToolbar({
   blogSlug,

@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { PlanExpiryBanner, resolvePlanExpiry, type PlanExpiryInfo } from "@/components/PlanExpiryBanner";
 import { Icon } from "@/components/ui/Icon";

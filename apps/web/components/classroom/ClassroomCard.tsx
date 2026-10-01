@@ -9,7 +9,7 @@
  * owner controls (Boost/Share/Manage) in the footer.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ClassroomCard as ClassroomCardData } from "@/lib/classroom/directory";

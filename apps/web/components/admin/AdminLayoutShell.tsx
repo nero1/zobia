@@ -9,7 +9,7 @@
  * - All surfaces include a "← User Area" link back to /home
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";

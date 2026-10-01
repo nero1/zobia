@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { TweetCard } from "./TweetCard";
 import { type Tweet, mapTweetRow } from "./types";
 

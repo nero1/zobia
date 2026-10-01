@@ -12,7 +12,7 @@
  */
 
 import React from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useQuery } from "@tanstack/react-query";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { Icon } from "@/components/ui/Icon";

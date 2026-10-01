@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { Metadata } from "next";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";

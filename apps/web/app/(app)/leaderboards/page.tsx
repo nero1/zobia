@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";

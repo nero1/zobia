@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import type { MarketItem, MarketCategory, MarketSort } from "@/lib/market/types";
 import { MarketItemCard } from "@/components/market/MarketItemCard";

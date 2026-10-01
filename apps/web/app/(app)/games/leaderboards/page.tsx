@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { HiddenFromOthersTag } from "@/components/leaderboard/AnonymousReveal";
 import { useTranslation } from "react-i18next";
 

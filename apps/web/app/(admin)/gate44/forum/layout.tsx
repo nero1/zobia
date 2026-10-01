@@ -7,7 +7,7 @@
  * queue, settings) — mirrors app/(admin)/gate44/answers/layout.tsx.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { usePathname } from "next/navigation";
 
 const TABS = [
