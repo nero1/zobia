@@ -11,7 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { ALERT_PRIORITY_LEVELS, type AlertPriorityLevel } from "@/lib/alerts/types";
 import { Icon } from "@/components/ui/Icon";

@@ -98,13 +98,26 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { userId } = params;
-    if (!UUID_RE.test(userId)) throw badRequest("userId must be a valid UUID");
+    const db = await getDb();
+
+    // Accept a username as well as an id: /profile/<username> links (creator
+    // dashboard, Creator Spotlight) used to get a 400 here.
+    let { userId } = params;
+    if (!UUID_RE.test(userId)) {
+      const handle = decodeURIComponent(userId).replace(/^@/, "");
+      if (!/^[A-Za-z0-9_.]{1,40}$/.test(handle)) throw badRequest("userId must be a valid UUID or username");
+      const [match] = await db
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(sql`LOWER(${schema.users.username}) = LOWER(${handle})`, isNull(schema.users.deletedAt)))
+        .limit(1);
+      if (!match) throw notFound("User not found");
+      userId = match.id;
+    }
 
     const callerId = auth.user.sub;
 
     // 1. Main user row
-    const db = await getDb();
     const [userRow] = await db
       .select({
         id: schema.users.id,

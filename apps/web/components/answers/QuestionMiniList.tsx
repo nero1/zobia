@@ -7,7 +7,7 @@
  * be used from both the public SSR pages and the authenticated client pages.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 export interface QuestionMiniListItem {
   id: string;

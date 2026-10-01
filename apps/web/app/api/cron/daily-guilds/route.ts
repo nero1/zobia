@@ -141,10 +141,10 @@ export const GET = async (req: NextRequest) => {
                'Your guild has moved from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
                jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
                false, NOW()
-        FROM (SELECT unnest(${demotionNotifs.map(n => n[0])}::uuid[]) AS captain_id,
-                     unnest(${demotionNotifs.map(n => n[1])}::text[]) AS from_tier,
-                     unnest(${demotionNotifs.map(n => n[2])}::text[]) AS to_tier,
-                     unnest(${demotionNotifs.map(n => n[3])}::text[]) AS guild_id) sub
+        FROM (SELECT unnest(${sql.param(demotionNotifs.map(n => n[0]))}::uuid[]) AS captain_id,
+                     unnest(${sql.param(demotionNotifs.map(n => n[1]))}::text[]) AS from_tier,
+                     unnest(${sql.param(demotionNotifs.map(n => n[2]))}::text[]) AS to_tier,
+                     unnest(${sql.param(demotionNotifs.map(n => n[3]))}::text[]) AS guild_id) sub
       `).catch(() => {});
     }
     if (promotionNotifs.length > 0) {
@@ -154,10 +154,10 @@ export const GET = async (req: NextRequest) => {
                'Your guild has been promoted from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
                jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
                false, NOW()
-        FROM (SELECT unnest(${promotionNotifs.map(n => n[0])}::uuid[]) AS captain_id,
-                     unnest(${promotionNotifs.map(n => n[1])}::text[]) AS from_tier,
-                     unnest(${promotionNotifs.map(n => n[2])}::text[]) AS to_tier,
-                     unnest(${promotionNotifs.map(n => n[3])}::text[]) AS guild_id) sub
+        FROM (SELECT unnest(${sql.param(promotionNotifs.map(n => n[0]))}::uuid[]) AS captain_id,
+                     unnest(${sql.param(promotionNotifs.map(n => n[1]))}::text[]) AS from_tier,
+                     unnest(${sql.param(promotionNotifs.map(n => n[2]))}::text[]) AS to_tier,
+                     unnest(${sql.param(promotionNotifs.map(n => n[3]))}::text[]) AS guild_id) sub
       `).catch(() => {});
     }
 
@@ -189,7 +189,7 @@ export const GET = async (req: NextRequest) => {
         INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
         SELECT sub.user_id, 'patron', 'patron', NOW(),
                jsonb_build_object('roomCount', sub.room_count::int, 'awardedAt', NOW()::text)
-        FROM (SELECT unnest(${patronCandidates.map(c => c.user_id)}::uuid[]) AS user_id, unnest(${patronCandidates.map(c => parseInt(c.room_count))}::int[]) AS room_count) sub
+        FROM (SELECT unnest(${sql.param(patronCandidates.map(c => c.user_id))}::uuid[]) AS user_id, unnest(${sql.param(patronCandidates.map(c => parseInt(c.room_count)))}::int[]) AS room_count) sub
         ON CONFLICT (user_id, badge_key) DO UPDATE SET awarded_at = NOW(), metadata = EXCLUDED.metadata
       `).catch(() => {});
     }
@@ -258,11 +258,11 @@ export const GET = async (req: NextRequest) => {
                  'weeksBelow', sub.weeks_below
                ),
                false, NOW()
-        FROM (SELECT unnest(${alertRows.map(r => r.user_id)}::uuid[])  AS user_id,
-                     unnest(${alertRows.map(r => r.guild_id)}::uuid[])  AS guild_id,
-                     unnest(${alertRows.map(r => r.weeks_below)}::int[])   AS weeks_below,
-                     unnest(${alertRows.map(r => r.contribution_score)}::int[])   AS contribution_score,
-                     unnest(${alertRows.map(r => r.avg_score)}::int[])   AS avg_score) sub
+        FROM (SELECT unnest(${sql.param(alertRows.map(r => r.user_id))}::uuid[])  AS user_id,
+                     unnest(${sql.param(alertRows.map(r => r.guild_id))}::uuid[])  AS guild_id,
+                     unnest(${sql.param(alertRows.map(r => r.weeks_below))}::int[])   AS weeks_below,
+                     unnest(${sql.param(alertRows.map(r => r.contribution_score))}::int[])   AS contribution_score,
+                     unnest(${sql.param(alertRows.map(r => r.avg_score))}::int[])   AS avg_score) sub
       `).catch(() => {});
     }
 
@@ -341,10 +341,10 @@ export const GET = async (req: NextRequest) => {
           INSERT INTO guild_quests
             (guild_id, title, description, quest_type, target_count, current_count,
              reward_guild_xp, reward_coins, week_start, week_end, is_completed, is_active, created_at)
-          SELECT unnest(${guildIds}::uuid[]), unnest(${titles}::text[]), unnest(${descriptions}::text[]), unnest(${questTypes}::text[]),
-                 unnest(${targetCounts}::int[]), 0,
-                 unnest(${xpRewards}::int[]), unnest(${coinRewards}::int[]),
-                 unnest(${weekStarts}::date[]), unnest(${weekEnds}::date[]),
+          SELECT unnest(${sql.param(guildIds)}::uuid[]), unnest(${sql.param(titles)}::text[]), unnest(${sql.param(descriptions)}::text[]), unnest(${sql.param(questTypes)}::text[]),
+                 unnest(${sql.param(targetCounts)}::int[]), 0,
+                 unnest(${sql.param(xpRewards)}::int[]), unnest(${sql.param(coinRewards)}::int[]),
+                 unnest(${sql.param(weekStarts)}::date[]), unnest(${sql.param(weekEnds)}::date[]),
                  false, true, NOW()
           ON CONFLICT DO NOTHING
         `).catch(() => ({ rowCount: 0 }));
@@ -361,7 +361,7 @@ export const GET = async (req: NextRequest) => {
                  false, NOW()
           FROM guild_members gm
           WHERE gm.left_at IS NULL AND gm.role IN ('captain', 'veteran')
-            AND gm.guild_id = ANY(${guilds.map(g => g.id)}::uuid[])
+            AND gm.guild_id = ANY(${sql.param(guilds.map(g => g.id))}::uuid[])
         `).catch(() => {});
       }
 

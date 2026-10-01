@@ -7,7 +7,7 @@
  * login / register CTAs is shown instead.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { cookies } from "next/headers";
 import type { Metadata } from "next";
 import { verifyAccessToken } from "@/lib/auth/jwt";

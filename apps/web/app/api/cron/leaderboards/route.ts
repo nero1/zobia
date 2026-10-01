@@ -108,7 +108,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { rows: prevRows } = await orm.execute<{ user_id: string; last_notified_rank: number }>(sql`
       SELECT user_id, last_notified_rank
       FROM leaderboard_snapshots
-      WHERE user_id = ANY(${userIds}::uuid[])
+      WHERE user_id = ANY(${sql.param(userIds)}::uuid[])
         AND scope = 'global'
         AND track = 'main'
         AND last_notified_rank IS NOT NULL
@@ -155,12 +155,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       INSERT INTO leaderboard_snapshots
         (user_id, track, scope, city, season_id, xp_value, updated_at)
       SELECT
-        unnest(${batchUserIds}::uuid[]),
-        unnest(${batchTracks}::text[]),
+        unnest(${sql.param(batchUserIds)}::uuid[]),
+        unnest(${sql.param(batchTracks)}::text[]),
         'global',
         NULL,
         NULL,
-        unnest(${batchXps}::bigint[]),
+        unnest(${sql.param(batchXps)}::bigint[]),
         NOW()
       ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
       DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
@@ -186,7 +186,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         FROM leaderboard_snapshots
         WHERE scope = 'global' AND track = 'main'
       )
-      SELECT user_id, new_rank FROM all_ranks WHERE user_id = ANY(${userIds}::uuid[])
+      SELECT user_id, new_rank FROM all_ranks WHERE user_id = ANY(${sql.param(userIds)}::uuid[])
     `);
 
     // Separate into: all ranks to persist, and subset that needs notifications
@@ -223,7 +223,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       await orm.execute(sql`
         UPDATE leaderboard_snapshots ls
         SET last_notified_rank = updates.rank
-        FROM (SELECT unnest(${updateUserIds}::uuid[]) AS uid, unnest(${updateRanks}::int[]) AS rank) updates
+        FROM (SELECT unnest(${sql.param(updateUserIds)}::uuid[]) AS uid, unnest(${sql.param(updateRanks)}::int[]) AS rank) updates
         WHERE ls.user_id = updates.uid AND ls.scope = 'global' AND ls.track = 'main'
       `).catch(() => {});
     }
@@ -261,13 +261,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
                ),
                sub.ref_id,
                false, NOW()
-        FROM (SELECT unnest(${notifUserIds}::uuid[]) AS uid,
-                     unnest(${notifTypes}::text[]) AS ntype,
-                     unnest(${notifPrevRanks}::int[])  AS prev_rank,
-                     unnest(${notifNewRanks}::int[])  AS new_rank,
-                     unnest(${notifEnteredTop10}::bool[]) AS entered_top10,
-                     unnest(${notifIsPromotion}::bool[]) AS is_promotion,
-                     unnest(${notifReferenceIds}::text[]) AS ref_id) sub
+        FROM (SELECT unnest(${sql.param(notifUserIds)}::uuid[]) AS uid,
+                     unnest(${sql.param(notifTypes)}::text[]) AS ntype,
+                     unnest(${sql.param(notifPrevRanks)}::int[])  AS prev_rank,
+                     unnest(${sql.param(notifNewRanks)}::int[])  AS new_rank,
+                     unnest(${sql.param(notifEnteredTop10)}::bool[]) AS entered_top10,
+                     unnest(${sql.param(notifIsPromotion)}::bool[]) AS is_promotion,
+                     unnest(${sql.param(notifReferenceIds)}::text[]) AS ref_id) sub
         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
       `).catch(() => {});
     }

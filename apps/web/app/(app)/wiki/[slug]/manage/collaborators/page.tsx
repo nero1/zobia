@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";

@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { formatShortDate } from "@/lib/format/date";
 import { translateApiError } from "@/lib/i18n/apiErrors";

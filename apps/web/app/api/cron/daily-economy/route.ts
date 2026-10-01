@@ -121,7 +121,7 @@ export const GET = async (req: NextRequest) => {
               await tx.execute(sql`
                 WITH eligible AS (
                   SELECT id, coin_balance FROM users
-                  WHERE id = ANY(${batchIds}::uuid[])
+                  WHERE id = ANY(${sql.param(batchIds)}::uuid[])
                   FOR UPDATE SKIP LOCKED
                 ),
                 ledger_rows AS (
@@ -175,7 +175,7 @@ export const GET = async (req: NextRequest) => {
         // Batch upsert MAU snapshots
         await orm.execute(sql`
           INSERT INTO room_monthly_active_users (room_id, month, mau_count)
-          SELECT unnest(${mauRows.map(r => r.room_id)}::uuid[]), ${monthKey}::date, unnest(${mauRows.map(r => parseInt(r.mau_count, 10))}::int[])
+          SELECT unnest(${sql.param(mauRows.map(r => r.room_id))}::uuid[]), ${monthKey}::date, unnest(${sql.param(mauRows.map(r => parseInt(r.mau_count, 10)))}::int[])
           ON CONFLICT (room_id, month) DO UPDATE SET mau_count = EXCLUDED.mau_count
         `).catch(() => {});
         snapshotted = mauRows.length;
@@ -185,7 +185,7 @@ export const GET = async (req: NextRequest) => {
         if (eligibleRoomIds.length > 0) {
           const { rows: enrolledRooms } = await orm.execute<{ id: string }>(sql`
             UPDATE rooms SET is_ad_enrolled = TRUE, updated_at = NOW()
-            WHERE id = ANY(${eligibleRoomIds}::uuid[]) AND is_ad_enrolled = FALSE
+            WHERE id = ANY(${sql.param(eligibleRoomIds)}::uuid[]) AND is_ad_enrolled = FALSE
             RETURNING id
           `).catch(() => ({ rows: [] as Array<{ id: string }> }));
           enrolled = enrolledRooms.length;
@@ -201,7 +201,7 @@ export const GET = async (req: NextRequest) => {
                      jsonb_build_object('roomId', r.id::text, 'mauCount', sub.mau),
                      false, NOW()
               FROM rooms r
-              JOIN (SELECT unnest(${enrolledIds}::uuid[]) AS room_id, unnest(${enrolledMaus}::int[]) AS mau) sub ON sub.room_id = r.id
+              JOIN (SELECT unnest(${sql.param(enrolledIds)}::uuid[]) AS room_id, unnest(${sql.param(enrolledMaus)}::int[]) AS mau) sub ON sub.room_id = r.id
             `).catch(() => {});
           }
         }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
 import { hasSessionHint, markSessionActive, markSessionExpired, rawFetch } from '@/lib/auth/sessionExpiredBus';
+import { cachedRead } from '@/lib/cache/readCache';
 
 export interface AuthUser {
   id: string;
@@ -38,8 +39,15 @@ interface AuthState {
 
 let _authPromise: Promise<AuthUser | null> | null = null;
 
+// Shared with every other /api/auth/me reader through the identity cache
+// (lib/cache/readCache.ts), so a page render costs at most one request.
+// rawFetch keeps this out of the global 401 guard, which would otherwise
+// announce "session expired" before the silent refresh below gets a chance.
+const authMeFetch = () =>
+  cachedRead('/api/auth/me', () => rawFetch('/api/auth/me', { credentials: 'include' }));
+
 async function requestAuthMe(): Promise<AuthUser | null> {
-  let res = await rawFetch('/api/auth/me', { credentials: 'include' });
+  let res = await authMeFetch();
   if (res.status === 401 && hasSessionHint()) {
     // The short-lived access token may simply have lapsed while the refresh
     // token is still good — try one silent refresh before concluding anything.
@@ -48,7 +56,7 @@ async function requestAuthMe(): Promise<AuthUser | null> {
     const refreshed = await rawFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
       .then((r) => r.ok)
       .catch(() => false);
-    if (refreshed) res = await rawFetch('/api/auth/me', { credentials: 'include' });
+    if (refreshed) res = await authMeFetch();
   }
   if (!res.ok) {
     // markSessionExpired() is a no-op for a visitor who never had a session,

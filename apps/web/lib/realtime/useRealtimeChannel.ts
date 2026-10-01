@@ -22,6 +22,7 @@
 
 import { useEffect, useState } from "react";
 import { toPusherChannelName } from "./pusherChannelName";
+import { invalidateReadCache } from "@/lib/cache/readCache";
 
 // Module-level Pusher singleton — one WebSocket connection shared across all
 // hook instances. Created lazily on first use; never disconnected until the
@@ -49,6 +50,12 @@ export function useRealtimeChannel(
     const provider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
     let cancelled = false;
     let cleanup: (() => void) | undefined;
+    // Events on the user's own channel (rewards, coins, XP, notifications)
+    // change what the short-lived client read cache holds, so drop it first.
+    const deliver = (event: string, data: unknown) => {
+      if (channel.startsWith("user:")) invalidateReadCache();
+      onEvent(event, data);
+    };
     // Guarded setter — never touch state after the effect has been torn down.
     const markConnected = (v: boolean) => {
       if (!cancelled) setConnected(v);
@@ -68,7 +75,7 @@ export function useRealtimeChannel(
             "broadcast",
             { event: "*" },
             (payload: any) => {
-              onEvent(payload.event as string, payload.payload);
+              deliver(payload.event as string, payload.payload);
             }
           )
           .subscribe((status: string) => {
@@ -87,31 +94,40 @@ export function useRealtimeChannel(
       })();
     } else if (provider === "ably") {
       (async () => {
-        const Ably = (await import("ably")) as any;
-        // Guard BEFORE creating the client: if the component unmounted while
-        // the dynamic import was in-flight, bail out now instead of opening
-        // a connection that would immediately need to be closed.
-        if (cancelled) return;
+        try {
+          // One shared connection per tab; a token is only requested when
+          // this channel isn't already covered (lib/realtime/ablyShared.ts).
+          const { acquireAblyChannel } = await import("./ablyShared");
+          if (cancelled) return;
+          const { client, release } = await acquireAblyChannel(channel);
+          if (cancelled) {
+            release();
+            return;
+          }
+          // Connection-level state drives the poll back-off.
+          const onState = (stateChange: { current: string }) => {
+            markConnected(stateChange.current === "connected");
+          };
+          client.connection.on(onState);
+          markConnected(client.connection.state === "connected");
+          const ch = client.channels.get(channel);
+          // Guard the message callback so events arriving in the brief window
+          // between subscription and cleanup teardown never call into a
+          // potentially unmounted component.
+          const listener = (msg: { name: string; data: unknown }) => {
+            if (!cancelled) deliver(msg.name, msg.data);
+          };
+          ch.subscribe(listener);
 
-        const client = new Ably.Realtime({
-          authUrl: `/api/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
-        });
-        // Connection-level state drives the poll back-off.
-        client.connection.on((stateChange: { current: string }) => {
-          markConnected(stateChange.current === "connected");
-        });
-        const ch = client.channels.get(channel);
-        // Guard the message callback so events arriving in the brief window
-        // between subscription and cleanup teardown never call into a
-        // potentially unmounted component.
-        ch.subscribe((msg: { name: string; data: unknown }) => {
-          if (!cancelled) onEvent(msg.name, msg.data);
-        });
-
-        cleanup = () => {
-          ch.unsubscribe();
-          client.close();
-        };
+          cleanup = () => {
+            ch.unsubscribe(listener);
+            client.connection.off(onState);
+            release();
+          };
+        } catch (err) {
+          // Token refused or SDK failed to load: stay on the poll fallback.
+          console.warn("[realtime] Ably unavailable; using poll fallback", err);
+        }
       })();
     } else if (provider === "pusher") {
       const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY;
@@ -148,7 +164,7 @@ export function useRealtimeChannel(
         // Pusher delivers named events — bind to all with a catch-all
         sub.bind_global((eventName: string, data: unknown) => {
           if (!eventName.startsWith("pusher:")) {
-            onEvent(eventName, data);
+            deliver(eventName, data);
           }
         });
 

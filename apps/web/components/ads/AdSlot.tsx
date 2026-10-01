@@ -4,8 +4,10 @@
  * components/ads/AdSlot.tsx
  *
  * Platform ad slot for web + PWA (PRD §17 Pillar 3 — Platform Advertising).
- * Fetches one eligible in-house/user/native/third-party ad for `placement`
- * from GET /api/ads/serve — plan-based ad exposure (Free/Plus/Pro/Max) and
+ * Gets one eligible in-house/user/native/third-party ad for `placement`
+ * through lib/ads/clientServe.ts (slots mounting together share one batched
+ * GET /api/ads/serve request, answers are reused for a few minutes);
+ * plan-based ad exposure (Free/Plus/Pro/Max) and
  * budget eligibility are enforced server-side, so this component only has
  * to render (or render nothing). Falls back to a Google AdSense unit when
  * no in-house ad is eligible and an AdSense client id is configured — same
@@ -21,6 +23,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { enqueueAdEvent } from "./adEventQueue";
+import { requestAd, type ClientServedAd } from "@/lib/ads/clientServe";
 
 interface AdSlotProps {
   placement: string;
@@ -33,20 +36,18 @@ declare global {
   }
 }
 
-interface ServedAd {
-  creativeId: string;
-  campaignId: string;
-  placementKey: string;
-  format: "html" | "text" | "image" | "native" | "third_party";
-  size: "300x250" | "320x50" | "interstitial" | "rewarded" | "native";
-  title: string | null;
-  body: string | null;
-  imageUrl: string | null;
-  clickUrl: string | null;
-  ctaLabel: string | null;
-  advertiserName: string;
-  advertiserAvatarUrl: string | null;
-  thirdPartyTag?: string | null;
+type ServedAd = ClientServedAd;
+
+const ADSENSE_SRC = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js";
+
+/** Inject the AdSense library once per page. */
+function ensureAdsenseScript(client: string): void {
+  if (document.querySelector(`script[src^="${ADSENSE_SRC}"]`)) return;
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = `${ADSENSE_SRC}?client=${encodeURIComponent(client)}`;
+  script.crossOrigin = "anonymous";
+  document.head.appendChild(script);
 }
 
 const SIZE_CLASS: Record<string, string> = {
@@ -66,15 +67,9 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/ads/serve?placement=${encodeURIComponent(placement)}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((b) => {
-        if (cancelled) return;
-        setAd(b?.data?.ad ?? null);
-      })
-      .catch(() => {
-        if (!cancelled) setAd(null);
-      });
+    void requestAd(placement).then((served) => {
+      if (!cancelled) setAd(served);
+    });
     return () => {
       cancelled = true;
     };
@@ -99,10 +94,14 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
 
   useEffect(() => {
     if (ad === null && adsenseClient && adsenseSlot) {
+      // The AdSense library was never loaded anywhere, so this fallback
+      // could not render. Load it once (strict-dynamic lets a script added
+      // by our nonced bundle run), then queue this slot.
+      ensureAdsenseScript(adsenseClient);
       try {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
       } catch {
-        /* AdSense script not loaded — ignore */
+        /* AdSense blocked (ad blocker): ignore */
       }
     }
   }, [ad, adsenseClient, adsenseSlot]);

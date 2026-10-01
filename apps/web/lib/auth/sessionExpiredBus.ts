@@ -1,4 +1,5 @@
 "use client";
+import { cachedRead, invalidateReadCache, readCacheKey, writeInvalidatesReadCache } from "@/lib/cache/readCache";
 
 /**
  * lib/auth/sessionExpiredBus.ts
@@ -64,6 +65,14 @@ export function clearSessionHint(): void {
     window.localStorage.removeItem(HAD_SESSION_KEY);
   } catch {
     // ignore
+  }
+  // The signed-out user's cached reads and shared realtime connection must
+  // not survive into the next session on this tab (logout is a client-side
+  // navigation, not a reload). Imported lazily: the realtime module pulls in
+  // the Ably SDK only when it was actually used.
+  invalidateReadCache();
+  if (typeof window !== "undefined") {
+    void import("@/lib/realtime/ablyShared").then(({ closeAbly }) => closeAbly()).catch(() => {});
   }
 }
 
@@ -135,6 +144,7 @@ export function markSessionExpired(): void {
  */
 export function clearAuthCookies(): Promise<void> {
   clearSessionHint();
+  invalidateReadCache();
   return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
     .then(() => undefined)
     .catch(() => undefined);
@@ -221,26 +231,45 @@ export function installSessionExpiryFetchGuard(): void {
   originalFetch = window.fetch.bind(window);
   const base = originalFetch;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const res = await base(input, init);
+    let parsed: URL | null = null;
+    try {
+      const rawUrl =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      parsed = new URL(rawUrl, window.location.origin);
+    } catch {
+      // Malformed/opaque URL: don't let guard logic break the request.
+    }
+    const sameOriginApi =
+      parsed !== null && parsed.origin === window.location.origin && parsed.pathname.startsWith("/api/");
+    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+
+    // Hot reads (identity, home widgets, badge, ads) are shared and cached
+    // briefly; any write may change what they return, so it drops the cache
+    // both before it is sent and after it completes. See lib/cache/readCache.ts.
+    const cacheKey = sameOriginApi && parsed ? readCacheKey(parsed, method) : null;
+    const isWrite =
+      sameOriginApi &&
+      parsed !== null &&
+      method !== "GET" &&
+      method !== "HEAD" &&
+      method !== "OPTIONS" &&
+      writeInvalidatesReadCache(parsed.pathname);
+    if (isWrite) invalidateReadCache();
+
+    const res = cacheKey
+      ? await cachedRead(cacheKey, () => base(input, init))
+      : await base(input, init);
+
+    if (isWrite) invalidateReadCache();
     if (isLogoutRequest(input)) clearSessionHint();
     if (res.status === 401) {
-      try {
-        const rawUrl =
-          typeof input === "string"
-            ? input
-            : input instanceof URL
-              ? input.toString()
-              : input.url;
-        const parsed = new URL(rawUrl, window.location.origin);
-        if (
-          parsed.origin === window.location.origin &&
-          parsed.pathname.startsWith("/api/") &&
-          !isExemptApiPath(parsed.pathname)
-        ) {
-          markSessionExpired();
-        }
-      } catch {
-        // Malformed/opaque URL — don't let guard logic break the response.
+      invalidateReadCache();
+      if (sameOriginApi && parsed && !isExemptApiPath(parsed.pathname)) {
+        markSessionExpired();
       }
     }
     return res;

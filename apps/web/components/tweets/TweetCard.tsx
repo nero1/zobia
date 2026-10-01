@@ -10,7 +10,7 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { UserBadgeRow } from "@/components/shared/UserBadges";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
@@ -18,6 +18,7 @@ import { VideoEmbed } from "./VideoEmbed";
 import { type Tweet, timeAgo } from "./types";
 import { Icon } from "@/components/ui/Icon";
 import { HashtagText } from "@/components/portals/HashtagText";
+import { useCurrentUserId } from "@/lib/hooks/useCurrentUserId";
 
 export function TweetCard({
   tweet,
@@ -38,6 +39,9 @@ export function TweetCard({
   isOwnProfile?: boolean;
 }) {
   const { t } = useTranslation();
+  const currentUserId = useCurrentUserId();
+  // The API rejects retweeting your own tweet (CANNOT_RETWEET_OWN), so don't offer it.
+  const canRetweet = !!onToggleRetweet && currentUserId !== undefined && tweet.authorId !== currentUserId;
   const [showQuoteBox, setShowQuoteBox] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState("");
 
@@ -149,7 +153,7 @@ export function TweetCard({
           <span>{tweet.repliesCount.toLocaleString()}</span>
         </Link>
 
-        {onToggleRetweet && (
+        {canRetweet && onToggleRetweet && (
           <div className="relative">
             <button
               onClick={() => {

@@ -2,18 +2,17 @@
  * apps/android/src/lib/realtime/useRealtimeChannel.ts
  *
  * Adapted from apps/expo/lib/realtime/useRealtimeChannel.ts.
- * Changes:
- *  - AppState (React Native) → @capacitor/app App.addListener('appStateChange')
- *  - All logic (onEventRef, single-flight, reconnect guard, JSON.parse,
- *    401 → refreshAccessToken retry) kept identical.
+ * The Ably connection, token handling (401 → refreshAccessToken retry) and
+ * the foreground reconnect live in lib/realtime/ablyShared.ts, shared by all
+ * subscribers.
  *
  * @returns `true` while Ably socket is connected.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { App } from '@capacitor/app';
 import { env } from '@/lib/env';
-import { apiClient, refreshAccessToken } from '@/lib/api/client';
+import { acquireAblyChannel } from '@/lib/realtime/ablyShared';
+import { invalidateReadCache } from '@/lib/api/readCache';
 
 export function useRealtimeChannel(
   channel: string | null,
@@ -40,81 +39,41 @@ export function useRealtimeChannel(
     };
 
     (async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let ablyClient: any = null;
       try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const Ably = await import('ably') as any;
-        const client = new Ably.Realtime({
-          authCallback: async (
-            _tokenParams: unknown,
-            callback: (err: unknown, tokenRequest: unknown) => void,
-          ) => {
-            try {
-              const { data } = await apiClient.get(
-                `/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
-              );
-              callback(null, data);
-            } catch (err) {
-              const status = (err as { response?: { status?: number } })?.response?.status;
-              if (status === 401) {
-                try {
-                  await refreshAccessToken();
-                  const { data } = await apiClient.get(
-                    `/realtime/ably-token?channel=${encodeURIComponent(channel)}`,
-                  );
-                  callback(null, data);
-                  return;
-                } catch {
-                  // refresh also failed
-                }
-              }
-              callback(err, null);
-            }
-          },
-        });
-
-        ablyClient = client;
-        client.connection.on((stateChange: { current: string }) => {
+        // One shared connection per session; a token is only requested when
+        // this channel isn't already covered (lib/realtime/ablyShared.ts).
+        const { client, release } = await acquireAblyChannel(channel);
+        if (cancelled) {
+          release();
+          return;
+        }
+        const onState = (stateChange: { current: string }) => {
           markConnected(stateChange.current === 'connected');
-        });
-
-        const RECOVERABLE_STATES = new Set(['initialized', 'suspended', 'disconnected']);
-        const appStateHandle = await App.addListener('appStateChange', ({ isActive }) => {
-          if (
-            isActive &&
-            ablyClient &&
-            RECOVERABLE_STATES.has(ablyClient.connection.state)
-          ) {
-            ablyClient.connect();
-          }
-        });
+        };
+        client.connection.on(onState);
+        markConnected(client.connection.state === 'connected');
 
         const ch = client.channels.get(channel);
-        ch.subscribe((msg: { name: string; data: unknown }) => {
+        const listener = (msg: { name: string; data: unknown }) => {
+          if (cancelled) return;
           let payload: unknown = msg.data;
           if (typeof payload === 'string') {
             try { payload = JSON.parse(payload); } catch { /* leave as string */ }
           }
+          // Events on the user's own channel (rewards, coins, XP) change what
+          // the short-lived read cache holds.
+          if (channel.startsWith('user:')) invalidateReadCache();
           onEventRef.current(msg.name, payload);
-        });
+        };
+        ch.subscribe(listener);
 
-        if (cancelled) {
-          void appStateHandle.remove();
-          ch.unsubscribe();
-          client.close();
-          return;
-        }
         cleanup = () => {
-          void appStateHandle.remove();
-          ch.unsubscribe();
-          client.close();
+          ch.unsubscribe(listener);
+          client.connection.off(onState);
+          release();
         };
       } catch (err) {
-        if (ablyClient) {
-          try { ablyClient.close(); } catch {}
-        }
-        console.warn('[realtime] Ably init failed; using poll fallback', err);
+        console.warn('[realtime] Ably unavailable; using poll fallback', err);
       }
     })();
 

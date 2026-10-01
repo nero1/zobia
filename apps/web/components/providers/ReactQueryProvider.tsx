@@ -37,6 +37,12 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
           queries: {
             staleTime: 60 * 1000, // 1 minute
             gcTime: 5 * 60 * 1000, // 5 minutes
+            // Every request costs Vercel Active CPU; refetching every mounted
+            // query whenever the tab regains focus multiplied requests for no
+            // user-visible gain. Freshness comes from staleTime, explicit
+            // invalidation after writes, and the realtime provider. Matches
+            // the Capacitor app (apps/android/src/lib/query/client.ts).
+            refetchOnWindowFocus: false,
             retry: (failureCount, error: unknown) => {
               const status = (error as { response?: { status?: number } })?.response?.status;
               // Do not retry on 4xx errors

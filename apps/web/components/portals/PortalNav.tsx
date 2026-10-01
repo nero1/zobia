@@ -8,7 +8,7 @@
  * or shortcuts back into the app for signed-in users.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth/hooks";
 import { Icon } from "@/components/ui/Icon";

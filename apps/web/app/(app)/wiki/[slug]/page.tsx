@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";

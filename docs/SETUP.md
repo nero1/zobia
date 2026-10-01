@@ -229,6 +229,21 @@ Net effect measured with `npm run analyze:functions`: about 155 MB to about 77 M
 
 **Fluid Compute must stay on** (it is the default for new projects; check it under *Project Settings → Functions*). It is what allows the 300-second CRON `maxDuration` on Hobby; without it the limit is 60 seconds and Vercel rejects the deployment. Note that a successful deploy only proves the setting is accepted: most CRONs have not been run yet, so none has actually needed more than a few seconds so far.
 
+### Reading Vercel Observability (Active CPU, 4 h / 30 days on Hobby)
+
+Active CPU is billed per request (function start-up plus handler), so the number to watch is **requests per session**, not users. In the Vercel dashboard open the project → **Observability** → **Functions**:
+
+- Check the **time range** first: Hobby keeps only a short window (the drilldown is typically the last 12 hours), so multiply up before comparing with the 30-day total on the **Usage** page.
+- A page route the user never opened, with roughly one invocation per page view, means something is prefetching it. App links use `components/ui/Link.tsx` (prefetch on hover/touch only) to prevent exactly that.
+- `/api/users/me`, `/api/auth/me` and the home widgets should be roughly one call per minute of active use; many more means a component bypasses the client read cache (`lib/cache/readCache.ts`).
+- The **error** column counts every non-2xx response, including expected 401/403/404s. Each is still billed, so a steady error rate on a route usually means the client is calling it when it could have known the answer (see *Fewer invocations* in `docs/HOW-IT-WORKS.md`).
+- `/api/security/csp-report` hits mean the browser is blocking something the page tried to load; fix the CSP in `middleware.ts` (or the code loading the resource) rather than ignoring them.
+
+### Local development notes
+
+- `pino` / `pino-pretty` are server-external packages (`next.config.js`). If they get bundled again, `next dev` crashes on the first log line with "the worker has exited" and every API request turns into a 500.
+- `next start` (production mode) always connects to Postgres with verified TLS. For a local database without TLS use `next dev`, or enable `ssl=on` in Postgres with a certificate Node trusts (`NODE_EXTRA_CA_CERTS=/path/to/server.crt`).
+
 ---
 
 ## Environment Variables Reference
@@ -447,6 +462,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    deletable at `/gate44/portals`.
    Nothing else is needed to use Portals: create an official portal at
    `/gate44/portals`, or let the feed-refresh job below promote trending tags.
+   `0020_ledger_archive_tables.sql` creates `audit_discrepancies_archive` and
+   `rank_up_events_archive` (internal tables, GRANTs for `service_role` only,
+   RLS on with no public policies), which `/api/cron/archive-ledgers` needs;
+   until it runs, that CRON fails before archiving anything.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables

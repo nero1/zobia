@@ -12,7 +12,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { notFound, redirect } from "next/navigation";
 import { resolvePublicWiki } from "@/lib/public/resolveWiki";
 import { listWikiPages } from "@/lib/wiki/repo";

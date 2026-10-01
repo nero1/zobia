@@ -11,7 +11,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { notFound } from "next/navigation";
 import { resolvePublicWiki } from "@/lib/public/resolveWiki";
 import { resolvePublicWikiPage } from "@/lib/public/resolveWikiPage";

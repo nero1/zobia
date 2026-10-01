@@ -8,7 +8,7 @@
  * "this feature is disabled" copy.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 export function NotFoundBody({ loggedIn = true }: { loggedIn?: boolean }) {
   return (

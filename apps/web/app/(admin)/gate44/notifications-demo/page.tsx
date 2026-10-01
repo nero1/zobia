@@ -1,7 +1,7 @@
 "use client";
 
 import { useFloatingNotification } from "@/hooks/useFloatingNotification";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 function DemoButton({
   label,

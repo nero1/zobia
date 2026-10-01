@@ -8,7 +8,7 @@
  * serves everyone. Guests get a login link that returns them to the portal.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAuth } from "@/lib/auth/hooks";

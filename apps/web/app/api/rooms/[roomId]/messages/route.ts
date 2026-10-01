@@ -764,7 +764,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
               schema.roomMembers,
               and(eq(schema.roomMembers.userId, schema.users.id), eq(schema.roomMembers.roomId, roomId), isNull(schema.roomMembers.leftAt))
             )
-            .where(and(sql`LOWER(${schema.users.username}) = ANY(${usernames})`, sql`${schema.users.id} <> ${userId}`)),
+            .where(and(sql`LOWER(${schema.users.username}) = ANY(${sql.param(usernames)})`, sql`${schema.users.id} <> ${userId}`)),
         ]);
         await notifyRoomMentions({
           mentionedUserIds: mentionRows.map((r) => r.id),

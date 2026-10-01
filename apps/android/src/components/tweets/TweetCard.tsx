@@ -12,6 +12,7 @@ import { UserBadgeRow } from '@/components/shared/UserBadges';
 import { HashtagText } from '@/components/portals/HashtagText';
 import { VideoEmbed } from './VideoEmbed';
 import { type Tweet, timeAgo } from './types';
+import { useAuth } from '@/lib/auth/store';
 
 export function TweetCard({
   tweet,
@@ -30,6 +31,9 @@ export function TweetCard({
   onDelete?: (tweetId: string) => void;
   isOwnProfile?: boolean;
 }) {
+  const { user } = useAuth();
+  // The API rejects retweeting your own tweet (CANNOT_RETWEET_OWN), so don't offer it.
+  const canRetweet = !!onToggleRetweet && !!user && tweet.authorId !== user.id;
   const { t } = useTranslation();
   const [showQuoteBox, setShowQuoteBox] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState('');
@@ -110,7 +114,7 @@ export function TweetCard({
           <span>{tweet.repliesCount}</span>
         </Link>
 
-        {onToggleRetweet && (
+        {canRetweet && onToggleRetweet && (
           <div className="relative">
             <button
               onClick={() => {

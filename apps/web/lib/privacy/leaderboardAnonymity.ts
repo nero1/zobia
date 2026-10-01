@@ -76,7 +76,7 @@ export function eligibleSql(cfg: AnonymityConfig, alias = "u"): SQL {
   const clauses: SQL[] = [];
 
   const plans = cfg.eligible.filter((e) => (ELIGIBILITY_PLANS as readonly string[]).includes(e));
-  if (plans.length > 0) clauses.push(sql`LOWER(COALESCE(${u}.plan, 'free')) = ANY(${plans}::text[])`);
+  if (plans.length > 0) clauses.push(sql`LOWER(COALESCE(${u}.plan, 'free')) = ANY(${sql.param(plans)}::text[])`);
 
   const prestigeMins = cfg.eligible
     .map((e) => /^prestige_(\d+)$/.exec(e))
@@ -93,7 +93,7 @@ export function eligibleSql(cfg: AnonymityConfig, alias = "u"): SQL {
   if (tiers.length > 0) {
     clauses.push(sql`EXISTS (
       SELECT 1 FROM business_accounts ba
-      WHERE ba.user_id = ${u}.id AND ba.status = 'active' AND LOWER(ba.tier) = ANY(${tiers}::text[])
+      WHERE ba.user_id = ${u}.id AND ba.status = 'active' AND LOWER(ba.tier) = ANY(${sql.param(tiers)}::text[])
     )`);
   }
 

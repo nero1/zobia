@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { formatShortDate } from "@/lib/format/date";
 
 interface PollRow {

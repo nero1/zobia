@@ -458,7 +458,7 @@ export async function listAnswers(
   const { rows: replyCountRows } = await orm.execute<{ parent_answer_id: string; cnt: string }>(sql`
     SELECT parent_answer_id, COUNT(*)::text AS cnt
      FROM forum_answers
-     WHERE parent_answer_id = ANY(${topIds}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
+     WHERE parent_answer_id = ANY(${sql.param(topIds)}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
      GROUP BY parent_answer_id
   `);
   const replyCounts = new Map(replyCountRows.map((r) => [r.parent_answer_id, parseInt(r.cnt, 10)]));
@@ -472,7 +472,7 @@ export async function listAnswers(
        FROM forum_answers a
        JOIN users u ON u.id = a.author_id
        LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = a.id AND v.user_id = ${callerId}
-       WHERE a.parent_answer_id = ANY(${topIds}::uuid[]) AND a.status = 'visible' AND a.deleted_at IS NULL
+       WHERE a.parent_answer_id = ANY(${sql.param(topIds)}::uuid[]) AND a.status = 'visible' AND a.deleted_at IS NULL
      ) ranked
      WHERE rn <= 3
      ORDER BY parent_answer_id, vote_score DESC, created_at ASC
@@ -491,7 +491,7 @@ export async function listAnswers(
     const { rows: grandchildCountRows } = await orm.execute<{ parent_answer_id: string; cnt: string }>(sql`
       SELECT parent_answer_id, COUNT(*)::text AS cnt
        FROM forum_answers
-       WHERE parent_answer_id = ANY(${replyIds}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
+       WHERE parent_answer_id = ANY(${sql.param(replyIds)}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
        GROUP BY parent_answer_id
     `);
     for (const r of grandchildCountRows) replyCounts.set(r.parent_answer_id, parseInt(r.cnt, 10));

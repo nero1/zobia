@@ -15,7 +15,7 @@ import { notFound, redirect } from "next/navigation";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import GameCoverActions from "@/components/games/GameCoverActions";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import GameCoverNav from "@/components/games/GameCoverNav";
 import { Icon } from "@/components/ui/Icon";
 

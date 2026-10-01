@@ -8,7 +8,7 @@
  * They must set up 2FA before they can log in.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { Icon } from "@/components/ui/Icon";
 
 export default function Require2FAPage() {

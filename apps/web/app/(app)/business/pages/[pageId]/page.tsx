@@ -10,7 +10,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { Icon } from "@/components/ui/Icon";
 

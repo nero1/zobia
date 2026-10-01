@@ -195,7 +195,24 @@ function ClassroomHomePage() {
           {insider && <QuizzesPanel roomId={classroom.id} canTake={viewer.isEnrolled} />}
         </div>
       )}
-      {active === 'calendar' && <EventsPanel roomId={classroom.id} canManage={viewer.can.manageEvents} isMember={insider} />}
+      {active === 'calendar' &&
+        // The full events list needs member access (or manage rights) on a
+        // private classroom; others get the public upcoming list from the
+        // home payload instead of a request that would 403.
+        (classroom.isPublic || insider || viewer.can.manageEvents ? (
+          <EventsPanel roomId={classroom.id} canManage={viewer.can.manageEvents} isMember={insider} />
+        ) : home.upcomingEvents.length === 0 ? (
+          <p className="py-10 text-center text-sm text-neutral-500">{t('classroom.events.empty', 'No live sessions scheduled yet.')}</p>
+        ) : (
+          <ul className="space-y-2">
+            {home.upcomingEvents.map((e) => (
+              <li key={e.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                <p className="font-semibold text-neutral-900 dark:text-neutral-50">{e.title}</p>
+                <p className="text-xs text-neutral-500">{new Date(e.startsAt).toLocaleString()}</p>
+              </li>
+            ))}
+          </ul>
+        ))}
       {active === 'leaderboard' && (insider ? <LeaderboardPanel roomId={classroom.id} viewerId={viewer.userId} /> : lockedPrompt)}
       {active === 'about' && (
         <section className="space-y-3 rounded-xl bg-white dark:bg-neutral-800 p-4 text-sm">

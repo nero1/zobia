@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";
 import { authFetch } from "@/lib/api/authFetch";

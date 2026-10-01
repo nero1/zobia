@@ -441,7 +441,7 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
       const mentionRows = await tx
         .select({ id: schema.users.id, username: schema.users.username })
         .from(schema.users)
-        .where(and(sql`LOWER(${schema.users.username}) = ANY(${mentionedUsernames})`, isNull(schema.users.deletedAt)));
+        .where(and(sql`LOWER(${schema.users.username}) = ANY(${sql.param(mentionedUsernames)})`, isNull(schema.users.deletedAt)));
       mentionedUserIds = mentionRows.filter((r) => r.id !== input.userId);
       for (const m of mentionedUserIds) {
         await tx
@@ -627,7 +627,7 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
     const mentionRows = await orm
       .select({ id: schema.users.id, username: schema.users.username })
       .from(schema.users)
-      .where(and(sql`LOWER(${schema.users.username}) = ANY(${usernames})`, isNull(schema.users.deletedAt), sql`${schema.users.id} != ${userId}`));
+      .where(and(sql`LOWER(${schema.users.username}) = ANY(${sql.param(usernames)})`, isNull(schema.users.deletedAt), sql`${schema.users.id} != ${userId}`));
     const authorRows = await orm.select({ username: schema.users.username }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const authorUsername = authorRows[0]?.username ?? "Someone";
     await Promise.all(

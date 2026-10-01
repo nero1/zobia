@@ -11,7 +11,7 @@
  * feature is off, the request fails or there is no trend yet.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";

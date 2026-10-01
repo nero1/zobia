@@ -566,7 +566,7 @@ export async function listBlogComments(postId: string, includeStatuses: string[]
     FROM blog_post_comments c
     JOIN users u ON u.id = c.author_id
     JOIN blog_posts p ON p.id = c.post_id
-    WHERE c.post_id = ${postId} AND c.deleted_at IS NULL AND c.status = ANY(${includeStatuses}::text[])
+    WHERE c.post_id = ${postId} AND c.deleted_at IS NULL AND c.status = ANY(${sql.param(includeStatuses)}::text[])
     ORDER BY c.created_at ASC
   `);
   return rows;

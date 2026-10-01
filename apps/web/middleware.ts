@@ -65,21 +65,58 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
   const supabaseWss = supabaseOrigin
     ? supabaseOrigin.replace(/^https?:/, "wss:")
     : "";
+  // Google AdSense fallback (components/ads/AdSlot.tsx), only allowed when
+  // an AdSense client is configured.
+  const adsense = Boolean(process.env.NEXT_PUBLIC_ADSENSE_CLIENT);
+  const adsenseConnect = adsense
+    ? "https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.adtrafficquality.google"
+    : "";
+  const adsenseImg = adsense
+    ? "https://*.googlesyndication.com https://*.doubleclick.net https://*.google.com https://*.gstatic.com"
+    : "";
+  const adsenseFrame = adsense
+    ? "https://*.googlesyndication.com https://*.doubleclick.net https://www.google.com"
+    : "";
   const connectSrc = [
     "'self'",
     // Supabase Realtime (HTTP + WebSocket)
     supabaseOrigin || "https://*.supabase.co",
     supabaseWss || "wss://*.supabase.co",
-    // Ably Realtime (HTTP + WebSocket)
+    // Ably Realtime (HTTP + WebSocket). ably-js 2.x connects to
+    // main.realtime.ably.net, falls back to main.[a-e].fallback.ably-realtime.com
+    // and probes https://internet-up.ably-realtime.com; the older *.ably.io
+    // hosts stay for older SDK builds. Without the *.ably.net / https
+    // ably-realtime.com entries every connection attempt was CSP-blocked:
+    // realtime never connected (chat stayed on its fast fallback poll) and
+    // each attempt filed a report to /api/security/csp-report.
+    "https://*.ably.net",
+    "wss://*.ably.net",
+    "https://*.ably-realtime.com",
+    "wss://*.ably-realtime.com",
     "https://realtime.ably.io",
     "wss://realtime.ably.io",
+    "https://*.ably.io",
     "wss://*.ably.io",
-    "wss://*.ably-realtime.com",
     // Pusher Channels (WebSocket only — HTTP auth goes through 'self')
     "wss://*.pusher.com",
     // Sentry browser SDK — error reporting ingest
     "https://*.ingest.sentry.io",
     "https://*.ingest.us.sentry.io",
+    // Crypto checkout (lib/payments/crypto/wagmiConfig.ts): wagmi's default
+    // BSC RPC (viem bsc chain -> 56.rpc.thirdweb.com) and the WalletConnect
+    // v2 relay/RPC/telemetry/verify endpoints plus the QR modal's wallet
+    // registry. Previously all blocked, so wallet connections could not work.
+    "https://*.thirdweb.com",
+    "https://*.walletconnect.com",
+    "https://*.walletconnect.org",
+    "wss://relay.walletconnect.com",
+    "wss://relay.walletconnect.org",
+    "https://*.web3modal.org",
+    "https://*.web3modal.com",
+    // TikTok embed script (components/tweets/VideoEmbed.tsx) fetches its
+    // oEmbed data from tiktok.com.
+    "https://www.tiktok.com",
+    adsenseConnect,
   ].filter(Boolean).join(" ");
 
   return [
@@ -125,12 +162,15 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
     "font-src 'self' https://fonts.gstatic.com",
     // CSP-01: explicit allowlist instead of bare https: (which allows any HTTPS host)
     // BUG-008 FIX: added https://t.me and https://telegram.org for Telegram profile avatars
-    `img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co ${r2Sources} https://media.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://t.me https://telegram.org`,
+    `img-src 'self' data: blob: https://lh3.googleusercontent.com https://*.supabase.co ${r2Sources} https://*.giphy.com https://media.tenor.com https://c.tenor.com https://storage.googleapis.com https://img.youtube.com https://i.ytimg.com https://*.tiktokcdn.com https://*.tiktokcdn-us.com https://*.walletconnect.com https://*.web3modal.org https://t.me https://telegram.org ${adsenseImg}`.trim(),
     `connect-src ${connectSrc}`,
     // https://oauth.telegram.org — the Telegram Login Widget renders its button
     // inside an iframe from this origin (used by /auth/telegram-mobile). Without
     // it the widget is silently CSP-blocked and no login button appears.
-    "frame-src 'self' https://www.google.com https://challenges.cloudflare.com https://oauth.telegram.org",
+    // https://www.youtube-nocookie.com and https://www.tiktok.com: tweet
+    // video embeds (components/tweets/VideoEmbed.tsx). verify.walletconnect.*:
+    // WalletConnect's domain-verification iframe in the crypto checkout.
+    `frame-src 'self' https://www.google.com https://challenges.cloudflare.com https://oauth.telegram.org https://www.youtube-nocookie.com https://www.tiktok.com https://verify.walletconnect.com https://verify.walletconnect.org ${adsenseFrame}`.trim(),
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

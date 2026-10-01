@@ -119,7 +119,7 @@ export const GET = async (req: NextRequest) => {
     if (currentRanks.length > 0) {
       const userIds = currentRanks.map(r => r.user_id);
       const { rows: prevSnapshots } = await orm.execute<{ user_id: string; rank: number; xp: number }>(sql`
-        SELECT user_id, rank, xp FROM leaderboard_rank_snapshots WHERE scope = 'global' AND user_id = ANY(${userIds}::uuid[])
+        SELECT user_id, rank, xp FROM leaderboard_rank_snapshots WHERE scope = 'global' AND user_id = ANY(${sql.param(userIds)}::uuid[])
       `);
       const prevByUser = new Map(prevSnapshots.map(p => [p.user_id, p]));
 
@@ -144,7 +144,7 @@ export const GET = async (req: NextRequest) => {
       if (snapUserIds.length > 0) {
         await orm.execute(sql`
           INSERT INTO leaderboard_rank_snapshots (user_id, scope, rank, xp, snapped_at)
-          SELECT unnest(${snapUserIds}::uuid[]), 'global', unnest(${snapRanks}::int[]), unnest(${snapXps}::int[]), NOW()
+          SELECT unnest(${sql.param(snapUserIds)}::uuid[]), 'global', unnest(${sql.param(snapRanks)}::int[]), unnest(${sql.param(snapXps)}::int[]), NOW()
           ON CONFLICT (user_id, scope) DO UPDATE SET rank = EXCLUDED.rank, xp = EXCLUDED.xp, snapped_at = NOW()
         `).catch(() => {});
       }
@@ -156,8 +156,8 @@ export const GET = async (req: NextRequest) => {
                  'Your position on the global leaderboard changed.',
                  jsonb_build_object('direction', sub.direction, 'fromRank', sub.from_rank, 'toRank', sub.to_rank),
                  false, NOW()
-          FROM (SELECT unnest(${notifUserIds}::uuid[]) AS user_id, unnest(${notifDirections}::text[]) AS direction,
-                       unnest(${notifFromRanks}::int[]) AS from_rank, unnest(${notifToRanks}::int[]) AS to_rank) sub
+          FROM (SELECT unnest(${sql.param(notifUserIds)}::uuid[]) AS user_id, unnest(${sql.param(notifDirections)}::text[]) AS direction,
+                       unnest(${sql.param(notifFromRanks)}::int[]) AS from_rank, unnest(${sql.param(notifToRanks)}::int[]) AS to_rank) sub
         `).catch(() => {});
         notified = notifUserIds.length;
       }
@@ -210,7 +210,7 @@ export const GET = async (req: NextRequest) => {
         }
         await orm.execute(sql`
           INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
-          SELECT unnest(${packUserIds}::uuid[]), unnest(${packIds}::uuid[]), NOW()
+          SELECT unnest(${sql.param(packUserIds)}::uuid[]), unnest(${sql.param(packIds)}::uuid[]), NOW()
           ON CONFLICT (user_id, pack_id) DO NOTHING
         `).catch(() => {});
       }
@@ -227,10 +227,10 @@ export const GET = async (req: NextRequest) => {
                false, NOW()
         FROM (
           SELECT user_id_a AS uid, user_id_b AS other_uid, milestone_score AS milestone
-            FROM (SELECT unnest(${uaIds}::uuid[]) AS user_id_a, unnest(${ubIds}::uuid[]) AS user_id_b, unnest(${milestoneScores}::int[]) AS milestone_score) t
+            FROM (SELECT unnest(${sql.param(uaIds)}::uuid[]) AS user_id_a, unnest(${sql.param(ubIds)}::uuid[]) AS user_id_b, unnest(${sql.param(milestoneScores)}::int[]) AS milestone_score) t
           UNION ALL
           SELECT user_id_b AS uid, user_id_a AS other_uid, milestone_score AS milestone
-            FROM (SELECT unnest(${uaIds}::uuid[]) AS user_id_a, unnest(${ubIds}::uuid[]) AS user_id_b, unnest(${milestoneScores}::int[]) AS milestone_score) t
+            FROM (SELECT unnest(${sql.param(uaIds)}::uuid[]) AS user_id_a, unnest(${sql.param(ubIds)}::uuid[]) AS user_id_b, unnest(${sql.param(milestoneScores)}::int[]) AS milestone_score) t
         ) sub
       `).catch(() => {});
     }
@@ -299,9 +299,9 @@ export const GET = async (req: NextRequest) => {
                'You unlocked the "' || sub.pack_name || '" sticker pack through your progression!',
                jsonb_build_object('packId', sub.pack_id::text, 'track', sub.track, 'level', sub.level),
                NOW()
-        FROM (SELECT unnest(${newUnlocks.map(r => r.user_id)}::uuid[]) AS user_id, unnest(${newUnlocks.map(r => r.pack_id)}::uuid[]) AS pack_id,
-                     unnest(${newUnlocks.map(r => r.pack_name)}::text[]) AS pack_name, unnest(${newUnlocks.map(r => r.track)}::text[]) AS track,
-                     unnest(${newUnlocks.map(r => r.level)}::int[])  AS level) sub
+        FROM (SELECT unnest(${sql.param(newUnlocks.map(r => r.user_id))}::uuid[]) AS user_id, unnest(${sql.param(newUnlocks.map(r => r.pack_id))}::uuid[]) AS pack_id,
+                     unnest(${sql.param(newUnlocks.map(r => r.pack_name))}::text[]) AS pack_name, unnest(${sql.param(newUnlocks.map(r => r.track))}::text[]) AS track,
+                     unnest(${sql.param(newUnlocks.map(r => r.level))}::int[])  AS level) sub
       `).catch(() => {});
     }
     results.earnableStickerUnlocks = { unlocked: newUnlocks.length };
@@ -366,13 +366,13 @@ export const GET = async (req: NextRequest) => {
                    'Your Nemesis pulled ahead!' AS title,
                    'Your rival has overtaken you in XP. Time to catch up!' AS body,
                    jsonb_build_object('nemesisId', nemesis_user_id::text, 'userXp', user_xp, 'nemesisXp', nemesis_xp, 'gap', nemesis_xp - user_xp) AS meta
-              FROM (SELECT unnest(${ouIds}::uuid[]) AS user_id, unnest(${onIds}::uuid[]) AS nemesis_user_id, unnest(${ouXps}::int[]) AS user_xp, unnest(${onXps}::int[]) AS nemesis_xp) t
+              FROM (SELECT unnest(${sql.param(ouIds)}::uuid[]) AS user_id, unnest(${sql.param(onIds)}::uuid[]) AS nemesis_user_id, unnest(${sql.param(ouXps)}::int[]) AS user_xp, unnest(${sql.param(onXps)}::int[]) AS nemesis_xp) t
             UNION ALL
             SELECT nemesis_user_id AS uid, 'nemesis_triumph' AS type,
                    'You overtook your Nemesis!' AS title,
                    'You have surpassed your rival in XP. Keep the lead!' AS body,
                    jsonb_build_object('targetId', user_id::text, 'gap', nemesis_xp - user_xp) AS meta
-              FROM (SELECT unnest(${ouIds}::uuid[]) AS user_id, unnest(${onIds}::uuid[]) AS nemesis_user_id, unnest(${ouXps}::int[]) AS user_xp, unnest(${onXps}::int[]) AS nemesis_xp) t
+              FROM (SELECT unnest(${sql.param(ouIds)}::uuid[]) AS user_id, unnest(${sql.param(onIds)}::uuid[]) AS nemesis_user_id, unnest(${sql.param(ouXps)}::int[]) AS user_xp, unnest(${sql.param(onXps)}::int[]) AS nemesis_xp) t
           ) sub
           ON CONFLICT DO NOTHING
         `).catch(() => {});
@@ -387,7 +387,7 @@ export const GET = async (req: NextRequest) => {
         const allAffectedIds = [...new Set([...overtakeRows.map(r => r.user_id), ...overtakeRows.map(r => r.nemesis_user_id)])];
         await orm.execute(sql`
           UPDATE nemesis_assignments SET last_notified_at = NOW()
-          WHERE user_id = ANY(${allAffectedIds}::uuid[]) OR nemesis_user_id = ANY(${allAffectedIds}::uuid[])
+          WHERE user_id = ANY(${sql.param(allAffectedIds)}::uuid[]) OR nemesis_user_id = ANY(${sql.param(allAffectedIds)}::uuid[])
         `).catch(() => {});
       }
       results.nemesisNotifications = { overtakes: overtakeRows.length };

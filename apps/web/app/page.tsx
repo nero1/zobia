@@ -5,7 +5,7 @@
  * Marketing page shown to unauthenticated visitors.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { Metadata } from "next";
 import { MaintenancePage } from "@/components/maintenance/MaintenancePage";
 import { loadManifest } from "@/lib/manifest";

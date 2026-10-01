@@ -4,7 +4,7 @@
  * Help Center search results (?q=...). Public, server-rendered.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { Metadata } from "next";
 import { searchDocs } from "@/lib/help/service";
 import { HelpSearchBox } from "@/components/help/HelpSearchBox";

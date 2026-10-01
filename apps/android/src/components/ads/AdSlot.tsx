@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Browser } from '@capacitor/browser';
-import { apiClient } from '@/lib/api/client';
+import { requestAd } from '@/lib/ads/clientServe';
 import { enqueueAdEvent } from '@/lib/ads/adEventQueue';
 
 interface ServedAd {
@@ -29,10 +29,13 @@ interface ServedAd {
   advertiserName: string;
 }
 
-async function fetchAd(placement: string): Promise<ServedAd | null> {
-  const { data } = await apiClient.get<{ ad: ServedAd | null }>(`/ads/serve?placement=${encodeURIComponent(placement)}`);
-  return data.ad;
+// Slots mounting together share one batched request (lib/ads/clientServe.ts).
+function fetchAd(placement: string): Promise<ServedAd | null> {
+  return requestAd<ServedAd>(placement);
 }
+
+/** A served ad stays valid for a few minutes; every refetch is billed server CPU. */
+const AD_STALE_TIME = 5 * 60_000;
 
 // ZB-AND-11 fix: was one immediate POST per impression/click; now queued and
 // flushed in batches (see lib/ads/adEventQueue.ts), matching web's pattern.
@@ -47,7 +50,11 @@ const SIZE_CLASS: Record<string, string> = {
 };
 
 export default function AdSlot({ placement, className }: { placement: string; className?: string }) {
-  const { data: ad } = useQuery({ queryKey: ['ads', 'serve', placement], queryFn: () => fetchAd(placement) });
+  const { data: ad } = useQuery({
+    queryKey: ['ads', 'serve', placement],
+    queryFn: () => fetchAd(placement),
+    staleTime: AD_STALE_TIME,
+  });
   const impressedRef = useRef(false);
   const [visible, setVisible] = useState(false);
   const ref = useRef<HTMLDivElement>(null);

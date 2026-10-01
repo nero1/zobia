@@ -8,7 +8,7 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import type { MarketItem } from "@/lib/market/types";
 import { ReferralShareDropdown } from "@/components/merch/ReferralShareDropdown";
 import { Icon } from "@/components/ui/Icon";

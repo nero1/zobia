@@ -13,7 +13,7 @@
  * never shows a wall of empty boxes.
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";

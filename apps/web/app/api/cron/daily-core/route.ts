@@ -117,7 +117,7 @@ export const GET = async (req: NextRequest) => {
       // Global scope snapshot
       await orm.execute(sql`
         INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
-        SELECT unnest(${userIds}::uuid[]), 'main', 'global', NULL, NULL, unnest(${xpTotals}::int[]), NOW()
+        SELECT unnest(${sql.param(userIds)}::uuid[]), 'main', 'global', NULL, NULL, unnest(${sql.param(xpTotals)}::int[]), NOW()
         ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
         DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
       `).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:global: ${String(err)}`));
@@ -130,7 +130,7 @@ export const GET = async (req: NextRequest) => {
         const cityXps = cityUsers.map(r => Number(r.new_xp_total));
         await orm.execute(sql`
           INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
-          SELECT unnest(${cityIds}::uuid[]), 'main', 'city', unnest(${cities}::text[]), NULL, unnest(${cityXps}::int[]), NOW()
+          SELECT unnest(${sql.param(cityIds)}::uuid[]), 'main', 'city', unnest(${sql.param(cities)}::text[]), NULL, unnest(${sql.param(cityXps)}::int[]), NOW()
           ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
           DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
         `).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:city: ${String(err)}`));
@@ -144,7 +144,7 @@ export const GET = async (req: NextRequest) => {
           const seasonXps = loginXpResult.rows.map(r => Number(r.season_xp));
           await orm.execute(sql`
             INSERT INTO leaderboard_snapshots (user_id, track, scope, city, season_id, xp_value, updated_at)
-            SELECT unnest(${seasonUserIds}::uuid[]), 'main', 'season', NULL, ${activeSeason.id}::uuid, unnest(${seasonXps}::int[]), NOW()
+            SELECT unnest(${sql.param(seasonUserIds)}::uuid[]), 'main', 'season', NULL, ${activeSeason.id}::uuid, unnest(${sql.param(seasonXps)}::int[]), NOW()
             ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
             DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
           `).catch((err: unknown) => errors.push(`dailyLoginXP:leaderboard:season: ${String(err)}`));

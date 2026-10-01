@@ -163,7 +163,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       const enumValues = gender.filter((g) => g !== "unset");
       const genderConditions = [];
       if (enumValues.length > 0) {
-        genderConditions.push(sql`u.gender = ANY(${enumValues})`);
+        genderConditions.push(sql`u.gender = ANY(${sql.param(enumValues)})`);
       }
       if (wantsUnset) {
         genderConditions.push(sql`u.gender IS NULL`);

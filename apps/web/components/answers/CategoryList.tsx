@@ -9,7 +9,7 @@
  * category's dedicated page (used for SEO — see app/answers/category/[slug]).
  */
 
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 export interface CategoryListItem {
   slug: string;

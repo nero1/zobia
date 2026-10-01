@@ -25,7 +25,7 @@
  */
 
 import { useState } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { resolveMenuItemHref, type BlogMenuConfig } from "@/lib/blogs/menu";
 
 export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfig: BlogMenuConfig }) {

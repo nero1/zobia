@@ -558,7 +558,7 @@ export async function deleteComment(classroom: ClassroomRecord, viewer: Classroo
       await tx
         .update(schema.classroomReports)
         .set({ status: "resolved_removed", resolvedBy: viewer.userId, resolvedAt: new Date() })
-        .where(and(sql`${schema.classroomReports.commentId} = ANY(${goneIds}::uuid[])`, eq(schema.classroomReports.status, "pending")));
+        .where(and(sql`${schema.classroomReports.commentId} = ANY(${sql.param(goneIds)}::uuid[])`, eq(schema.classroomReports.status, "pending")));
     }
     if (row.authorId !== viewer.userId) {
       logger.info({ roomId: classroom.id, commentId, moderatorId: viewer.userId }, "[classroom:moderation] comment deleted by moderator");

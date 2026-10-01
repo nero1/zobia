@@ -97,14 +97,17 @@ function ModerationCenterPage() {
   const isAdmin = Boolean(user?.is_admin);
   const isPlatformMod = Boolean(user?.is_admin || user?.is_moderator);
 
-  const { data: hasGuildScope } = useQuery({
+  // Platform mods/admins already see the guild queue; the probe (a 403 for
+  // anyone without guild scope) is only needed for everyone else.
+  const { data: probedGuildScope } = useQuery({
     queryKey: ['moderation-center-guild-scope'],
     queryFn: fetchHasGuildScope,
-    enabled: !!user,
+    enabled: !!user && !isPlatformMod,
   });
-  const isMod = isPlatformMod || Boolean(hasGuildScope);
+  const hasGuildScope = isPlatformMod || Boolean(probedGuildScope);
+  const isMod = isPlatformMod || hasGuildScope;
 
-  if (user && hasGuildScope !== undefined && !isMod) {
+  if (user && !isPlatformMod && probedGuildScope !== undefined && !isMod) {
     navigate({ to: '/home', replace: true });
   }
 

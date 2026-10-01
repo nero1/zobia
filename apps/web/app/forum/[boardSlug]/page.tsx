@@ -5,7 +5,7 @@
  */
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { notFound } from "next/navigation";
 import { getBoardBySlug, listThreadsInBoard } from "@/lib/bbforum/repo";
 import { NewThreadForm } from "@/components/bbforum/NewThreadForm";

@@ -14,6 +14,7 @@
  */
 
 import { useCallback, useRef, useState } from "react";
+import { invalidateReadCache } from "@/lib/cache/readCache";
 
 const PULL_THRESHOLD_PX = 64;
 const MAX_PULL_PX = 110;
@@ -67,6 +68,9 @@ export function PullToRefresh({
       setRefreshing(true);
       setPullDistance(PULL_THRESHOLD_PX);
       try {
+        // An explicit refresh must reach the server, not the short-lived
+        // client read cache (lib/cache/readCache.ts).
+        invalidateReadCache();
         await onRefresh();
       } finally {
         setRefreshing(false);

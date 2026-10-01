@@ -11,7 +11,7 @@ import { useState, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { Icon } from "@/components/ui/Icon";
 import { useAuth } from "@/lib/auth/hooks";
 import { HiddenFromOthersTag, RevealButton, useReveal } from "@/components/leaderboard/AnonymousReveal";

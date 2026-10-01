@@ -1955,6 +1955,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 
 - **Zero-cost MVP deployment** on Vercel Hobby Plan (web/admin panel) and GitHub Actions (APK, free for public repos).
 - **Deployment storage budget (Vercel Hobby, 10 GB Function Storage).** Only the production branch (whichever branch Vercel's Production Branch setting names; nothing in the repo hardcodes it) builds on Vercel; feature branches are verified by GitHub Actions only. Production commits that cannot affect the web app (Android, Expo, docs, load tests) skip the Vercel build. Function bundles stay lean: no per-route `maxDuration`/`memory` overrides outside CRON routes (which all share one value), and nothing that is never read at runtime is traced into functions. See section 44.
+- **Active CPU budget (Vercel Hobby, 4 h per 30 days).** Every request is billed, so the product is built for few requests per session: one short-lived client cache for identity and other hot reads (cleared on any write, logout or 401), batched per-page reads (ads), links prefetch only on intent, no refetch on window focus, polling only while visible, one shared realtime connection per session, a CSP that matches everything the app loads, and no requests the client already knows will fail. See section 45.
 - **Mobile-first Android APK** built with Capacitor 6 + Vite 5 + React 18. The app runs inside a full-screen WebView served by the Vite bundle — enabling direct sharing of Tailwind tokens, TanStack Query, and TanStack Router with the web codebase. Target Android API Level 36 (Android 16): `compileSdk 36`, `targetSdk 36`, `minSdk 26`.
 - **Separate web/PWA** built with Next.js, sharing the same backend API and database as the Android app but as a distinct frontend codebase.
 - **Admin panel** is a Next.js web app deployed on Vercel. Admins use browsers; the admin panel is never included in the APK. The Android app mirrors key admin panel metrics in a read-only view.
@@ -9032,6 +9033,36 @@ Operational follow-up for the owner: delete old preview deployments once in the 
 
 ---
 
-*ZobiaSocial PRD v2.41*
+## 45. Active CPU and bug sweep (v2.42)
+
+### 45.1 Why
+
+With a single tester and short sessions the project used about a quarter of Vercel Hobby's 4 hours of monthly Active CPU. A 12-hour Observability drilldown showed no hot route, just many repeated small requests: `/api/users/me` 167, `/api/auth/me` 75, `/api/ads/serve` 149, each home widget about 25, about 20 nav pages about 21 each (link prefetching), `/api/realtime/ably-token` 85 and `/api/security/csp-report` 31, plus a column of error rates.
+
+### 45.2 Fewer requests (web, PWA, Capacitor Android)
+
+- **Client read cache** for identity, home widgets, the notification badge and ad slots, with per-endpoint TTLs (1 to 60 minutes), shared in-flight requests, and invalidation on any state-changing write, logout, 401, pull-to-refresh and own-channel realtime events. Memory only, per user. A repeat visit to Home now makes zero API requests (was about 18).
+- **Links prefetch on intent** (hover/touch/focus) through one shared `Link` component instead of on scroll-into-view.
+- **No React Query refetch on window focus** on web (matches Android).
+- **One shared Ably connection** per session; the token covers all channels in use (the token route now authorizes a list of channels individually).
+- **Ads batched**: slots on a page share one request; answers reused for 5 minutes; "ads disabled" is a cacheable empty 200 instead of a 503.
+- **Polling only while visible** for room top-gifters, room/group presence heartbeats, guild war contributors and the room pulse bar.
+- **No known-failing requests**: moderators no longer probe the guild-moderation scope; private-classroom calendars and share counters no longer 403 for non-members; the retweet button is hidden on your own tweets; `/profile/<username>` links work.
+
+### 45.3 Content Security Policy
+
+The CSP blocked Ably 2.x (realtime never connected, chat stayed on its fast fallback poll and every attempt filed a CSP report), the crypto checkout (WalletConnect, web3modal, the BSC RPC), YouTube and TikTok tweet embeds, and most Giphy images. All are now allowed, AdSense hosts are allowed only when AdSense is configured, and the AdSense fallback actually loads Google's script (it never did). The CSP report endpoint ignores repeats of the same violation for 10 minutes before writing to the database.
+
+### 45.4 Bugs fixed
+
+- **Raw SQL arrays**: 157 Drizzle bindings of the form `ANY(${array}::uuid[])` / `unnest(${array}::…[])` compiled to a row value that Postgres rejects. Affected daily/sub-daily CRONs, poll voting, @mentions in tweets and room messages, trust scores, forum replies, game saves, theme ownership, blog-theme plan lists and the admin user gender filter. All now bind the array as one parameter (`sql.param`), enforced by a test.
+- **Ledger archive CRON** used wrong column names and two archive tables did not exist; fixed with migration `0020_ledger_archive_tables.sql`. It now archives only resolved discrepancies.
+- **Guild-wars CRON** drop-room auto-close referenced a non-existent `room_type` column.
+- **Classroom boosts**: a "classroom" boost could target a normal room and vice versa.
+- **Local development**: pino is now a server-external package, so `next dev` no longer turns every request into a 500 after the first log line.
+
+---
+
+*ZobiaSocial PRD v2.42*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

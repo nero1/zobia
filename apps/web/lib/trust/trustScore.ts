@@ -247,28 +247,28 @@ export async function batchCalculateTrustScores(
      FROM users u
      LEFT JOIN (
        SELECT reported_user_id AS uid, COUNT(*)::int AS report_count
-       FROM reports WHERE reported_user_id = ANY(${userIds}::uuid[])
+       FROM reports WHERE reported_user_id = ANY(${sql.param(userIds)}::uuid[])
        GROUP BY reported_user_id
      ) rc ON rc.uid = u.id
      LEFT JOIN (
        SELECT target_user_id AS uid, COUNT(*)::int AS warning_count
        FROM moderation_actions
-       WHERE target_user_id = ANY(${userIds}::uuid[]) AND action_type = 'warn'
+       WHERE target_user_id = ANY(${sql.param(userIds)}::uuid[]) AND action_type = 'warn'
        GROUP BY target_user_id
      ) wc ON wc.uid = u.id
      LEFT JOIN (
        SELECT user_id AS uid, COUNT(*)::int AS payment_count
        FROM payments
-       WHERE user_id = ANY(${userIds}::uuid[]) AND status = 'completed'
+       WHERE user_id = ANY(${sql.param(userIds)}::uuid[]) AND status = 'completed'
        GROUP BY user_id
      ) pc ON pc.uid = u.id
      LEFT JOIN (
        SELECT target_user_id AS uid, COUNT(*)::int AS action_count
        FROM moderation_actions
-       WHERE target_user_id = ANY(${userIds}::uuid[]) AND action_type != 'warn'
+       WHERE target_user_id = ANY(${sql.param(userIds)}::uuid[]) AND action_type != 'warn'
        GROUP BY target_user_id
      ) mac ON mac.uid = u.id
-     WHERE u.id = ANY(${userIds}::uuid[]) AND u.deleted_at IS NULL
+     WHERE u.id = ANY(${sql.param(userIds)}::uuid[]) AND u.deleted_at IS NULL
   `);
 
   const scores = new Map<string, number>();
@@ -294,7 +294,7 @@ export async function batchCalculateTrustScores(
     await db.execute(sql`
       UPDATE users u
        SET trust_score = updates.score, updated_at = NOW()
-       FROM (SELECT unnest(${updateIds}::uuid[]) AS id, unnest(${updateScores}::int[]) AS score) updates
+       FROM (SELECT unnest(${sql.param(updateIds)}::uuid[]) AS id, unnest(${sql.param(updateScores)}::int[]) AS score) updates
        WHERE u.id = updates.id
     `);
   }

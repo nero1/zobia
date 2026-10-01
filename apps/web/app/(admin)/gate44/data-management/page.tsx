@@ -16,7 +16,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 import { useRouter, useSearchParams } from "next/navigation";
 import UserManagementTable, { ALLOWED_FIELD_LABELS } from "@/components/admin/UserManagementTable";
 import { useTranslation } from "react-i18next";
