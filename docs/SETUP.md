@@ -211,8 +211,8 @@ What the repo does about it (no setup needed, it ships in `apps/web/vercel.json`
 
 | Measure | Where | Effect |
 |---|---|---|
-| Only `main` deploys | `vercel.json` → `git.deploymentEnabled` (`"**": false, "main": true`) | Pushes to feature branches (including every AI/agent session branch) no longer create preview deployments. PRs are still verified by GitHub Actions CI. |
-| Ignored Build Step | `vercel.json` → `ignoreCommand` runs `apps/web/scripts/vercel-ignore-build.sh` | A `main` commit that changes nothing under `apps/web`, `shared`, the root `package.json`/`package-lock.json` or `patches` (Android/Expo-only, docs-only, load-test-only commits) is skipped, so no deployment is stored. Set `FORCE_VERCEL_BUILD=1` in the project env to force one build. |
+| Only the production branch builds | `vercel.json` → `ignoreCommand` runs `apps/web/scripts/vercel-ignore-build.sh` | Any build with `VERCEL_ENV` other than `production` is skipped. Vercel sets `VERCEL_ENV=production` only for the branch chosen under **Project Settings → Git → Production Branch**, so no branch name is hardcoded in the repo: rename or switch the production branch there and nothing else changes. Pushes to feature branches (including every AI/agent session branch) show up in *Deployments* as **Canceled** and store no functions. PRs are still verified by GitHub Actions CI. |
+| Skip no-op production builds | same script | A production-branch commit that changes nothing under `apps/web`, `shared`, the root `package.json`/`package-lock.json` or `patches` (Android/Expo-only, docs-only, load-test-only commits) is skipped too. To force one build, add `FORCE_VERCEL_BUILD=1` to the project env (Production environment only, otherwise previews build too) and remove it afterwards. |
 | Smaller bundles | `next.config.js` → `outputFileTracingExcludes` | API route handlers no longer carry the ~85 KB RSC client manifest each (they never read it, ~50 MB per deployment), and the unused musl build of sharp/libvips (~16 MB) is dropped. |
 | Fewer function groups | every `app/api/cron/*` route exports `maxDuration = 300` | Vercel only packs routes with identical function config together; five different CRON timeouts used to create five extra functions, each with its own copy of the runtime. A unit test (`lib/cron/__tests__/maxDuration.test.ts`) keeps it that way. |
 
@@ -225,7 +225,7 @@ Net effect measured with `npm run analyze:functions`: about 155 MB to about 77 M
 
 **Keeping it small:** after `next build`, run `npm run analyze:functions` from `apps/web` (add `-- --json` for machine-readable output). It lists the function groups, the heaviest routes and the heaviest packages. Watch for a heavy library showing up in the median route: that means a shared module imports it at the top level and it should be moved behind a dynamic `await import()` in the route that needs it. Do not add `export const maxDuration` (or `memory`) to individual non-CRON routes; each distinct value creates another function group.
 
-**Fluid Compute must stay on** (it is the default for new projects, under *Settings → Functions*). It is what allows the 300-second CRON `maxDuration` on Hobby; without it the limit is 60 seconds and the build fails.
+**Fluid Compute must stay on** (it is the default for new projects; check it under *Project Settings → Functions*). It is what allows the 300-second CRON `maxDuration` on Hobby; without it the limit is 60 seconds and Vercel rejects the deployment. Note that a successful deploy only proves the setting is accepted: most CRONs have not been run yet, so none has actually needed more than a few seconds so far.
 
 ---
 
