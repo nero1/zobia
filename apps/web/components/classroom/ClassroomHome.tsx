@@ -271,7 +271,11 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
         </div>
       )}
       {tab === "calendar" &&
-        (signedIn ? (
+        // The full events list (/events?scope=all) is only readable by people
+        // who can see this classroom's member content (or manage it); anyone
+        // else gets the public upcoming list from the home payload instead of
+        // a request that would 403.
+        (signedIn && (classroom.isPublic || insider || viewer.can.manageEvents) ? (
           <EventsPanel roomId={roomId} canManage={viewer.can.manageEvents} isMember={insider} />
         ) : home.upcomingEvents.length === 0 ? (
           <p className="py-10 text-center text-sm text-neutral-500">{t("classroom.events.empty", "No live sessions scheduled yet.")}</p>

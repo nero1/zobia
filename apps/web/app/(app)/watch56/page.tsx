@@ -238,17 +238,20 @@ export default function ModerationCenterPage() {
   const isPlatformMod = Boolean(me?.is_admin || me?.is_moderator);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/users/me", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)),
-      fetch("/api/guild-moderation?status=pending", { credentials: "include" }).then((r) => r.ok),
-    ])
-      .then(([json, guildOk]) => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then(async (json) => {
         const user = json?.user ?? json;
         setMe(user);
-        setHasGuildScope(Boolean(guildOk));
-        if (!user?.is_admin && !user?.is_moderator && !guildOk) {
-          router.replace("/home");
+        // Platform mods/admins already see the guild queue; only probe guild
+        // scope (a 403 for anyone without it) for everyone else.
+        if (user?.is_admin || user?.is_moderator) {
+          setHasGuildScope(true);
+          return;
         }
+        const guildOk = await fetch("/api/guild-moderation?status=pending", { credentials: "include" }).then((r) => r.ok);
+        setHasGuildScope(guildOk);
+        if (!guildOk) router.replace("/home");
       })
       .catch(() => router.replace("/home"))
       .finally(() => setChecked(true));

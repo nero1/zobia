@@ -241,7 +241,7 @@ export function installSessionExpiryFetchGuard(): void {
             : input.url;
       parsed = new URL(rawUrl, window.location.origin);
     } catch {
-      // Malformed/opaque URL — don't let guard logic break the request.
+      // Malformed/opaque URL: don't let guard logic break the request.
     }
     const sameOriginApi =
       parsed !== null && parsed.origin === window.location.origin && parsed.pathname.startsWith("/api/");

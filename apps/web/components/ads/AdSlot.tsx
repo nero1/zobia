@@ -6,7 +6,7 @@
  * Platform ad slot for web + PWA (PRD §17 Pillar 3 — Platform Advertising).
  * Gets one eligible in-house/user/native/third-party ad for `placement`
  * through lib/ads/clientServe.ts (slots mounting together share one batched
- * GET /api/ads/serve request, answers are reused for a few minutes) —
+ * GET /api/ads/serve request, answers are reused for a few minutes);
  * plan-based ad exposure (Free/Plus/Pro/Max) and
  * budget eligibility are enforced server-side, so this component only has
  * to render (or render nothing). Falls back to a Google AdSense unit when
@@ -101,7 +101,7 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
       try {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
       } catch {
-        /* AdSense blocked (ad blocker) — ignore */
+        /* AdSense blocked (ad blocker): ignore */
       }
     }
   }, [ad, adsenseClient, adsenseSlot]);

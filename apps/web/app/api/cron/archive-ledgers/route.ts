@@ -135,7 +135,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // are pruned to keep the live tables small.
     // Only RESOLVED findings are archived (an open discrepancy must stay
     // visible to /api/cron/reconcile-balances and the admin), aged by
-    // detected_at — the table has no created_at column.
+    // detected_at (the table has no created_at column).
     const auditDiscArchived = await archiveTable(
       "audit_discrepancies",
       "audit_discrepancies_archive",

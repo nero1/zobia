@@ -4287,9 +4287,36 @@ Rules that follow from that:
 4. **Build-only tools in devDependencies** (`drizzle-kit`, TypeScript, linters, test runners), so they can never be traced into a function.
 5. **Measure.** After `next build`, run `npm run analyze:functions` in `apps/web` (`-- --json` for machine-readable output). `scripts/report-function-size.mjs` reproduces the builder's grouping from the trace files and `functions-config-manifest.json` and prints the estimated per-deployment size, the groups, the heaviest routes and the heaviest packages. Targets: well under 100 MB per deployment and 3 or fewer function groups. A heavy package showing up in the median route means a shared module imports it at the top level. Current result: about 155 MB in 7 groups before, about 77 MB in 3 groups after (uncompressed; Vercel stores zipped bundles, so the billed figure is lower but moves the same way).
 
-### Fewer invocations
+### Fewer invocations (Active CPU, 4 h per 30 days on Hobby)
 
-Function invocations and active CPU are separate Hobby quotas. Public pages are static or ISR where possible, and global values (app manifest, notices, leaderboard totals and similar) are served with `s-maxage` CDN cache headers instead of being recomputed per request. Client polling backs off when idle and pauses in hidden tabs (see *Redis Cost Controls*).
+Every request that reaches a function is billed **Active CPU**: the function's start-up plus the handler, typically 20 to 80 ms each for this app. Middleware is billed the same way. With one tester and short sessions the project still used about a quarter of the monthly 4 hours, and a 12-hour Observability drilldown showed why: no single hot route, just many small repeated requests (`/api/users/me` 167 times, `/api/auth/me` 75, `/api/ads/serve` 149, every home widget about 25, about 20 nav pages "visited" about 21 times each, `/api/realtime/ably-token` 85, `/api/security/csp-report` 31). The rule is therefore **fewer requests per session**, enforced by the pieces below (web + PWA and Capacitor Android alike).
+
+1. **Client read cache** (`apps/web/lib/cache/readCache.ts`, applied transparently by the global fetch guard in `lib/auth/sessionExpiredBus.ts`; Android `apps/android/src/lib/api/readCache.ts` as an axios adapter). A fixed table of hot GET endpoints, each with a TTL:
+
+   | Endpoint | TTL |
+   |---|---|
+   | `/api/users/me`, `/api/auth/me`, `/api/presence`, `/api/friends/online` | 1 min |
+   | `/api/notifications` (only the `limit=1` badge probes) | 1 min |
+   | `/api/quests/daily`, `/api/quests/new-member` | 2 min |
+   | `/api/leaderboards/me`, `/api/nemesis`, `/api/events`, `/api/ads/serve` | 5 min |
+   | `/api/creator-spotlight`, `/api/guilds/discovery`, `/api/notices` | 10 min |
+   | `/api/feed/zobian-of-month`, `/api/config/rewards-ui` | 60 min |
+
+   Concurrent callers share one request; a 2xx answer is reused for the TTL; errors are never cached. The whole cache is dropped on any state-changing write to `/api` (so balances, XP, quest progress and profile edits are never stale after the user acts), on logout and on any 401, on pull-to-refresh, and when a realtime event arrives on the user's own `user:<id>` channel. Background beacons that cannot change cached data (`/api/ads/events`, the presence heartbeat, `/api/referrals/visit`, CSP reports) do not drop it. Memory only and keyed by the access token on Android, so nothing crosses users on a shared device. Measured on a production build: the first `/home` visit makes one `/api/users/me` request; a later visit within the TTLs makes **zero** API requests (it was about 18 per visit, three or four of them `/api/users/me`).
+2. **Intent-only link prefetch** (`components/ui/Link.tsx`). Next.js prefetches every `<Link>` that scrolls into view, and each prefetch is a server render. Every app file imports `Link` from the wrapper, which prefetches on hover, touch or keyboard focus instead. `lib/__tests__/linkImports.test.ts` fails if `next/link` is imported directly.
+3. **No refetch on window focus.** Web React Query uses `refetchOnWindowFocus: false` (Android already did); freshness comes from staleTime, write invalidation and realtime.
+4. **One shared realtime connection** (`lib/realtime/ablyShared.ts`, web and Android). One `Ably.Realtime` client per signed-in session whose token covers every channel in use; a new token is only requested when a channel the current token does not cover is joined, or on expiry (1 h). `/api/realtime/ably-token?channels=a,b,…` authorizes each channel individually (up to 20) and signs a subscribe-only capability for exactly the approved ones. The client closes on logout, on account switch (Android: token `sub` change) and after 30 s with no subscribers.
+5. **Batched ads** (`lib/ads/clientServe.ts`, web and Android). Slots that mount together share one `GET /api/ads/serve?placements=a,b` request; answers are reused for 5 minutes. With native ads disabled the route answers `200` with no ads instead of a 503, so clients can cache "nothing to show".
+6. **Polling only while visible.** Network polls use `lib/polling/visibleInterval.ts` (or React Query `refetchInterval`, which the focus manager pauses in hidden tabs/backgrounded apps); chat uses `useAdaptiveChatPoll`, which already stops when hidden.
+7. **CSP that matches what the app loads.** A blocked resource costs a CSP report request on every page view and, for realtime, a retry loop. `middleware.ts` allows Ably 2.x (`*.ably.net`, `*.ably-realtime.com`), the crypto checkout (WalletConnect, web3modal, `*.thirdweb.com` BSC RPC), tweet embeds (`www.youtube-nocookie.com`, `www.tiktok.com` and its CDN), `*.giphy.com` GIFs, and Google AdSense hosts only when `NEXT_PUBLIC_ADSENSE_CLIENT` is set. `/api/security/csp-report` drops repeats of the same violation per instance for 10 minutes before touching the database.
+8. **Don't make requests that are known to fail.** Each failing request is still billed. Examples fixed: the moderator page no longer probes `/api/guild-moderation` for admins/platform mods; the classroom calendar shows the public upcoming list to viewers who can't read a private classroom's events; the classroom share counter is a silent no-op for them; the retweet button is hidden on your own tweets.
+9. **Public pages and global values** stay static/ISR where possible and global values (app manifest, notices, leaderboard totals) carry `s-maxage` CDN headers.
+
+**Reading the numbers.** Observability → Functions shows per-route invocations, CPU and error rate. Hobby keeps a short window (the drilldown the owner shared covered 12 hours), so multiply up before comparing with the 30-day usage total. A route with roughly one invocation per page view that the user never opened is prefetching; an error rate is any non-2xx, so expected 401/403/404s count too and are worth avoiding when the client could have known better.
+
+### Raw SQL array parameters
+
+Drizzle's `sql` template expands an interpolated JavaScript array into a parameter list, so ``sql`id = ANY(${ids}::uuid[])` `` compiles to `ANY(($1, $2)::uuid[])`, which Postgres rejects ("cannot cast type record to uuid[]", "malformed array literal" for one element, a syntax error when empty). Every array must be bound as one parameter: ``sql`id = ANY(${sql.param(ids)}::uuid[])` ``. This affected 157 bindings (crons, poll voting, @mentions, trust scores, forum replies, game saves, theme ownership, the admin gender filter) and is now enforced by `lib/db/__tests__/arrayParams.test.ts`.
 
 ### Crons
 

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
-import { forbidden, handleApiError } from "@/lib/api/errors";
+import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { classroomContextFromParams, ok } from "@/lib/classroom/http";
 import { recordClassroomShare } from "@/lib/classroom/stats";
@@ -19,9 +19,13 @@ export const POST = withAuth<{ roomId: string }>(async (_req: NextRequest, { par
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.classroomVote);
     const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
-    if (!classroom.isPublic && !viewer.can.viewMemberContent) throw forbidden("This classroom is private.", "CLASSROOM_PRIVATE");
+    // Fire-and-forget counter: a viewer who can't see a private classroom gets
+    // a silent no-op (not a 403 that shows up as an error, and reveals nothing).
+    if (!classroom.isPublic && !viewer.can.viewMemberContent) {
+      return ok({ recorded: false, url: `/c/${classroom.slug ?? classroom.id}` });
+    }
     const result = await recordClassroomShare(classroom.id, auth.user.sub);
-    return ok({ ...result, url: `/c/${classroom.slug ?? classroom.id}` });
+    return ok({ recorded: true, ...result, url: `/c/${classroom.slug ?? classroom.id}` });
   } catch (err) {
     return handleApiError(err);
   }

@@ -21,7 +21,6 @@
  * IDLE_CLOSE_MS with no subscribers.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 
 const IDLE_CLOSE_MS = 30_000;
 /** Upper bound on channels in one token (matches the server's limit). */

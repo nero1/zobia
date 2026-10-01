@@ -253,7 +253,7 @@ apiClient.interceptors.response.use(
   },
 );
 
-// Read cache — hot GETs (/users/me, /auth/me, home widgets, ad slots) are
+// Read cache: hot GETs (/users/me, /auth/me, home widgets, ad slots) are
 // shared and reused for a short TTL; any write drops them
 // (lib/api/readCache.ts). Registered before
 // the auth interceptor below, and axios runs request interceptors last-added

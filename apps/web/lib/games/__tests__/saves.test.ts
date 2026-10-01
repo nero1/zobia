@@ -57,12 +57,10 @@ describe("reconcileSavesForUser", () => {
     const deleted = await reconcileSavesForUser("user-1", 3, ["a", "b"]);
     expect(deleted).toEqual(["a", "b"]);
     const [sql, params] = mockQuery.mock.calls[0];
-    // Drizzle's `sql` template expands an interpolated array into one
-    // placeholder per element (`($1, $2)`) rather than binding it as a
-    // single array-typed parameter, so this reads a little differently
-    // than the old raw-SQL adapter's `= ANY($1::uuid[])` form.
-    expect(sql).toMatch(/ANY\(\(\$1, \$2\)::uuid\[\]\)/);
-    expect(params).toEqual(["a", "b", "user-1"]);
+    // The id list is bound as ONE Postgres array parameter (sql.param); the
+    // old ($1, $2)::uuid[] shape was a row value Postgres rejects.
+    expect(sql).toMatch(/ANY\(\$1::uuid\[\]\)/);
+    expect(params).toEqual([["a", "b"], "user-1"]);
   });
 
   it("keeps the newest `limit` saves and deletes the rest, ordered DESC with an OFFSET", async () => {

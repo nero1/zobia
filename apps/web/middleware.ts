@@ -65,7 +65,7 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
   const supabaseWss = supabaseOrigin
     ? supabaseOrigin.replace(/^https?:/, "wss:")
     : "";
-  // Google AdSense fallback (components/ads/AdSlot.tsx) — only allowed when
+  // Google AdSense fallback (components/ads/AdSlot.tsx), only allowed when
   // an AdSense client is configured.
   const adsense = Boolean(process.env.NEXT_PUBLIC_ADSENSE_CLIENT);
   const adsenseConnect = adsense
@@ -167,9 +167,9 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
     // https://oauth.telegram.org — the Telegram Login Widget renders its button
     // inside an iframe from this origin (used by /auth/telegram-mobile). Without
     // it the widget is silently CSP-blocked and no login button appears.
-    // https://www.youtube-nocookie.com and https://www.tiktok.com — tweet
-    // video embeds (components/tweets/VideoEmbed.tsx); verify.walletconnect.*
-    // — WalletConnect's domain-verification iframe in the crypto checkout.
+    // https://www.youtube-nocookie.com and https://www.tiktok.com: tweet
+    // video embeds (components/tweets/VideoEmbed.tsx). verify.walletconnect.*:
+    // WalletConnect's domain-verification iframe in the crypto checkout.
     `frame-src 'self' https://www.google.com https://challenges.cloudflare.com https://oauth.telegram.org https://www.youtube-nocookie.com https://www.tiktok.com https://verify.walletconnect.com https://verify.walletconnect.org ${adsenseFrame}`.trim(),
     "object-src 'none'",
     "base-uri 'self'",
