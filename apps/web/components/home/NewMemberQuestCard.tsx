@@ -18,7 +18,20 @@ import { useNewMemberQuestDismissal } from "@/lib/hooks/useNewMemberQuestDismiss
 import { Icon } from "@/components/ui/Icon";
 
 interface QuestStep { id: string; title: string; completed: boolean; }
-interface QuestState { steps: QuestStep[]; allComplete: boolean; }
+interface QuestState { steps: QuestStep[]; allComplete: boolean; rewardClaimed: boolean; }
+interface QuestResponse {
+  data?: { steps?: Array<{ id: string; label: string; completed: boolean }>; allComplete?: boolean; rewardClaimed?: boolean };
+}
+
+function toQuestState(d: QuestResponse | null): QuestState | null {
+  const qd = d?.data;
+  if (!qd) return null;
+  return {
+    steps: (qd.steps ?? []).map((s) => ({ id: s.id, title: s.label, completed: s.completed })),
+    allComplete: Boolean(qd.allComplete),
+    rewardClaimed: Boolean(qd.rewardClaimed),
+  };
+}
 
 const TOTAL_COINS = 1000;
 const TOTAL_XP = 2000;
@@ -32,22 +45,39 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
   const [quest, setQuest] = useState<QuestState | null | undefined>(undefined);
   const [confirming, setConfirming] = useState(false);
 
+  const [claiming, setClaiming] = useState(false);
+
   useEffect(() => {
-    fetch("/api/quests/new-member", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d: { data?: { steps?: Array<{ id: string; label: string; completed: boolean }>; allComplete?: boolean } } | null) => {
-        const qd = d?.data;
-        if (!qd) { setQuest(null); return; }
-        setQuest({
-          steps: (qd.steps ?? []).map((s) => ({ id: s.id, title: s.label, completed: s.completed })),
-          allComplete: Boolean(qd.allComplete),
-        });
-      })
-      .catch(() => setQuest(null));
+    let active = true;
+    const load = () =>
+      fetch("/api/quests/new-member", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: QuestResponse | null) => { if (active) setQuest(toQuestState(d)); })
+        .catch(() => { if (active) setQuest(null); });
+    void load();
+    // Progress is advanced by actions on other screens; re-read when the user
+    // comes back to this tab/app (the read cache is dropped on every write).
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { active = false; document.removeEventListener("visibilitychange", onVisible); };
   }, []);
 
+  async function claimReward() {
+    if (claiming) return;
+    setClaiming(true);
+    try {
+      const res = await fetch("/api/quests/new-member", { method: "POST", credentials: "include" });
+      // 409 means it was already claimed (another tab/device): same end state.
+      if (res.ok || res.status === 409) {
+        setQuest((q) => (q ? { ...q, rewardClaimed: true } : q));
+      }
+    } finally {
+      setClaiming(false);
+    }
+  }
+
   if (quest === undefined) return null; // avoid a flash of skeleton for a low-priority card
-  if (!quest || quest.allComplete) return null;
+  if (!quest || quest.rewardClaimed) return null;
   // The Home Dashboard card respects the localStorage dismiss/snooze state;
   // the dedicated Quests page (alwaysShow) is where users are told they can
   // "still find it" after dismissing it from Home, so it ignores that state
@@ -121,10 +151,19 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
                 <div className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${step.completed ? "border-teal-500 bg-teal-500 text-white" : "border-neutral-300 dark:border-neutral-600"}`}>
                   {step.completed && <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
                 </div>
-                <span className={`text-sm ${step.completed ? "text-neutral-400 line-through" : "text-neutral-700 dark:text-neutral-300"}`}>{step.title}</span>
+                <span className={`text-sm ${step.completed ? "text-neutral-400 line-through" : "text-neutral-700 dark:text-neutral-300"}`}>{t(`home.newMemberQuest.steps.${step.id}`, { defaultValue: step.title })}</span>
               </div>
             ))}
           </div>
+          {quest.allComplete && (
+            <button
+              onClick={claimReward}
+              disabled={claiming}
+              className="mt-3 w-full rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+            >
+              {t("home.newMemberQuest.claim")}
+            </button>
+          )}
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 dark:bg-amber-950/30">
             <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
               {t("home.newMemberQuest.reward", { coins: TOTAL_COINS.toLocaleString(), coinName: currency.softPlural, xp: TOTAL_XP.toLocaleString() })}

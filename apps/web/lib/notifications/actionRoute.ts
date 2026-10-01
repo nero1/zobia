@@ -98,15 +98,27 @@ export function deriveNotificationActionUrl(
     case "classroom_badge_earned":
     case "classroom_post_reply":
     case "classroom_announcement":
-    case "classroom_event_scheduled":
-    case "classroom_recording_added":
     case "classroom_moderator_granted": {
-      const ref = isNonEmptyString(m.classroomSlug) ? m.classroomSlug : isNonEmptyString(m.roomId) ? m.roomId : null;
+      const ref = classroomRef(m);
       return ref ? `/c/${ref}` : "/classroom";
+    }
+    // Event notifications open the Events tab and scroll to the session; a
+    // recording lands on its card in the "Past sessions" (recordings) section.
+    case "classroom_event_scheduled":
+    case "classroom_recording_added": {
+      const ref = classroomRef(m);
+      if (!ref) return "/classroom";
+      const qs = new URLSearchParams({ tab: "events" });
+      if (isNonEmptyString(m.eventId)) qs.set("event", m.eventId);
+      return `/c/${ref}?${qs.toString()}`;
     }
     case "graduation_ceremony":
       return isNonEmptyString(m.ceremonyRoomId) ? `/rooms/${m.ceremonyRoomId}` : "/classroom";
     default:
       return null;
   }
+}
+
+function classroomRef(m: Record<string, unknown>): string | null {
+  return isNonEmptyString(m.classroomSlug) ? m.classroomSlug : isNonEmptyString(m.roomId) ? m.roomId : null;
 }

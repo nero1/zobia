@@ -17,6 +17,7 @@ import { Icon } from '@/components/ui/Icon';
 
 function ClassroomLinkPage() {
   const { slug } = Route.useParams();
+  const { tab, event } = Route.useSearch();
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,7 @@ function ClassroomLinkPage() {
     let cancelled = false;
     get<{ id: string }>(`/resolve/${encodeURIComponent(slug)}`)
       .then((r) => {
-        if (!cancelled) void navigate({ to: '/classroom/$roomId', params: { roomId: r.id }, replace: true });
+        if (!cancelled) void navigate({ to: '/classroom/$roomId', params: { roomId: r.id }, search: { tab, event }, replace: true });
       })
       .catch((e) => {
         if (!cancelled) setError(apiError(e).message);
@@ -33,7 +34,7 @@ function ClassroomLinkPage() {
     return () => {
       cancelled = true;
     };
-  }, [slug, navigate]);
+  }, [slug, tab, event, navigate]);
 
   if (error) {
     return (
@@ -50,5 +51,9 @@ function ClassroomLinkPage() {
 }
 
 export const Route = createFileRoute('/c/$slug')({
+  validateSearch: (search: Record<string, unknown>): { tab?: string; event?: string } => ({
+    tab: typeof search.tab === 'string' ? search.tab : undefined,
+    event: typeof search.event === 'string' ? search.event : undefined,
+  }),
   component: ClassroomLinkPage,
 });

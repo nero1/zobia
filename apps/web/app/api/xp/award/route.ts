@@ -543,7 +543,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const questStep = NEW_MEMBER_QUEST_STEP_MAP[body.action];
     if (questStep) {
-      void advanceNewMemberQuestStep(orm, body.userId, questStep);
+      await advanceNewMemberQuestStep(orm, body.userId, questStep);
     }
 
     // Nemesis overtake check — fire notification if user just surpassed their nemesis (PRD §2.3)

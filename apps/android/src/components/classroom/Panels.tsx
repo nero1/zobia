@@ -7,7 +7,7 @@
  * resources, meeting rooms, recordings) open in the in-app Browser.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Browser } from '@capacitor/browser';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -226,7 +226,7 @@ function toLocalInput(iso: string | null): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; canManage: boolean; isMember: boolean }) {
+export function EventsPanel({ roomId, canManage, isMember, focusEventId = null }: { roomId: string; canManage: boolean; isMember: boolean; focusEventId?: string | null }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<ClassroomEvent | 'new' | null>(null);
@@ -264,46 +264,28 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
   };
   const field = 'w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2 text-sm';
   const list = events.data?.events ?? [];
+  const upcoming = list.filter((e) => e.status !== 'ended');
+  const past = list.filter((e) => e.status === 'ended').reverse();
 
-  return (
-    <div className="space-y-2">
-      {canManage && !editing && (
-        <button type="button" onClick={() => start('new')} className="rounded-lg border border-primary-300 px-3 py-1.5 text-sm font-semibold text-primary-600">
-          {t('classroom.events.schedule', '+ Schedule a live session')}
-        </button>
-      )}
-      {editing && (
-        <div className="space-y-2 rounded-xl bg-white dark:bg-neutral-800 p-3">
-          <input className={field} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={t('classroom.events.titlePlaceholder', 'Session title')} />
-          <label className="block text-xs text-neutral-500">
-            {t('classroom.events.startsAt', 'Starts')}
-            <input type="datetime-local" className={field} value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} />
-          </label>
-          <label className="block text-xs text-neutral-500">
-            {t('classroom.events.endsAt', 'Ends (optional)')}
-            <input type="datetime-local" className={field} value={form.endsAt} onChange={(e) => setForm({ ...form, endsAt: e.target.value })} />
-          </label>
-          <input className={field} value={form.meetingUrl} onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })} placeholder={t('classroom.events.meetingUrlPlaceholder', 'Meeting link — Zoom, Google Meet, Teams… (https://)')} />
-          <input className={field} value={form.recordingUrl} onChange={(e) => setForm({ ...form, recordingUrl: e.target.value })} placeholder={t('classroom.events.recordingUrlPlaceholder', 'Recording link, after the session (https://)')} />
-          {err && <p className="text-xs text-danger-600">{err}</p>}
-          <div className="flex gap-2">
-            <button type="button" disabled={!form.title.trim() || !form.startsAt || save.isPending} onClick={() => save.mutate()} className="rounded-lg bg-primary-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
-              {t('classroom.common.save', 'Save')}
-            </button>
-            <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-neutral-300 px-4 py-1.5 text-sm">
-              {t('classroom.common.cancel', 'Cancel')}
-            </button>
-          </div>
-        </div>
-      )}
-      {list.length === 0 && !events.isPending && (
-        <p className="flex items-center justify-center gap-1.5 py-8 text-center text-sm text-neutral-500">
-          <Icon emoji="📅" size={16} />
-          {t('classroom.events.empty', 'No live sessions scheduled yet.')}
-        </p>
-      )}
-      {list.map((e) => (
-        <div key={e.id} className="rounded-xl bg-white dark:bg-neutral-800 p-3">
+  // Deep link (notification tap): scroll the targeted session into view, or
+  // the "Past sessions" (recordings) header when it is no longer listed.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusEventId || events.isPending) return;
+    const target = list.some((e) => e.id === focusEventId) ? `classroom-event-${focusEventId}` : past.length > 0 ? 'classroom-events-past' : null;
+    const el = target ? document.getElementById(target) : null;
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (target !== 'classroom-events-past') setHighlightId(focusEventId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusEventId, events.isPending, list.length]);
+
+  const renderEvent = (e: ClassroomEvent) => (
+        <div
+          key={e.id}
+          id={`classroom-event-${e.id}`}
+          className={`scroll-mt-24 rounded-xl bg-white dark:bg-neutral-800 p-3 ${highlightId === e.id ? 'ring-2 ring-primary-400' : ''}`}
+        >
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="font-semibold">{e.title}</p>
@@ -345,7 +327,57 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
             )}
           </div>
         </div>
-      ))}
+  );
+
+  return (
+    <div className="space-y-2">
+      {canManage && !editing && (
+        <button type="button" onClick={() => start('new')} className="rounded-lg border border-primary-300 px-3 py-1.5 text-sm font-semibold text-primary-600">
+          {t('classroom.events.schedule', '+ Schedule a live session')}
+        </button>
+      )}
+      {editing && (
+        <div className="space-y-2 rounded-xl bg-white dark:bg-neutral-800 p-3">
+          <input className={field} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={t('classroom.events.titlePlaceholder', 'Session title')} />
+          <label className="block text-xs text-neutral-500">
+            {t('classroom.events.startsAt', 'Starts')}
+            <input type="datetime-local" className={field} value={form.startsAt} onChange={(e) => setForm({ ...form, startsAt: e.target.value })} />
+          </label>
+          <label className="block text-xs text-neutral-500">
+            {t('classroom.events.endsAt', 'Ends (optional)')}
+            <input type="datetime-local" className={field} value={form.endsAt} onChange={(e) => setForm({ ...form, endsAt: e.target.value })} />
+          </label>
+          <input className={field} value={form.meetingUrl} onChange={(e) => setForm({ ...form, meetingUrl: e.target.value })} placeholder={t('classroom.events.meetingUrlPlaceholder', 'Meeting link — Zoom, Google Meet, Teams… (https://)')} />
+          <input className={field} value={form.recordingUrl} onChange={(e) => setForm({ ...form, recordingUrl: e.target.value })} placeholder={t('classroom.events.recordingUrlPlaceholder', 'Recording link, after the session (https://)')} />
+          {err && <p className="text-xs text-danger-600">{err}</p>}
+          <div className="flex gap-2">
+            <button type="button" disabled={!form.title.trim() || !form.startsAt || save.isPending} onClick={() => save.mutate()} className="rounded-lg bg-primary-600 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50">
+              {t('classroom.common.save', 'Save')}
+            </button>
+            <button type="button" onClick={() => setEditing(null)} className="rounded-lg border border-neutral-300 px-4 py-1.5 text-sm">
+              {t('classroom.common.cancel', 'Cancel')}
+            </button>
+          </div>
+        </div>
+      )}
+      {list.length === 0 && !events.isPending && (
+        <p className="flex items-center justify-center gap-1.5 py-8 text-center text-sm text-neutral-500">
+          <Icon emoji="📅" size={16} />
+          {t('classroom.events.empty', 'No live sessions scheduled yet.')}
+        </p>
+      )}
+      {upcoming.length > 0 && (
+        <section className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('classroom.events.upcoming', 'Upcoming')}</h3>
+          {upcoming.map(renderEvent)}
+        </section>
+      )}
+      {past.length > 0 && (
+        <section className="space-y-2">
+          <h3 id="classroom-events-past" className="scroll-mt-24 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('classroom.events.past', 'Past sessions')}</h3>
+          {past.map(renderEvent)}
+        </section>
+      )}
     </div>
   );
 }

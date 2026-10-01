@@ -19,7 +19,7 @@ import { Preferences } from '@capacitor/preferences';
 import { App } from '@capacitor/app';
 import type { AnyRouter } from '@tanstack/react-router';
 import { apiClient } from '@/lib/api/client';
-import { isAllowedRoute, ACTION_ALIASES } from '@/lib/notifications/routing';
+import { isAllowedRoute, toNavigateOptions, ACTION_ALIASES } from '@/lib/notifications/routing';
 
 const DEVICE_ID_KEY = 'zobia_device_id';
 const DEFAULT_CHANNEL_ID = 'default';
@@ -186,7 +186,7 @@ async function attemptInit(router: AnyRouter): Promise<void> {
           console.warn('[push] Blocked notification action not in allowlist:', route);
           return;
         }
-        router.navigate({ to: route as never });
+        router.navigate(toNavigateOptions(route) as never);
       });
     }
 

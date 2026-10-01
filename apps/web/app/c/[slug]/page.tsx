@@ -74,7 +74,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function ClassroomHomePage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ClassroomHomePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
   const manifest = await loadManifest().catch(() => null);
   if (manifest && !manifest.features.classrooms) notFound();
@@ -84,7 +90,12 @@ export default async function ClassroomHomePage({ params }: { params: Promise<{ 
   const { resolved, viewer, ctx } = loaded;
 
   if (resolved.redirectTo && resolved.redirectTo !== slug) {
-    permanentRedirect(`/c/${resolved.redirectTo}`);
+    // Keep deep-link params (?tab=events&event=<id>) across a renamed slug.
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(await searchParams)) {
+      if (typeof v === "string") qs.set(k, v);
+    }
+    permanentRedirect(`/c/${resolved.redirectTo}${qs.size ? `?${qs.toString()}` : ""}`);
   }
 
   const { classroom } = ctx;

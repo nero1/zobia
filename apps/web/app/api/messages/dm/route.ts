@@ -329,7 +329,7 @@ async function handleDMGift(
   }
 
   void triggerActivityQuestProgress(senderId, "gift", orm);
-  void advanceNewMemberQuestStep(orm, senderId, "gift_someone");
+  await advanceNewMemberQuestStep(orm, senderId, "gift_someone");
 
   recordWarContribution(senderId, "send_gift", orm).catch(() => {});
 
@@ -694,7 +694,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Trigger matching daily quest progress for sending a DM
     void triggerActivityQuestProgress(auth.user.sub, "messages", orm);
-    void advanceNewMemberQuestStep(orm, auth.user.sub, "send_message");
+    await advanceNewMemberQuestStep(orm, auth.user.sub, "send_message");
 
     // 12. Daily counter already incremented atomically in step 5 (BUG-10)
 

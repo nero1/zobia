@@ -109,8 +109,8 @@ export const PUT = withAuth(async (
           .catch(() => {});
 
         // Both parties now have a new friend — advance the add_friend New Member Quest step
-        void advanceNewMemberQuestStep(orm, userId, 'add_friend');
-        void advanceNewMemberQuestStep(orm, friendship.requester_id, 'add_friend');
+        await advanceNewMemberQuestStep(orm, userId, 'add_friend');
+        await advanceNewMemberQuestStep(orm, friendship.requester_id, 'add_friend');
       }
     }
 

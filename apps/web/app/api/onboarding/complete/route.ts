@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
  *   - All writes occur in a single database transaction
  */
 
+import { buildNewMemberQuestProgress } from "@/lib/quests/newMemberQuestEngine";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -279,18 +280,9 @@ export const POST = withAuth(async (req, { params, auth }) => {
       }
 
       // 9. Create the New Member Quest for this user.
-      //    Tracks 5 steps: send_message, join_room, gift_someone, add_friend, daily_login
+      //    Tracks 6 steps: send_message, join_room, gift_someone, add_friend, friend_request (x3), daily_login
       //    Payout on completion: 1,000 Coins + 2,000 XP
-      const newMemberQuestProgress = {
-        steps: [
-          { id: 'send_message',    label: 'Send a message',         completed: false },
-          { id: 'join_room',       label: 'Join a Room',            completed: false },
-          { id: 'gift_someone',    label: 'Gift someone',           completed: false },
-          { id: 'add_friend',      label: 'Add a friend',           completed: false },
-          { id: 'friend_request',  label: 'Send 3 friend requests', completed: false, count: 0, target: 3 },
-          { id: 'daily_login',     label: 'Complete a daily login', completed: false },
-        ],
-      };
+      const newMemberQuestProgress = buildNewMemberQuestProgress();
 
       await client
         .insert(schema.newMemberQuests)
@@ -300,10 +292,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
           progress: newMemberQuestProgress,
           completed: false,
         })
-        .onConflictDoNothing()
-        .catch(() => {
-          logger.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
-        });
+        .onConflictDoNothing();
 
       return { referralCode };
     });

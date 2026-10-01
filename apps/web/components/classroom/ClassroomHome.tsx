@@ -8,7 +8,7 @@
  * need no client fetch) and keeps it fresh through React Query for signed-in
  * viewers (persisted per user by lib/offline/queryPersist.ts).
  *
- * Tabs: Community · Classroom (lessons) · Calendar (live sessions +
+ * Tabs: Community · Classroom (lessons) · Events (live sessions +
  * recordings) · Leaderboard · About. Header actions: Enrol, Share, Boost
  * (creator) and Manage (creator/moderators → Creator Studio).
  */
@@ -30,7 +30,13 @@ import { LeaderboardPanel } from "@/components/classroom/LeaderboardPanel";
 import type { ClassroomHomePayload } from "@/components/classroom/types";
 import { Icon } from "@/components/ui/Icon";
 
-type Tab = "community" | "classroom" | "calendar" | "leaderboard" | "about";
+type Tab = "community" | "classroom" | "events" | "leaderboard" | "about";
+
+/** `?tab=` deep-link value to a Tab ("calendar" is the pre-rename alias). */
+function tabFromParam(v: string | null | undefined): Tab | null {
+  if (v === "calendar") return "events";
+  return v === "community" || v === "classroom" || v === "events" || v === "leaderboard" || v === "about" ? v : null;
+}
 
 export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePayload; signedIn: boolean }) {
   const { t } = useTranslation();
@@ -96,7 +102,13 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paymentComplete, viewer.isEnrolled, verifyFailed, verifyAttempts]);
 
-  const [tab, setTab] = useState<Tab>(insider ? "community" : "about");
+  const tabParam = tabFromParam(searchParams?.get("tab"));
+  const focusEventId = searchParams?.get("event") ?? null;
+  const [tab, setTab] = useState<Tab>(tabParam ?? (insider ? "community" : "about"));
+  // A notification tap while this page is already open only changes the URL.
+  useEffect(() => {
+    if (tabParam) setTab(tabParam);
+  }, [tabParam, focusEventId]);
 
   const levelName = useMemo(() => {
     const byLevel = new Map(classroom.levels.map((l) => [l.level, l.name]));
@@ -106,7 +118,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
   const tabs: Array<{ key: Tab; label: string; locked: boolean }> = [
     { key: "community", label: t("classroom.home.tabs.community", "Community"), locked: !insider },
     { key: "classroom", label: t("classroom.home.tabs.classroom", "Classroom"), locked: false },
-    { key: "calendar", label: t("classroom.home.tabs.calendar", "Calendar"), locked: false },
+    { key: "events", label: t("classroom.home.tabs.events", "Events"), locked: false },
     { key: "leaderboard", label: t("classroom.home.tabs.leaderboard", "Leaderboard"), locked: !insider },
     { key: "about", label: t("classroom.home.tabs.about", "About"), locked: false },
   ];
@@ -180,15 +192,16 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                   <Icon emoji="✓" size={12} className="inline align-[-1px]" /> {t("classroom.card.enrolled", "Enrolled")}
                 </span>
               ) : null}
+              <ClassroomShareButton roomId={roomId} slug={classroom.slug} name={classroom.name} signedIn={signedIn} />
+              {/* The classroom's official chat Room (its id is the classroom id). */}
               {insider && classroom.chatRoomEnabled && (
                 <Link
                   href={`/rooms/${roomId}`}
-                  className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
+                  className="rounded-full border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
                 >
-                  <Icon emoji="💬" size={14} className="inline align-[-2px]" /> {t("classroom.home.openRoom", "Open Room")}
+                  <Icon emoji="💬" size={14} className="inline align-[-2px]" /> {t("classroom.home.chat", "Chat")}
                 </Link>
               )}
-              <ClassroomShareButton roomId={roomId} slug={classroom.slug} name={classroom.name} signedIn={signedIn} />
               {viewer.can.manageClassroom && <BoostContentButton contentType="classroom" contentId={roomId} title={classroom.name} imageUrl={classroom.coverImageUrl} />}
               {canManageStudio && (
                 <Link
@@ -270,13 +283,13 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
           {insider && <QuizzesPanel roomId={roomId} canTake={viewer.isEnrolled} canManage={viewer.can.manageClassroom} />}
         </div>
       )}
-      {tab === "calendar" &&
+      {tab === "events" &&
         // The full events list (/events?scope=all) is only readable by people
         // who can see this classroom's member content (or manage it); anyone
         // else gets the public upcoming list from the home payload instead of
         // a request that would 403.
         (signedIn && (classroom.isPublic || insider || viewer.can.manageEvents) ? (
-          <EventsPanel roomId={roomId} canManage={viewer.can.manageEvents} isMember={insider} />
+          <EventsPanel roomId={roomId} canManage={viewer.can.manageEvents} isMember={insider} focusEventId={focusEventId} />
         ) : home.upcomingEvents.length === 0 ? (
           <p className="py-10 text-center text-sm text-neutral-500">{t("classroom.events.empty", "No live sessions scheduled yet.")}</p>
         ) : (

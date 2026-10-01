@@ -243,7 +243,7 @@ Onboarding completion triggers a brief animation: "Welcome to Zobia — you just
 The user is prompted to:
 - Invite contacts from their device phonebook (only those already on Zobia are surfaced).
 - Explore a curated "First Room" tailored to their quiz responses.
-- Accept a "New Member Quest" — a 5-step guided mission: send a message, join a Room, gift someone, add a friend, complete a daily login. Payout on completion: 1,000 Credits + 2,000 XP. Designed to be completable within the first session.
+- Accept a "New Member Quest" — a 6-step guided mission: send a message, join a Room, gift someone, add a friend, send 3 friend requests, complete a daily login. Progress already made before the quest row existed is backfilled, and the reward is claimed with a "Claim reward" button once all steps are done. Payout on completion: 1,000 Credits + 2,000 XP. Designed to be completable within the first session.
 
 **Step 5 — Guild Discovery (after first 24 hours)**
 The user is shown a panel: "Crews near you are recruiting." Three local guilds are surfaced based on city — with tier badges, member count, and war records visible. Joining a Guild is optional but deeply prompted. Guild members earn 5–50% more XP from the same activities.
@@ -5531,8 +5531,9 @@ Mentions tab identically to a top-level mention (mentions are keyed off
 per `(tweet, retweeter)`, so re-retweeting is a toggle like a like. A
 **quote retweet** is the same row with `quoteContent` set; changing your
 quote is un-retweet-then-retweet-again in the UI, upsert-in-place
-server-side. Retweeting your own Tweet is rejected
-(`CANNOT_RETWEET_OWN`) — same gate (feature flag + level) as posting a
+server-side. Authors may retweet their own Tweets (no self-retweet
+restriction). The quote-retweet button is always enabled; an empty comment
+is stored as a plain retweet. Same gate (feature flag + level) as posting a
 Tweet, but **no separate charge** (a deliberate simplification vs. Tweet
 creation's image/length charges — retweeting redistributes existing
 content, it doesn't create new billable content).

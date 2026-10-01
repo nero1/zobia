@@ -33,6 +33,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, conflict, badRequest } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
+import { ensureNewMemberQuest, buildNewMemberQuestProgress } from "@/lib/quests/newMemberQuestEngine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -110,37 +111,38 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     const orm = await getDb();
-    const [row] = await orm
-      .select({
-        id: schema.newMemberQuests.id,
-        user_id: schema.newMemberQuests.userId,
-        quest_type: schema.newMemberQuests.questType,
-        progress: schema.newMemberQuests.progress,
-        completed: schema.newMemberQuests.completed,
-        completed_at: schema.newMemberQuests.completedAt,
-        reward_claimed: sql<boolean>`COALESCE(${schema.newMemberQuests.rewardClaimed}, ${schema.newMemberQuests.completed})`,
-        created_at: schema.newMemberQuests.createdAt,
-        updated_at: schema.newMemberQuests.updatedAt,
-      })
-      .from(schema.newMemberQuests)
-      .where(and(eq(schema.newMemberQuests.userId, userId), eq(schema.newMemberQuests.questType, "new_member")))
-      .limit(1);
+    const select = () =>
+      orm
+        .select({
+          id: schema.newMemberQuests.id,
+          user_id: schema.newMemberQuests.userId,
+          quest_type: schema.newMemberQuests.questType,
+          progress: schema.newMemberQuests.progress,
+          completed: schema.newMemberQuests.completed,
+          completed_at: schema.newMemberQuests.completedAt,
+          reward_claimed: schema.newMemberQuests.rewardClaimed,
+          created_at: schema.newMemberQuests.createdAt,
+          updated_at: schema.newMemberQuests.updatedAt,
+        })
+        .from(schema.newMemberQuests)
+        .where(and(eq(schema.newMemberQuests.userId, userId), eq(schema.newMemberQuests.questType, "new_member")))
+        .limit(1);
+
+    let [row] = await select();
+    if (!row) {
+      // No quest row (user predates the feature, or onboarding's insert
+      // failed): create it now, backfilled from what the user already did.
+      await ensureNewMemberQuest(orm, userId);
+      [row] = await select();
+    }
 
     if (!row) {
-      // Quest record not found — return empty progress (user predates the feature)
-      const defaultSteps: QuestStep[] = [
-        { id: "send_message",   label: "Send a message",          completed: false },
-        { id: "join_room",      label: "Join a Room",             completed: false },
-        { id: "gift_someone",   label: "Gift someone",            completed: false },
-        { id: "add_friend",     label: "Add a friend",            completed: false },
-        { id: "friend_request", label: "Send 3 friend requests",  completed: false },
-        { id: "daily_login",    label: "Complete a daily login",  completed: false },
-      ];
+      // Still nothing (user row missing): return the default steps.
       return NextResponse.json({
         success: true,
         data: {
           step: 1,
-          steps: defaultSteps,
+          steps: buildNewMemberQuestProgress().steps,
           allComplete: false,
           rewardClaimed: false,
         },
@@ -157,7 +159,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         step: currentStep,
         steps: progress.steps,
         allComplete,
-        rewardClaimed: row.reward_claimed ?? row.completed,
+        rewardClaimed: Boolean(row.reward_claimed),
       },
       error: null,
     });

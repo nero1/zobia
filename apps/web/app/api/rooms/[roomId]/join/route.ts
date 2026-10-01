@@ -164,7 +164,7 @@ async function firePostJoinSideEffects(roomId: string, userId: string): Promise<
     }).catch(() => {});
   }
   triggerActivityQuestProgress(userId, "room_join", orm).catch(() => {});
-  void advanceNewMemberQuestStep(orm, userId, "join_room");
+  await advanceNewMemberQuestStep(orm, userId, "join_room");
 }
 
 // ---------------------------------------------------------------------------

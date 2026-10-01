@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
@@ -25,19 +25,21 @@ interface QuestStep {
 interface QuestState {
   steps: QuestStep[];
   allComplete: boolean;
+  rewardClaimed: boolean;
 }
 
 const TOTAL_COINS = 1000;
 const TOTAL_XP = 2000;
 
 async function fetchNewMemberQuest(): Promise<QuestState | null> {
-  const { data } = await apiClient.get<{ steps?: Array<{ id: string; label: string; completed: boolean }>; allComplete?: boolean }>(
+  const { data } = await apiClient.get<{ steps?: Array<{ id: string; label: string; completed: boolean }>; allComplete?: boolean; rewardClaimed?: boolean }>(
     '/quests/new-member'
   );
   if (!data) return null;
   return {
     steps: (data.steps ?? []).map((s) => ({ id: s.id, title: s.label, completed: s.completed })),
     allComplete: Boolean(data.allComplete),
+    rewardClaimed: Boolean(data.rewardClaimed),
   };
 }
 
@@ -46,11 +48,22 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
   const currency = useCurrency();
   const { user } = useAuth();
   const { shouldShow, needsConfirm, dismiss, dontRemindAgain } = useNewMemberQuestDismissal(user?.id ?? null);
-  const { data: quest } = useQuery({ queryKey: ['home', 'quests', 'newMember'], queryFn: fetchNewMemberQuest });
+  const queryClient = useQueryClient();
+  // Progress is advanced by actions on other screens, so refetch on mount
+  // instead of trusting the 1-minute default staleTime.
+  const { data: quest } = useQuery({
+    queryKey: ['home', 'quests', 'newMember', user?.id ?? 'anon'],
+    queryFn: fetchNewMemberQuest,
+    refetchOnMount: 'always',
+  });
+  const claim = useMutation({
+    mutationFn: () => apiClient.post('/quests/new-member', {}),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['home', 'quests', 'newMember'] }),
+  });
   const [confirming, setConfirming] = useState(false);
 
   if (quest === undefined) return null; // avoid a flash of skeleton for a low-priority card
-  if (!quest || quest.allComplete) return null;
+  if (!quest || quest.rewardClaimed) return null;
   // The Home Dashboard card respects the localStorage dismiss/snooze state;
   // the dedicated Quests page (alwaysShow) is where users are told they can
   // "still find it" after dismissing it from Home, so it ignores that state
@@ -136,10 +149,20 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
                     </svg>
                   )}
                 </div>
-                <span className={`text-sm ${step.completed ? 'text-neutral-400 dark:text-neutral-500 line-through' : 'text-neutral-700 dark:text-neutral-300'}`}>{step.title}</span>
+                <span className={`text-sm ${step.completed ? 'text-neutral-400 dark:text-neutral-500 line-through' : 'text-neutral-700 dark:text-neutral-300'}`}>{t(`home.newMemberQuest.steps.${step.id}`, { defaultValue: step.title })}</span>
               </div>
             ))}
           </div>
+          {quest.allComplete && (
+            <button
+              type="button"
+              onClick={() => claim.mutate()}
+              disabled={claim.isPending}
+              className="mt-3 w-full rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {t('home.newMemberQuest.claim')}
+            </button>
+          )}
           <div className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 px-3 py-2">
             <p className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
               <Icon emoji="🏆" size={12} />
