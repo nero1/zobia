@@ -27,6 +27,7 @@ import { getRankForXP } from "@/lib/xp/engine";
 import { loadManifest } from "@/lib/manifest";
 import { isFeatureAccessible } from "@/lib/manifest/featureAccess";
 import { getProfileTheme, DEFAULT_PROFILE_THEME_TOKENS } from "@/lib/profile/themes";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -433,22 +434,28 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     }));
 
     // 6. Past seasons (up to 12 most recent)
-    // NOTE: seasons has no `theme_emoji` or `ended_at` column in the current
-    // Drizzle schema (lib/db/schema.ts) — this pre-existing query targeted
-    // columns that don't exist there, so it always failed and was silently
-    // swallowed by .catch() below (pre-existing gap, not introduced here).
-    let seasonRows: Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }> = [];
+    // Past seasons the user was ranked in. season_rank_archives rows are
+    // written by resetSeasonRankings when a season ends (which also marks it
+    // inactive), so every joined season here is finished; its ends_at is the
+    // time it actually ended (an early end pulls ends_at forward).
+    // Previously this selected seasons.theme_emoji / seasons.ended_at, which
+    // don't exist, so the query always failed and the history was empty.
+    let seasonRows: Array<{ id: string; name: string; ended_at: Date; final_rank: number | null }> = [];
     try {
-      const seasonResult = await db.execute(sql`
-        SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
-        FROM season_rank_archives sra
-        JOIN seasons s ON s.id = sra.season_id
-        WHERE sra.user_id = ${userId} AND s.ended_at IS NOT NULL
-        ORDER BY s.ended_at DESC
-        LIMIT 12
-      `);
-      seasonRows = seasonResult.rows as unknown as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>;
-    } catch {
+      seasonRows = await db
+        .select({
+          id: schema.seasons.id,
+          name: schema.seasons.name,
+          ended_at: schema.seasons.endsAt,
+          final_rank: schema.seasonRankArchives.finalRank,
+        })
+        .from(schema.seasonRankArchives)
+        .innerJoin(schema.seasons, eq(schema.seasons.id, schema.seasonRankArchives.seasonId))
+        .where(and(eq(schema.seasonRankArchives.userId, userId), eq(schema.seasons.isActive, false)))
+        .orderBy(desc(schema.seasons.endsAt))
+        .limit(12);
+    } catch (err) {
+      logger.warn({ err, userId }, "[profile] season history query failed");
       seasonRows = [];
     }
 
@@ -493,8 +500,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const seasonHistory = hidden.includes("seasons") ? [] : seasonRows.map((s) => ({
       id: s.id,
       name: s.name,
-      themeEmoji: s.theme_emoji ?? "🏆",
-      year: s.ended_at ? new Date(s.ended_at).getFullYear() : new Date().getFullYear(),
+      themeEmoji: "🏆",
+      year: new Date(s.ended_at).getFullYear(),
       finalRank: s.final_rank ?? null,
       // Web profile page compat aliases
       rank: s.final_rank ?? 0,

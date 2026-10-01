@@ -58,7 +58,7 @@ function seasonStatus(season: Season, t: (k: string, d: string) => string): { la
   const end = new Date(season.ends_at);
   if (season.is_active && now >= start && now <= end) return { label: t('admin.seasons.active', 'Active'), color: 'green' };
   if (start > now) return { label: t('admin.seasons.upcoming', 'Upcoming'), color: 'blue' };
-  return { label: t('admin.seasons.ended', 'Ended'), color: 'neutral' };
+  return { label: t('admin.seasons.statusEnded', 'Ended'), color: 'neutral' };
 }
 
 async function fetchSeasons(): Promise<Season[]> {

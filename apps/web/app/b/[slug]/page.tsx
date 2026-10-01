@@ -27,8 +27,8 @@ import { BlogHomeLayout } from "@/components/blogs/layouts/BlogHomeLayout";
 import { GiftTiersSection } from "@/components/blogs/GiftTiersSection";
 import { listPublicGiftTiers } from "@/lib/blogs/service";
 import { Icon } from "@/components/ui/Icon";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
-const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;

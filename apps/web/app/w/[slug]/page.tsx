@@ -23,8 +23,8 @@ import { generateStructuredData } from "@/lib/seo/metadata";
 import { WikiEditCta } from "@/components/wiki/WikiEditCta";
 import { WikiSearchBox } from "@/components/wiki/WikiSearchBox";
 import { Icon } from "@/components/ui/Icon";
+import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
-const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 const PAGE_LIST_LIMIT = 50;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {

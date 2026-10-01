@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+export const maxDuration = 300;
 
 /**
  * app/api/cron/games/route.ts

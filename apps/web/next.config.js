@@ -104,6 +104,26 @@ const nextConfig = {
     ],
   },
   serverExternalPackages: ["pg", "ioredis"],
+  // Vercel Hobby "Function Storage" (Deployment Storage, 10 GB) is the sum of
+  // every retained deployment's function bundles, so every byte traced into a
+  // function is paid once per deployment. Drop files that are never read at
+  // runtime (see docs/SETUP.md "Vercel Hobby storage" and
+  // `npm run analyze:functions`). Exclude globs resolve relative to this app
+  // directory; node_modules is hoisted to the monorepo root (../../).
+  outputFileTracingExcludes: {
+    // Route handlers never read the RSC client reference manifest (Next loads
+    // it with handleMissing and only page rendering uses it). Each copy is
+    // ~85 KB and there is one per route, ~50 MB per deployment.
+    "/api/**": [".next/server/app/api/**/*_client-reference-manifest.js"],
+    // Vercel functions run on glibc Linux; the musl builds of sharp/libvips
+    // (~16 MB) get installed alongside the glibc ones but are never loaded.
+    "/**": [
+      "../../node_modules/@img/sharp-libvips-linuxmusl-*/**",
+      "../../node_modules/@img/sharp-linuxmusl-*/**",
+      "node_modules/@img/sharp-libvips-linuxmusl-*/**",
+      "node_modules/@img/sharp-linuxmusl-*/**",
+    ],
+  },
   webpack: (config) => {
     // wagmi/connectors' barrel export unconditionally pulls in the
     // "Coinbase Smart Wallet" (baseAccount) connector, which we don't use

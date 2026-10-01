@@ -1954,6 +1954,7 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 ### Guiding Constraints
 
 - **Zero-cost MVP deployment** on Vercel Hobby Plan (web/admin panel) and GitHub Actions (APK, free for public repos).
+- **Deployment storage budget (Vercel Hobby, 10 GB Function Storage).** Only the `main` branch deploys to Vercel; feature branches are verified by GitHub Actions only. `main` commits that cannot affect the web app (Android, Expo, docs, load tests) skip the Vercel build. Function bundles stay lean: no per-route `maxDuration`/`memory` overrides outside CRON routes (which all share one value), and nothing that is never read at runtime is traced into functions. See section 44.
 - **Mobile-first Android APK** built with Capacitor 6 + Vite 5 + React 18. The app runs inside a full-screen WebView served by the Vite bundle — enabling direct sharing of Tailwind tokens, TanStack Query, and TanStack Router with the web codebase. Target Android API Level 36 (Android 16): `compileSdk 36`, `targetSdk 36`, `minSdk 26`.
 - **Separate web/PWA** built with Next.js, sharing the same backend API and database as the Android app but as a distinct frontend codebase.
 - **Admin panel** is a Next.js web app deployed on Vercel. Admins use browsers; the admin panel is never included in the APK. The Android app mirrors key admin panel metrics in a read-only view.
@@ -9003,6 +9004,34 @@ Sponsored-portal self-serve checkout for brands and schools, per-portal moderato
 
 ---
 
-*ZobiaSocial PRD v2.40*
+## 44. Vercel Hobby storage and season-end fixes (v2.41)
+
+### 44.1 Function Storage on the Hobby plan
+
+Vercel's Hobby **Function Storage** (10 GB) counts the function bundles of every deployment Vercel retains, across the team. It is filled by deployment count multiplied by deployment size, not by traffic. Previously every pushed branch created a preview deployment (and Vercel protects deployments of branches that still exist), and each deployment was about 155 MB of function files in 7 function groups.
+
+- **Main-only deploys.** `apps/web/vercel.json` sets `git.deploymentEnabled` to `{"**": false, "main": true}`.
+- **Ignored Build Step.** `apps/web/scripts/vercel-ignore-build.sh` (`ignoreCommand`) skips non-production refs and `main` commits with no changes under `apps/web`, `shared`, the root package manifests or `patches`. `FORCE_VERCEL_BUILD=1` forces a build.
+- **Leaner bundles.** `outputFileTracingExcludes` drops the RSC client manifest from API route handlers (unused there) and the unused musl sharp/libvips binaries.
+- **One CRON config.** All CRON routes use `maxDuration = 300` (Hobby maximum with Fluid Compute) so they share one function; no other route overrides `maxDuration`. Enforced by a unit test.
+- **Measuring.** `npm run analyze:functions` in `apps/web` after a build. Result: about 77 MB per deployment in 3 function groups.
+
+Operational follow-up for the owner: delete old preview deployments once in the Vercel dashboard, delete merged branches, and enable GitHub's "Automatically delete head branches". Full steps in `docs/SETUP.md` → *Vercel Hobby storage*.
+
+### 44.2 Season end
+
+- **Admin "End Season Early" now really ends the season.** `DELETE /api/admin/seasons/:id` used to try to pay rewards before the season was marked ended (so the payout was silently skipped), then deactivated it so the CRON never processed it either: no ranking reset, no rewards, no ceremony room, while the response claimed rewards were paid. Both the admin action and the `daily-platform` CRON now call one shared, idempotent `endSeason` (rankings archived and reset, top-10 rewards, closing-ceremony room). The web admin `/gate44/seasons` page gains the **End Season Early** button the Android admin already had.
+- **Season History shows up.** Profile and stats Season History queried columns that do not exist and were always empty; they now list archived seasons.
+- **Admin badge label.** The "Ended" status badge shared an i18n key with the "Season ended and rewards distributed" toast; it now uses `admin.seasons.statusEnded`.
+
+### 44.3 Other fixes
+
+- Default social-share image pointed at a non-existent `/og-default.png`; it now uses the generated `/og-image.png`, and the root layout sets `metadataBase` to `NEXT_PUBLIC_APP_URL` so relative share URLs resolve against the canonical domain.
+- Load tests and e2e specs that called the retired `/api/cron/daily` (410) or sent an `x-cron-secret` header (CRON auth only accepts `Authorization: Bearer`) now hit the real daily slots; the season-reset e2e spec was rewritten against real endpoints.
+- `drizzle-kit` moved to `devDependencies` (build-time tool only).
+
+---
+
+*ZobiaSocial PRD v2.41*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

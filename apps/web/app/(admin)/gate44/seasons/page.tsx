@@ -9,6 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { Icon } from "@/components/ui/Icon";
@@ -55,18 +56,18 @@ function formatDate(iso: string): string {
   });
 }
 
-function seasonStatus(season: Season): { label: string; classes: string } {
+function seasonStatus(season: Season, t: TFunction): { label: string; classes: string } {
   const now = new Date();
   const start = new Date(season.starts_at);
   const end = new Date(season.ends_at);
 
   if (season.is_active && now >= start && now <= end) {
-    return { label: "Active", classes: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300" };
+    return { label: t("admin.seasons.active", "Active"), classes: "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300" };
   }
   if (start > now) {
-    return { label: "Upcoming", classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" };
+    return { label: t("admin.seasons.upcoming", "Upcoming"), classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300" };
   }
-  return { label: "Ended", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" };
+  return { label: t("admin.seasons.statusEnded", "Ended"), classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" };
 }
 
 // ISO datetime-local format: YYYY-MM-DDTHH:mm
@@ -325,8 +326,17 @@ function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
 // Season card
 // ---------------------------------------------------------------------------
 
-function SeasonCard({ season }: { season: Season }) {
-  const { label, classes } = seasonStatus(season);
+function SeasonCard({
+  season,
+  ending,
+  onEndEarly,
+}: {
+  season: Season;
+  ending: boolean;
+  onEndEarly: (season: Season) => void;
+}) {
+  const { t } = useTranslation();
+  const { label, classes } = seasonStatus(season, t);
   const currency = useCurrency();
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -360,6 +370,17 @@ function SeasonCard({ season }: { season: Season }) {
           <span className="font-semibold text-teal-600 dark:text-teal-400">{season.reward_pool_coins.toLocaleString()} {currency.softPlural}</span>
         </div>
       </div>
+
+      {season.is_active && (
+        <button
+          type="button"
+          onClick={() => onEndEarly(season)}
+          disabled={ending}
+          className="mt-4 rounded-lg bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900"
+        >
+          {ending ? t("admin.seasons.ending", "Ending…") : t("admin.seasons.endEarly", "End Season Early")}
+        </button>
+      )}
     </div>
   );
 }
@@ -407,6 +428,42 @@ export default function AdminSeasonsPage() {
   useEffect(() => {
     void fetchSeasons();
   }, [fetchSeasons]);
+
+  const [endingId, setEndingId] = useState<string | null>(null);
+
+  // Mirrors the Android admin "End Season Early" action: the server runs the
+  // same end-of-season transition as the daily CRON (rankings reset, top-10
+  // rewards, closing-ceremony room).
+  const handleEndEarly = useCallback(async (season: Season) => {
+    if (
+      !window.confirm(
+        `${tRef.current("admin.seasons.confirmEnd", "End this season now?")}\n\n${tRef.current(
+          "admin.seasons.confirmEndDesc",
+          "Rewards will be distributed to the top 10 finishers immediately."
+        )}`
+      )
+    ) {
+      return;
+    }
+    setEndingId(season.id);
+    try {
+      const res = await fetch(`/api/admin/seasons/${encodeURIComponent(season.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } | null };
+      if (!res.ok) {
+        throw Object.assign(new Error(body.error?.message ?? "Action failed"), { code: body.error?.code ?? null });
+      }
+      showToast(tRef.current("admin.seasons.ended", "Season ended and rewards distributed"));
+      void fetchSeasons();
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      showToast(translateApiError(tRef.current, err.code, err.message || "Action failed"), "error");
+    } finally {
+      setEndingId(null);
+    }
+  }, [fetchSeasons, showToast]);
 
   function handleCreated() {
     showToast("Season created");
@@ -466,7 +523,9 @@ export default function AdminSeasonsPage() {
             </p>
           </div>
         ) : (
-          seasons.map((s) => <SeasonCard key={s.id} season={s} />)
+          seasons.map((s) => (
+            <SeasonCard key={s.id} season={s} ending={endingId === s.id} onEndEarly={handleEndEarly} />
+          ))
         )}
       </div>
     </div>

@@ -18,6 +18,7 @@ import { Inter } from "next/font/google";
 import { ThemeProviderWithNonce } from "@/components/providers/ThemeProviderWithNonce";
 import { cookies, headers } from "next/headers";
 import "./globals.css";
+import { SITE_URL } from "@/lib/seo/metadata";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
 import { I18nProvider } from "@/components/providers/I18nProvider";
 import { FloatingNotificationProvider } from "@/components/providers/FloatingNotificationProvider";
@@ -71,6 +72,9 @@ export async function generateMetadata(): Promise<Metadata> {
   }
 
   return {
+    // Resolves relative metadata URLs (e.g. the /og-image.png share image)
+    // against the canonical domain instead of the per-deployment VERCEL_URL.
+    metadataBase: new URL(SITE_URL),
     title: {
       default: "Zobia Social",
       template: "%s | Zobia Social",

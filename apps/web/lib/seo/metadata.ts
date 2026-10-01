@@ -5,7 +5,15 @@
  */
 
 import { Metadata } from 'next';
-import { env } from '@/lib/env';
+
+/** Canonical public origin (NEXT_PUBLIC_APP_URL), used for canonical URLs and OG images. */
+export const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app').replace(/\/+$/, '');
+
+/**
+ * Default social-share image. Served by the app/og-image.png route
+ * (generated at the edge); there is no static og-default.png in public/.
+ */
+export const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.png`;
 
 export interface SEOConfig {
   title: string;
@@ -24,10 +32,10 @@ export interface SEOConfig {
  * Includes meta tags, OpenGraph, Twitter Card, and canonical URLs.
  */
 export function generateMetadata(config: SEOConfig): Metadata {
-  const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
+  const baseUrl = SITE_URL;
   const title = `${config.title} | Zobia Social`;
   const description = config.description;
-  const image = config.image || `${baseUrl}/og-default.png`;
+  const image = config.image || DEFAULT_OG_IMAGE;
   const canonical = config.canonical || baseUrl;
 
   return {
@@ -71,8 +79,6 @@ export function generateStructuredData(
   type: 'Person' | 'Thing' | 'LocalBusiness' | 'BreadcrumbList' | 'QAPage' | 'BlogPosting',
   data: Record<string, any>
 ): string {
-  const baseUrl = env.NEXT_PUBLIC_APP_URL || 'https://zobia.vercel.app';
-
   const schema = {
     '@context': 'https://schema.org',
     '@type': type,

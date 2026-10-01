@@ -1,384 +1,164 @@
 /**
- * E2E tests for the Season Reset flow.
+ * E2E tests for the Season Reset flow (PRD "Season Reset").
  *
- * Verifies:
- *  - The test user has main rank XP > 0 before the reset
- *  - Triggering a season reset zeroes out the main rank XP
- *  - Track levels (social / creator) are preserved after reset
- *  - A Season History entry is created for the completed season
- *  - Coins and inventory are preserved across the reset
+ * Verifies, against a running server, that ending a season:
+ *  - resets competitive (season) rankings: the ended season is no longer the
+ *    current season and the user's season XP for it is archived;
+ *  - preserves the main rank XP and all track XP / levels (never reset);
+ *  - preserves coins and stars (top-10 finishers may only gain coins);
+ *  - adds an entry to the user's Season History when they took part.
+ *
+ * The reset is triggered through the real admin "End season early" endpoint
+ * (DELETE /api/admin/seasons/:id), which runs the same end-of-season
+ * transition as the daily-platform CRON (lib/seasons/seasonEngine.ts
+ * endSeason). If no season is active, a short throwaway season is created
+ * first so the flow can always be exercised.
+ *
+ * Required env (the suite skips without them):
+ *   E2E_USER_TOKEN  - access token of a regular test user
+ *   E2E_ADMIN_TOKEN - access token of an admin user
+ *
+ * WARNING: this ends the currently active season on the target server. Run
+ * it only against a disposable test/staging database.
  */
 
-import { test, expect } from '@playwright/test';
-
-// ---------------------------------------------------------------------------
-// Helpers and constants
-// ---------------------------------------------------------------------------
+import { test, expect, type APIRequestContext } from '@playwright/test';
 
 const USER_TOKEN = process.env.E2E_USER_TOKEN ?? '';
 const ADMIN_TOKEN = process.env.E2E_ADMIN_TOKEN ?? '';
-const USER_TOKEN_SET = !!USER_TOKEN;
-const ADMIN_TOKEN_SET = !!ADMIN_TOKEN;
+const TOKENS_SET = !!USER_TOKEN && !!ADMIN_TOKEN;
 
-const TEST_USER_ID = process.env.E2E_TEST_USER_ID ?? 'test-user-id';
+const userHeaders = () => ({ Authorization: `Bearer ${USER_TOKEN}`, 'Content-Type': 'application/json' });
+const adminHeaders = () => ({ Authorization: `Bearer ${ADMIN_TOKEN}`, 'Content-Type': 'application/json' });
 
-function userHeaders() {
+const TRACKS = ['social', 'creator', 'competitor', 'generosity', 'knowledge', 'explorer', 'gaming'] as const;
+
+interface Me {
+  id: string;
+  xp_total: number;
+  coin_balance: number;
+  star_balance: number;
+  [key: string]: unknown;
+}
+
+interface Snapshot {
+  me: Me;
+  currentSeasonId: string | null;
+  seasonXp: number | null;
+  seasonHistoryIds: string[];
+}
+
+async function snapshot(request: APIRequestContext): Promise<Snapshot> {
+  const meRes = await request.get('/api/users/me', { headers: userHeaders() });
+  expect(meRes.status()).toBe(200);
+  const me = ((await meRes.json()) as { user: Me }).user;
+
+  const curRes = await request.get('/api/seasons/current', { headers: userHeaders() });
+  let currentSeasonId: string | null = null;
+  let seasonXp: number | null = null;
+  if (curRes.status() === 200) {
+    const body = (await curRes.json()) as {
+      data: { season: { id: string }; userPass: { season_xp: number } | null };
+    };
+    currentSeasonId = body.data.season.id;
+    seasonXp = body.data.userPass?.season_xp ?? null;
+  } else {
+    expect(curRes.status()).toBe(404); // no active season
+  }
+
+  const profRes = await request.get(`/api/users/${me.id}/profile`, { headers: userHeaders() });
+  expect(profRes.status()).toBe(200);
+  const profile = ((await profRes.json()) as { profile: { seasonHistory?: Array<{ id: string }> } }).profile;
+
   return {
-    Authorization: `Bearer ${USER_TOKEN}`,
-    'Content-Type': 'application/json',
+    me,
+    currentSeasonId,
+    seasonXp,
+    seasonHistoryIds: (profile.seasonHistory ?? []).map((s) => s.id),
   };
 }
 
-function adminHeaders() {
-  return {
-    Authorization: `Bearer ${ADMIN_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
-}
+/** Returns the active season id, creating a short throwaway season if none is active. */
+async function ensureActiveSeason(request: APIRequestContext): Promise<string> {
+  const listRes = await request.get('/api/admin/seasons', { headers: adminHeaders() });
+  expect(listRes.status()).toBe(200);
+  const list = (await listRes.json()) as { data: { seasons: Array<{ id: string; is_active: boolean }> } };
+  const active = list.data.seasons.find((s) => s.is_active);
+  if (active) return active.id;
 
-/**
- * Fetch the user's profile. Returns null if the request fails.
- */
-async function fetchProfile(request: import('@playwright/test').APIRequestContext, userId: string, headers: Record<string, string>) {
-  const resp = await request.get(`/api/profile/${userId}`, { headers });
-  if (resp.status() !== 200) return null;
-  return resp.json().catch(() => null);
+  const now = Date.now();
+  const createRes = await request.post('/api/admin/seasons', {
+    headers: adminHeaders(),
+    data: {
+      name: `E2E Season ${now}`,
+      theme: 'e2e',
+      startsAt: new Date(now - 60_000).toISOString(),
+      endsAt: new Date(now + 7 * 24 * 3600_000).toISOString(),
+      passPriceCoins: 500,
+      rewardPoolCoins: 0,
+    },
+  });
+  expect(createRes.status()).toBe(201);
+  const created = (await createRes.json()) as { data: { season: { id: string } } };
+  return created.data.season.id;
 }
-
-// ---------------------------------------------------------------------------
-// Season reset flow
-// ---------------------------------------------------------------------------
 
 test.describe('Season reset flow', () => {
+  test.describe.configure({ mode: 'serial' });
 
-  // -------------------------------------------------------------------------
-  // Pre-reset: XP must be > 0
-  // -------------------------------------------------------------------------
+  let before: Snapshot;
+  let after: Snapshot;
+  let endedSeasonId: string;
+  let endStatus: number;
 
-  test('user has main rank XP greater than 0 before reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    const profile = await fetchProfile(request, TEST_USER_ID, userHeaders());
-
-    if (!profile) {
-      test.skip(true, 'Could not fetch profile — skipping');
-      return;
-    }
-
-    const mainXp: number =
-      profile.xp ??
-      profile.mainRankXp ??
-      profile.rankXp ??
-      profile.data?.xp ??
-      0;
-
-    // The test environment should seed non-zero XP; if it hasn't, we skip
-    if (mainXp === 0) {
-      test.skip(true, 'User XP is already 0 — seeding required; skipping reset assertion');
-      return;
-    }
-
-    expect(mainXp).toBeGreaterThan(0);
+  test.beforeAll(async ({ request }) => {
+    if (!TOKENS_SET) return;
+    endedSeasonId = await ensureActiveSeason(request);
+    before = await snapshot(request);
+    const endRes = await request.delete(`/api/admin/seasons/${endedSeasonId}`, { headers: adminHeaders() });
+    endStatus = endRes.status();
+    after = await snapshot(request);
   });
 
-  // -------------------------------------------------------------------------
-  // Trigger season reset
-  // -------------------------------------------------------------------------
-
-  test('season reset endpoint responds with 200/202', async ({ request }) => {
-    if (!ADMIN_TOKEN_SET) {
-      test.skip(true, 'E2E_ADMIN_TOKEN not set — skipping');
-      return;
-    }
-
-    // Try the CRON-style endpoint first, fall back to a dedicated test endpoint
-    const cronResp = await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        // Some implementations use a shared CRON secret instead of a user JWT
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    if ([200, 202].includes(cronResp.status())) {
-      expect([200, 202]).toContain(cronResp.status());
-      return;
-    }
-
-    // Fallback: dedicated admin trigger
-    const adminResp = await request.post('/api/admin/seasons/reset', {
-      headers: adminHeaders(),
-    });
-
-    expect([200, 202, 404]).toContain(adminResp.status());
+  test.beforeEach(() => {
+    test.skip(!TOKENS_SET, 'E2E_USER_TOKEN and E2E_ADMIN_TOKEN must be set');
   });
 
-  // -------------------------------------------------------------------------
-  // Post-reset: main rank XP is 0
-  // -------------------------------------------------------------------------
-
-  test('main rank XP is 0 after season reset', async ({ request }) => {
-    if (!USER_TOKEN_SET || !ADMIN_TOKEN_SET) {
-      test.skip(true, 'Required tokens not set — skipping');
-      return;
-    }
-
-    // Trigger reset
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    // Allow a brief moment for async processing
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const profile = await fetchProfile(request, TEST_USER_ID, userHeaders());
-
-    if (!profile) {
-      test.skip(true, 'Could not fetch post-reset profile — skipping');
-      return;
-    }
-
-    const mainXp: number =
-      profile.xp ??
-      profile.mainRankXp ??
-      profile.rankXp ??
-      profile.data?.xp ??
-      -1;
-
-    expect(mainXp).toBe(0);
+  test('admin "End season early" succeeds', () => {
+    expect(endStatus).toBe(200);
   });
 
-  // -------------------------------------------------------------------------
-  // Post-reset: track levels preserved
-  // -------------------------------------------------------------------------
-
-  test('social track level is preserved after season reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    // Capture track levels before reset (or rely on known seed values)
-    const profileBefore = await fetchProfile(request, TEST_USER_ID, userHeaders());
-    if (!profileBefore) {
-      test.skip(true, 'Could not fetch profile — skipping');
-      return;
-    }
-
-    const socialLevelBefore: number =
-      profileBefore.socialLevel ??
-      profileBefore.tracks?.social?.level ??
-      profileBefore.data?.socialLevel ??
-      0;
-
-    // Trigger reset
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const profileAfter = await fetchProfile(request, TEST_USER_ID, userHeaders());
-    if (!profileAfter) {
-      test.skip(true, 'Could not fetch post-reset profile — skipping');
-      return;
-    }
-
-    const socialLevelAfter: number =
-      profileAfter.socialLevel ??
-      profileAfter.tracks?.social?.level ??
-      profileAfter.data?.socialLevel ??
-      0;
-
-    // Social track level must not decrease after reset
-    expect(socialLevelAfter).toBeGreaterThanOrEqual(socialLevelBefore);
+  test('ending the same season twice is rejected', async ({ request }) => {
+    const res = await request.delete(`/api/admin/seasons/${endedSeasonId}`, { headers: adminHeaders() });
+    expect(res.status()).toBe(400);
   });
 
-  test('creator track level is preserved after season reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    const profileBefore = await fetchProfile(request, TEST_USER_ID, userHeaders());
-    if (!profileBefore) {
-      test.skip(true, 'Could not fetch profile — skipping');
-      return;
-    }
-
-    const creatorLevelBefore: number =
-      profileBefore.creatorLevel ??
-      profileBefore.tracks?.creator?.level ??
-      profileBefore.data?.creatorLevel ??
-      0;
-
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const profileAfter = await fetchProfile(request, TEST_USER_ID, userHeaders());
-    if (!profileAfter) {
-      test.skip(true, 'Could not fetch post-reset profile — skipping');
-      return;
-    }
-
-    const creatorLevelAfter: number =
-      profileAfter.creatorLevel ??
-      profileAfter.tracks?.creator?.level ??
-      profileAfter.data?.creatorLevel ??
-      0;
-
-    expect(creatorLevelAfter).toBeGreaterThanOrEqual(creatorLevelBefore);
+  test('competitive ranking resets: the ended season is no longer current', () => {
+    expect(after.currentSeasonId).not.toBe(endedSeasonId);
   });
 
-  // -------------------------------------------------------------------------
-  // Post-reset: Season History entry created
-  // -------------------------------------------------------------------------
-
-  test('Season History has a new entry after reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
-
-    // Count seasons before reset
-    const beforeResp = await request.get(`/api/seasons?userId=${TEST_USER_ID}`, {
-      headers: userHeaders(),
-    });
-
-    const seasonCountBefore: number =
-      beforeResp.status() === 200
-        ? ((await beforeResp.json().catch(() => [])) as unknown[]).length
-        : 0;
-
-    // Trigger reset
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Count seasons after reset
-    const afterResp = await request.get(`/api/seasons?userId=${TEST_USER_ID}`, {
-      headers: userHeaders(),
-    });
-
-    if (afterResp.status() !== 200) {
-      test.skip(true, 'Season history endpoint not available — skipping');
-      return;
-    }
-
-    const seasons = await afterResp.json().catch(() => []);
-    const seasonCountAfter: number = Array.isArray(seasons) ? seasons.length : 0;
-
-    // Should have at least one more entry
-    expect(seasonCountAfter).toBeGreaterThan(seasonCountBefore);
+  test('main rank XP is preserved', () => {
+    expect(Number(after.me.xp_total)).toBeGreaterThanOrEqual(Number(before.me.xp_total));
   });
 
-  // -------------------------------------------------------------------------
-  // Post-reset: coins and inventory preserved
-  // -------------------------------------------------------------------------
-
-  test('coin balance is preserved after season reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
+  test('all track XP and levels are preserved', () => {
+    for (const track of TRACKS) {
+      expect(Number(after.me[`xp_${track}`])).toBeGreaterThanOrEqual(Number(before.me[`xp_${track}`]));
+      expect(Number(after.me[`level_${track}`])).toBeGreaterThanOrEqual(Number(before.me[`level_${track}`]));
     }
-
-    const walletBefore = await request.get('/api/wallet', { headers: userHeaders() });
-    if (walletBefore.status() !== 200) {
-      test.skip(true, 'Could not fetch wallet — skipping');
-      return;
-    }
-    const before = await walletBefore.json();
-    const coinsBefore: number =
-      before.balance ?? before.coins ?? before.data?.balance ?? 0;
-
-    // Trigger reset
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const walletAfter = await request.get('/api/wallet', { headers: userHeaders() });
-    if (walletAfter.status() !== 200) {
-      test.skip(true, 'Could not fetch post-reset wallet — skipping');
-      return;
-    }
-    const after = await walletAfter.json();
-    const coinsAfter: number =
-      after.balance ?? after.coins ?? after.data?.balance ?? 0;
-
-    // Coins should not change due to the reset itself
-    expect(coinsAfter).toBe(coinsBefore);
   });
 
-  test('inventory is preserved after season reset', async ({ request }) => {
-    if (!USER_TOKEN_SET) {
-      test.skip(true, 'E2E_USER_TOKEN not set — skipping');
-      return;
-    }
+  test('coins and stars are preserved', () => {
+    // A top-10 finisher may receive reward-pool coins, never lose any.
+    expect(Number(after.me.coin_balance)).toBeGreaterThanOrEqual(Number(before.me.coin_balance));
+    expect(Number(after.me.star_balance)).toBe(Number(before.me.star_balance));
+  });
 
-    const invBefore = await request.get(`/api/inventory/${TEST_USER_ID}`, {
-      headers: userHeaders(),
-    });
-
-    if (invBefore.status() !== 200) {
-      test.skip(true, 'Inventory endpoint not available — skipping');
-      return;
-    }
-
-    const itemsBefore = await invBefore.json().catch(() => []);
-    const countBefore: number = Array.isArray(itemsBefore)
-      ? itemsBefore.length
-      : (itemsBefore.items?.length ?? itemsBefore.data?.length ?? 0);
-
-    // Trigger reset
-    await request.post('/api/cron/season-reset', {
-      headers: {
-        ...adminHeaders(),
-        'x-cron-secret': process.env.CRON_SECRET ?? '',
-      },
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    const invAfter = await request.get(`/api/inventory/${TEST_USER_ID}`, {
-      headers: userHeaders(),
-    });
-
-    if (invAfter.status() !== 200) {
-      test.skip(true, 'Could not fetch post-reset inventory — skipping');
-      return;
-    }
-
-    const itemsAfter = await invAfter.json().catch(() => []);
-    const countAfter: number = Array.isArray(itemsAfter)
-      ? itemsAfter.length
-      : (itemsAfter.items?.length ?? itemsAfter.data?.length ?? 0);
-
-    // Inventory count should not drop after a season reset
-    expect(countAfter).toBeGreaterThanOrEqual(countBefore);
+  test('Season History gains the ended season when the user took part', () => {
+    test.skip(
+      before.currentSeasonId !== endedSeasonId || before.seasonXp === null,
+      'Test user had no pass for the ended season'
+    );
+    expect(after.seasonHistoryIds).toContain(endedSeasonId);
   });
 });

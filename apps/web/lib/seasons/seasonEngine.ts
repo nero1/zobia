@@ -152,13 +152,32 @@ export function getSeasonPhase(season: Season): SeasonPhase {
  *
  * @param seasonId - UUID of the season that just ended.
  * @param db       - Drizzle db instance or an active transaction handle.
+ * @returns true if this call ended the season, false if it was already
+ *          inactive (someone else ended it) and nothing was changed.
  */
 export async function resetSeasonRankings(
   seasonId: string,
   db: DbOrTx
-): Promise<void> {
+): Promise<boolean> {
   const orm = await getDb();
-  await orm.transaction(async (tx) => {
+  return orm.transaction(async (tx) => {
+    // Claim the season first: mark it inactive and set status = 'ended' only
+    // while it is still active. This is the idempotency guard: a second
+    // caller (the daily-platform CRON racing an admin "End season early",
+    // or a retry) blocks on the row lock, then matches 0 rows and does
+    // nothing, so rankings are never re-archived and status is never pushed
+    // back to 'ended' after distribution started (which would re-pay
+    // rewards). Marking it inactive before the users.season_xp sync below
+    // also lets that sync identify any remaining active seasons for
+    // concurrent participants. BUG-023: status = 'ended' is what
+    // distributeSeasonRewards atomically claims next.
+    const claimed = await tx
+      .update(schema.seasons)
+      .set({ isActive: false, status: "ended", rankingsResetAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.seasons.id, seasonId), eq(schema.seasons.isActive, true)))
+      .returning({ id: schema.seasons.id });
+    if (claimed.length === 0) return false;
+
     // Archive leaderboard positions before clearing.
     // season_rank is never written during the season (always NULL), so compute
     // rank on-the-fly from season_xp using RANK() OVER before archiving.
@@ -178,15 +197,6 @@ export async function resetSeasonRankings(
       .set({ seasonXp: BigInt(0), seasonRank: null })
       .where(eq(schema.userSeasonPasses.seasonId, seasonId));
 
-    // Mark season as inactive first so the subsequent users.season_xp sync can
-    // correctly identify any remaining active seasons for concurrent participants.
-    // BUG-023: Also set status = 'ended' so distributeSeasonRewards can use an
-    // atomic UPDATE ... WHERE status = 'ended' RETURNING id as its idempotency guard.
-    await tx
-      .update(schema.seasons)
-      .set({ isActive: false, status: "ended", rankingsResetAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.seasons.id, seasonId));
-
     // Sync users.season_xp to reflect the user's current active season (if any),
     // or 0 if they are not participating in any other season.
     // This prevents zeroing XP for users enrolled in a concurrent active season.
@@ -205,7 +215,40 @@ export async function resetSeasonRankings(
         SELECT user_id FROM user_season_passes WHERE season_id = ${seasonId}
       )
     `);
+    return true;
   });
+}
+
+// ---------------------------------------------------------------------------
+// endSeason
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs the complete end-of-season transition for one season: archive and
+ * reset rankings (which also marks the season inactive), pay the top-10
+ * reward pool, and open the closing-ceremony room.
+ *
+ * Shared by the daily-platform CRON (seasons whose ends_at has passed) and
+ * the admin "End season early" action, so both paths always do the same
+ * work. Safe to call more than once or concurrently: only the caller that
+ * claims the still-active season does anything; the rest get
+ * `{ ended: false }`.
+ *
+ * @param seasonId   - UUID of the season to end.
+ * @param seasonName - Display name (used for the ceremony room).
+ * @param db         - Drizzle db instance or an active transaction handle.
+ */
+export async function endSeason(
+  seasonId: string,
+  seasonName: string,
+  db: DbOrTx
+): Promise<{ ended: boolean; ceremonyRoomId: string | null }> {
+  const ended = await resetSeasonRankings(seasonId, db);
+  if (!ended) return { ended: false, ceremonyRoomId: null };
+  await distributeSeasonRewards(seasonId, db);
+  const ceremonyRoomId = await createSeasonCeremonyRoom(seasonId, seasonName, db);
+  logger.info({ seasonId, ceremonyRoomId }, "[seasonEngine] season ended");
+  return { ended: true, ceremonyRoomId };
 }
 
 // ---------------------------------------------------------------------------

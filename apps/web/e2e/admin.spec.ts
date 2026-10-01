@@ -184,7 +184,7 @@ test.describe("Season System — Reset Verification", () => {
   });
 
   test("Season CRON endpoint protected against wrong secrets", async ({ request }) => {
-    const res = await request.get("/api/cron/daily", {
+    const res = await request.get("/api/cron/daily-platform", {
       headers: { Authorization: "Bearer wrong-secret" },
     });
     expect([401, 403]).toContain(res.status());
@@ -196,15 +196,21 @@ test.describe("Season System — Reset Verification", () => {
       return;
     }
 
-    const res = await request.get("/api/cron/daily", {
+    // Season transitions run in the daily-platform slot (the old monolithic
+    // /api/cron/daily is retired and answers 410 Gone).
+    const res = await request.get("/api/cron/daily-platform", {
       headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
     });
 
-    // CRON should return 200 with results object
     expect(res.status()).toBe(200);
     const body = await res.json();
 
-    // Response includes season transition results
+    // Each slot runs once per calendar day (cron_state guard); a repeat call
+    // the same day returns { skipped: true } instead of a results object.
+    if (body.skipped) {
+      expect(body.reason).toBeTruthy();
+      return;
+    }
     expect(body).toHaveProperty("results");
     expect(body.results).toHaveProperty("seasonTransitions");
   });
@@ -221,22 +227,22 @@ test.describe("Season System — Reset Verification", () => {
     // 3. Does NOT touch users.xp_total, coin_balance, track XP, or inventory
     //
     // This test verifies the CRON completes successfully (logic is unit-tested separately)
-    const res = await request.get("/api/cron/daily", {
+    const res = await request.get("/api/cron/daily-platform", {
       headers: { Authorization: `Bearer ${process.env.CRON_SECRET}` },
     });
 
     expect(res.status()).toBe(200);
     const body = await res.json();
+    if (body.skipped) return; // already ran today (cron_state guard)
 
     // Verify season transitions ran
     const transitions = body.results?.seasonTransitions;
     expect(transitions).toBeDefined();
 
-    // If a season ended, verify archive step reported success (no error key)
-    if (transitions?.ended) {
-      expect(body.errors).not.toContain(
-        expect.stringContaining(`seasonEnd(${transitions.ended})`)
-      );
+    // If a season ended, verify the end-of-season step reported no error
+    for (const seasonId of transitions?.ended ?? []) {
+      const failures = (body.errors ?? []).filter((e: string) => e.startsWith(`seasonEnd(${seasonId})`));
+      expect(failures).toEqual([]);
     }
   });
 

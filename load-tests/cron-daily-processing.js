@@ -1,22 +1,28 @@
 /**
  * k6 load test — CRON Daily Processing at Scale
  *
- * Tests the /api/cron/daily endpoint which processes the full daily reset
+ * Tests the 7 staggered daily CRON slots (/api/cron/daily-core through
+ * /api/cron/daily-platform) that together process the full daily reset
  * pipeline for all active users: quest resets, streak calculations,
  * re-engagement payloads, nemesis refresh (Sundays), season transitions,
  * mystery XP drops, guild tier enforcement, and Zobia Moments cleanup.
+ * (The old monolithic /api/cron/daily endpoint is retired and returns 410.)
+ *
+ * Each slot is idempotent per calendar day (cron_state guard), so on a
+ * second run the same day a slot returns `{ skipped: true }`. Both a full
+ * run and a skipped run count as success here.
  *
  * This simulates the CRON endpoint being called while the platform is under
  * normal production load (not zero-load), verifying the background processor
  * completes without timeout even during concurrent API traffic (PRD §28).
  *
  * Thresholds (PRD §28 testing strategy):
- *  - CRON endpoint must respond (or begin streaming) within 10,000ms
+ *  - Every slot must finish within its 300s maxDuration
  *  - Concurrent read traffic must remain below p95 < 1,500ms
  *  - Error rate < 1%
  *
  * Two scenario groups:
- *  1. cron_trigger: 1 VU triggers the CRON endpoint (sequential, once)
+ *  1. cron_trigger: 1 VU triggers the 7 slots (sequential, once each)
  *  2. concurrent_reads: 100 VUs simulate normal read traffic during CRON run
  *
  * Run:
@@ -62,11 +68,10 @@ export const options = {
     },
   },
   thresholds: {
-    // CRON endpoint may take time but must start streaming within 10s
-    http_req_duration: ['p(95)<10000'],
-    http_req_failed: ['rate<0.01'],
+    // Concurrent user-facing reads (the CRON calls are tracked separately below)
+    'http_req_duration{name:concurrent-read}': ['p(95)<1500'],
     cron_daily_errors: ['rate<0.01'],
-    cron_daily_duration: ['p(95)<600000'], // full CRON pipeline can take up to 10 min
+    cron_daily_duration: ['max<300000'], // each slot's maxDuration is 300s
     concurrent_read_errors: ['rate<0.01'],
   },
 };
@@ -75,39 +80,43 @@ export const options = {
 // CRON trigger scenario
 // ---------------------------------------------------------------------------
 
+const DAILY_SLOTS = [
+  '/api/cron/daily-core',
+  '/api/cron/daily-users',
+  '/api/cron/daily-notify',
+  '/api/cron/daily-guilds',
+  '/api/cron/daily-economy',
+  '/api/cron/daily-social',
+  '/api/cron/daily-platform',
+];
+
 export function triggerCron() {
   const cronSecret = __ENV.CRON_SECRET || '';
 
-  const res = http.post(
-    `${BASE_URL}/api/cron/daily`,
-    null,
-    {
-      headers: {
-        'x-cron-secret': cronSecret,
-        'Content-Type': 'application/json',
+  for (const slot of DAILY_SLOTS) {
+    // validateCronSecret (lib/cron/auth.ts) only accepts a Bearer token.
+    const res = http.get(`${BASE_URL}${slot}`, {
+      headers: { Authorization: `Bearer ${cronSecret}` },
+      timeout: '310s',
+      tags: { name: slot },
+    });
+
+    cronDuration.add(res.timings.duration);
+
+    const success = check(res, {
+      [`${slot}: status 200`]: (r) => r.status === 200,
+      [`${slot}: completed or skipped`]: (r) => {
+        try {
+          const body = JSON.parse(r.body);
+          return body && (body.success === true || body.skipped === true);
+        } catch {
+          return false;
+        }
       },
-      timeout: '15m',
-      tags: { name: 'cron-daily' },
-    }
-  );
+    });
 
-  cronDuration.add(res.timings.duration);
-
-  const success = check(res, {
-    'cron daily: status 200': (r) => r.status === 200,
-    'cron daily: response has body': (r) => r.body !== null && r.body.length > 0,
-    'cron daily: not a 5xx error': (r) => r.status < 500,
-    'cron daily: returns success JSON': (r) => {
-      try {
-        const body = JSON.parse(r.body);
-        return body && (body.success === true || typeof body.results !== 'undefined');
-      } catch {
-        return false;
-      }
-    },
-  });
-
-  cronErrors.add(success ? 0 : 1);
+    cronErrors.add(success ? 0 : 1);
+  }
 }
 
 // ---------------------------------------------------------------------------

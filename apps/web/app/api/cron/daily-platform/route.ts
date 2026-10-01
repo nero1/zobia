@@ -1,5 +1,5 @@
 export const dynamic = 'force-dynamic';
-export const maxDuration = 10;
+export const maxDuration = 300;
 
 /**
  * app/api/cron/daily-platform/route.ts
@@ -31,7 +31,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
-import { getCurrentSeason, distributeSeasonRewards, resetSeasonRankings, createSeasonCeremonyRoom } from "@/lib/seasons/seasonEngine";
+import { endSeason } from "@/lib/seasons/seasonEngine";
 import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
 import { retryFailedXPAwards } from "@/lib/xp/safeAwardXP";
@@ -66,13 +66,9 @@ export const GET = async (req: NextRequest) => {
 
     for (const season of endedSeasons) {
       try {
-        await resetSeasonRankings(season.id, orm);
-        await distributeSeasonRewards(season.id, orm);
-        try {
-          await createSeasonCeremonyRoom(season.id, season.name, orm);
-        } catch (err) {
-          errors.push(`seasonCeremonyRoom(${season.id}): ${String(err)}`);
-        }
+        const { ended, ceremonyRoomId } = await endSeason(season.id, season.name, orm);
+        if (!ended) continue; // ended concurrently (e.g. admin "End season early")
+        if (!ceremonyRoomId) errors.push(`seasonCeremonyRoom(${season.id}): not created`);
         if (!seasonTransitions.ended) seasonTransitions.ended = [];
         seasonTransitions.ended.push(season.id);
       } catch (err) {
