@@ -743,7 +743,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         .catch(() => {});
       const orm = await getDb();
       void triggerActivityQuestProgress(userId, "messages", orm);
-      void advanceNewMemberQuestStep(orm, userId, "send_message");
+      await advanceNewMemberQuestStep(orm, userId, "send_message");
     }
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)

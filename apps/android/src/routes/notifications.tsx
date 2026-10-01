@@ -11,7 +11,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { notificationsQueryKey, useNotificationsQuery, useMarkNotificationsSeen, type NotificationsPayload } from '@/lib/notifications/queries';
-import { resolveNotificationRoute } from '@/lib/notifications/routing';
+import { resolveNotificationRoute, toNavigateOptions } from '@/lib/notifications/routing';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 function NotificationsPage() {
@@ -110,7 +110,7 @@ function NotificationsPage() {
                 markReadMutation.mutate([notification.id]);
               }
               const route = resolveNotificationRoute(notification.actionUrl);
-              if (route) navigate({ to: route as never });
+              if (route) navigate(toNavigateOptions(route) as never);
             }}
           >
             <div className="flex items-start gap-3">

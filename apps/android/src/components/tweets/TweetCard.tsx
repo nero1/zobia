@@ -32,8 +32,8 @@ export function TweetCard({
   isOwnProfile?: boolean;
 }) {
   const { user } = useAuth();
-  // The API rejects retweeting your own tweet (CANNOT_RETWEET_OWN), so don't offer it.
-  const canRetweet = !!onToggleRetweet && !!user && tweet.authorId !== user.id;
+  // Authors may retweet their own Tweets; the level gate is enforced server-side.
+  const canRetweet = !!onToggleRetweet && !!user;
   const { t } = useTranslation();
   const [showQuoteBox, setShowQuoteBox] = useState(false);
   const [quoteDraft, setQuoteDraft] = useState('');
@@ -152,8 +152,7 @@ export function TweetCard({
                     setShowQuoteBox(false);
                     setQuoteDraft('');
                   }}
-                  disabled={!quoteDraft.trim()}
-                  className="mt-1.5 w-full rounded-lg bg-primary-600 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                  className="mt-1.5 w-full rounded-lg bg-primary-600 py-1.5 text-xs font-semibold text-white"
                 >
                   {t('tweets.quoteRetweet')}
                 </button>

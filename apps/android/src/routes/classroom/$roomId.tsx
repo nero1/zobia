@@ -3,7 +3,7 @@
  *
  * Classroom homepage — the Android counterpart of web's /c/<slug>
  * (apps/web/components/classroom/ClassroomHome.tsx). Tabs: Community ·
- * Classroom (lessons + quizzes) · Calendar · Leaderboard · About. Header:
+ * Classroom (lessons + quizzes) · Events · Leaderboard · About. Header:
  * Enrol (Credits, or card via the Paystack checkout in the in-app browser),
  * Share, Boost (creator) and Manage (creator/moderators → Studio).
  *
@@ -24,7 +24,13 @@ import { EventsPanel, LeaderboardPanel, LessonsPanel, QuizzesPanel } from '@/com
 import { useFiatCurrency, formatKoboClient } from '@/lib/hooks/useFiatCurrency';
 import { Icon } from '@/components/ui/Icon';
 
-type Tab = 'community' | 'classroom' | 'calendar' | 'leaderboard' | 'about';
+type Tab = 'community' | 'classroom' | 'events' | 'leaderboard' | 'about';
+
+/** `?tab=` deep-link value to a Tab ('calendar' is the pre-rename alias). */
+function tabFromParam(v: string | undefined): Tab | null {
+  if (v === 'calendar') return 'events';
+  return v === 'community' || v === 'classroom' || v === 'events' || v === 'leaderboard' || v === 'about' ? v : null;
+}
 
 function EnrolAction({ home, onEnrolled }: { home: ClassroomHome; onEnrolled: () => void }) {
   const { t } = useTranslation();
@@ -92,7 +98,13 @@ function ClassroomHomePage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const homeQ = useQuery({ queryKey: ['classroom', roomId, 'home'], queryFn: () => get<ClassroomHome>(`/${roomId}`) });
-  const [tab, setTab] = useState<Tab | null>(null);
+  const { tab: tabParam, event: focusEventId } = Route.useSearch();
+  const [tab, setTab] = useState<Tab | null>(tabFromParam(tabParam));
+  // A notification tap while this screen is already open only changes the URL.
+  useEffect(() => {
+    const next = tabFromParam(tabParam);
+    if (next) setTab(next);
+  }, [tabParam, focusEventId]);
 
   // Coming back from the Paystack checkout (in-app browser) — refresh so the
   // webhook-created enrolment shows up.
@@ -120,7 +132,7 @@ function ClassroomHomePage() {
   const tabs: Array<{ key: Tab; label: string; locked: boolean }> = [
     { key: 'community', label: t('classroom.home.tabs.community', 'Community'), locked: !insider },
     { key: 'classroom', label: t('classroom.home.tabs.classroom', 'Classroom'), locked: false },
-    { key: 'calendar', label: t('classroom.home.tabs.calendar', 'Calendar'), locked: false },
+    { key: 'events', label: t('classroom.home.tabs.events', 'Events'), locked: false },
     { key: 'leaderboard', label: t('classroom.home.tabs.leaderboard', 'Leaderboard'), locked: !insider },
     { key: 'about', label: t('classroom.home.tabs.about', 'About'), locked: false },
   ];
@@ -153,12 +165,13 @@ function ClassroomHomePage() {
           ) : viewer.isEnrolled ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700"><Icon emoji="✓" size={12} /> {t('classroom.card.enrolled', 'Enrolled')}</span>
           ) : null}
+          <ClassroomShareButton roomId={classroom.id} slug={classroom.slug} name={classroom.name} />
+          {/* The classroom's official chat Room (its id is the classroom id). */}
           {insider && classroom.chatRoomEnabled && (
-            <Link to="/rooms/$roomId" params={{ roomId: classroom.id }} className="inline-flex items-center gap-1 rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-              <Icon emoji="💬" size={14} /> {t('classroom.home.openRoom', 'Open Room')}
+            <Link to="/rooms/$roomId" params={{ roomId: classroom.id }} className="inline-flex items-center gap-1.5 rounded-full border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-200">
+              <Icon emoji="💬" size={14} /> {t('classroom.home.chat', 'Chat')}
             </Link>
           )}
-          <ClassroomShareButton roomId={classroom.id} slug={classroom.slug} name={classroom.name} />
           {viewer.can.manageClassroom && <ClassroomBoostButton roomId={classroom.id} name={classroom.name} />}
           {(viewer.can.manageClassroom || viewer.isModerator) && (
             <Link to="/classroom/studio/$roomId" params={{ roomId: classroom.id }} className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold">
@@ -195,12 +208,12 @@ function ClassroomHomePage() {
           {insider && <QuizzesPanel roomId={classroom.id} canTake={viewer.isEnrolled} />}
         </div>
       )}
-      {active === 'calendar' &&
+      {active === 'events' &&
         // The full events list needs member access (or manage rights) on a
         // private classroom; others get the public upcoming list from the
         // home payload instead of a request that would 403.
         (classroom.isPublic || insider || viewer.can.manageEvents ? (
-          <EventsPanel roomId={classroom.id} canManage={viewer.can.manageEvents} isMember={insider} />
+          <EventsPanel roomId={classroom.id} canManage={viewer.can.manageEvents} isMember={insider} focusEventId={focusEventId ?? null} />
         ) : home.upcomingEvents.length === 0 ? (
           <p className="py-10 text-center text-sm text-neutral-500">{t('classroom.events.empty', 'No live sessions scheduled yet.')}</p>
         ) : (
@@ -236,5 +249,9 @@ function ClassroomHomePage() {
 }
 
 export const Route = createFileRoute('/classroom/$roomId')({
+  validateSearch: (search: Record<string, unknown>): { tab?: string; event?: string } => ({
+    tab: typeof search.tab === 'string' ? search.tab : undefined,
+    event: typeof search.event === 'string' ? search.event : undefined,
+  }),
   component: ClassroomHomePage,
 });

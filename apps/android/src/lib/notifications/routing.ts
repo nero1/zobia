@@ -63,7 +63,9 @@ export const VALID_PUSH_ROUTES: RegExp[] = [
   // cases emit /c/<slug>; routes/c/$slug.tsx resolves it in-app).
   /^\/classroom$/i,
   /^\/classroom\/[a-f0-9-]+$/i,
-  /^\/c\/[a-z0-9-]+$/i,
+  // Optional query string: classroom_event_scheduled / classroom_recording_added
+  // emit /c/<slug>?tab=events&event=<id> to land on the session.
+  /^\/c\/[a-z0-9-]+(\?[a-z0-9_=&%.-]*)?$/i,
 ];
 
 /**
@@ -75,6 +77,20 @@ export const ACTION_ALIASES: Record<string, string> = {
   open_council: '/council',
   '/economy/coins': '/wallet',
 };
+
+/**
+ * Splits an allowlisted route into TanStack Router navigate options: the
+ * router needs the query as `search`, not embedded in `to`.
+ */
+export function toNavigateOptions(route: string): { to: string; search?: Record<string, string> } {
+  const [to, query] = route.split('?');
+  if (!query) return { to };
+  const search: Record<string, string> = {};
+  new URLSearchParams(query).forEach((v, k) => {
+    search[k] = v;
+  });
+  return { to, search };
+}
 
 export function isAllowedRoute(path: string): boolean {
   return VALID_PUSH_ROUTES.some((re) => re.test(path));

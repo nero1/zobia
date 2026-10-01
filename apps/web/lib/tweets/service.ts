@@ -592,7 +592,6 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
 
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
-  if (tweet.user_id === userId) throw badRequest("You cannot retweet your own Tweet", "CANNOT_RETWEET_OWN");
 
   const trimmedQuote = quoteContent?.trim() || null;
   if (trimmedQuote && trimmedQuote.length > TWEETS_HARD_CHAR_CAP) {

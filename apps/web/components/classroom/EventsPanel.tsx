@@ -11,7 +11,7 @@
  * edited, cancelled and given a recording link.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -96,7 +96,7 @@ function EventForm({
   );
 }
 
-export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; canManage: boolean; isMember: boolean }) {
+export function EventsPanel({ roomId, canManage, isMember, focusEventId = null }: { roomId: string; canManage: boolean; isMember: boolean; focusEventId?: string | null }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
@@ -150,6 +150,20 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
   const upcoming = list.filter((e) => e.status !== "ended");
   const past = list.filter((e) => e.status === "ended").reverse();
 
+  // Deep link (notification tap): scroll the targeted session into view, or
+  // the "Past sessions" (recordings) header when it is no longer listed.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusEventId || events.isPending) return;
+    const target = list.some((e) => e.id === focusEventId) ? `classroom-event-${focusEventId}` : past.length > 0 ? "classroom-events-past" : null;
+    if (!target) return;
+    const el = document.getElementById(target);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (target !== "classroom-events-past") setHighlightId(focusEventId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusEventId, events.isPending, list.length]);
+
   const renderEvent = (e: ClassroomEventView) =>
     editingId === e.id ? (
       <EventForm
@@ -168,7 +182,11 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
         onCancel={() => setEditingId(null)}
       />
     ) : (
-      <div key={e.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <div
+        key={e.id}
+        id={`classroom-event-${e.id}`}
+        className={`scroll-mt-24 rounded-xl border bg-white p-4 dark:bg-neutral-900 ${highlightId === e.id ? "border-violet-500 ring-2 ring-violet-300 dark:ring-violet-800" : "border-neutral-200 dark:border-neutral-800"}`}
+      >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
             <p className="font-semibold text-neutral-900 dark:text-neutral-50">{e.title}</p>
@@ -249,7 +267,7 @@ export function EventsPanel({ roomId, canManage, isMember }: { roomId: string; c
           )}
           {past.length > 0 && (
             <section className="space-y-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t("classroom.events.past", "Past sessions")}</h3>
+              <h3 id="classroom-events-past" className="scroll-mt-24 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t("classroom.events.past", "Past sessions")}</h3>
               {past.map(renderEvent)}
             </section>
           )}

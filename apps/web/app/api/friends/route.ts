@@ -154,7 +154,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     .catch(() => {});
 
   // Increment friend_request new-member quest step (non-fatal)
-  void advanceNewMemberQuestFriendRequestStep(orm, userId);
+  await advanceNewMemberQuestFriendRequestStep(orm, userId);
 
   return NextResponse.json({ success: true }, { status: 201 });
 });

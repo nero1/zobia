@@ -635,7 +635,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Trigger matching daily quest progress + New Member Quest step (fire-and-forget)
     void triggerActivityQuestProgress(senderId, 'gift', orm);
-    void advanceNewMemberQuestStep(orm, senderId, 'gift_someone');
+    await advanceNewMemberQuestStep(orm, senderId, 'gift_someone');
 
     // Notify the sender that they unlocked a Rewarded Gift benefit. Best-effort,
     // fired after commit (mirrors lib/blogs/service.ts's sendGift notification
