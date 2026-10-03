@@ -432,6 +432,18 @@ export async function getSession(sid: string): Promise<SessionRecord | null> {
 // ---------------------------------------------------------------------------
 
 /**
+ * Thrown when another refresh for the same session holds the lock. This is
+ * transient, not a dead session: callers must NOT clear cookies or announce
+ * session expiry, and clients should simply retry.
+ */
+export class RefreshInProgressError extends Error {
+  constructor() {
+    super("Concurrent refresh in progress. Please retry.");
+    this.name = "RefreshInProgressError";
+  }
+}
+
+/**
  * Exchange a valid refresh token for a new access token.
  * The refresh token's `sid` must still be present in Redis.
  *
@@ -460,7 +472,7 @@ export async function refreshAccessToken(
   if (!lockAcquired) {
     // Another refresh for this session is in flight. Fail fast — the client
     // should retry once the in-flight refresh resolves.
-    throw new Error("Concurrent refresh in progress. Please retry.");
+    throw new RefreshInProgressError();
   }
 
   try {
