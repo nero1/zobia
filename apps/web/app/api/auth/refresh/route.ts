@@ -30,6 +30,7 @@ import {
   buildClearCookieHeaders,
   REFRESH_TOKEN_COOKIE,
   SessionRevokedError,
+  RefreshInProgressError,
 } from "@/lib/auth/session";
 import { JwtVerificationError } from "@/lib/auth/jwt";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
@@ -111,6 +112,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       response.headers.append("Set-Cookie", accessCookie);
       response.headers.append("Set-Cookie", refreshCookie);
       return response;
+    }
+    if (err instanceof RefreshInProgressError) {
+      // Transient: a sibling tab/request is mid-refresh. Cookies are left
+      // untouched and the client retries (see lib/auth/refreshSession.ts).
+      return NextResponse.json(
+        { error: { code: "REFRESH_IN_PROGRESS", message: err.message } },
+        { status: 409, headers: { "Retry-After": "1" } }
+      );
     }
     return handleApiError(err);
   }

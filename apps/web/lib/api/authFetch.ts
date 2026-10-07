@@ -8,7 +8,8 @@
  * directly rather than the axios `apiClient`.
  *
  * It mirrors the axios interceptor (lib/api/client.ts):
- *   1. On a 401, attempt a single silent cookie-based token refresh.
+ *   1. On a 401, attempt a single silent cookie-based token refresh
+ *      (shared across tabs, see lib/auth/refreshSession.ts).
  *   2. If the refresh succeeds, retry the original request exactly once.
  *   3. If the refresh fails (session truly gone), broadcast session expiry via
  *      the session bus so the app shows the "you've been signed out" notice,
@@ -20,33 +21,9 @@
  */
 
 import { markSessionExpired, rawFetch } from "@/lib/auth/sessionExpiredBus";
-import { setSessionExpiresAt } from "@/lib/auth/sessionExpiryBus";
+import { refreshSession } from "@/lib/auth/refreshSession";
 
-let refreshPromise: Promise<boolean> | null = null;
-
-async function refreshOnce(): Promise<boolean> {
-  if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
-    try {
-      const res = await rawFetch("/api/auth/refresh", {
-        method: "POST",
-        credentials: "include",
-      });
-      if (res.ok) {
-        const body = (await res.json().catch(() => null)) as { expiresIn?: number } | null;
-        if (typeof body?.expiresIn === "number") {
-          setSessionExpiresAt(Date.now() + body.expiresIn * 1000);
-        }
-      }
-      return res.ok;
-    } catch {
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-  return refreshPromise;
-}
+const refreshOnce = refreshSession;
 
 /**
  * Authenticated same-origin fetch with silent-refresh + session-expiry handling.

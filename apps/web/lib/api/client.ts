@@ -3,7 +3,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { markSessionExpired } from '@/lib/auth/sessionExpiredBus';
-import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
+import { refreshSession } from '@/lib/auth/refreshSession';
 
 export const apiClient = axios.create({
   baseURL: typeof window !== 'undefined' ? window.location.origin : '',
@@ -13,32 +13,9 @@ export const apiClient = axios.create({
   },
 });
 
-// WEB-AUTH-01: module-level lock — if multiple requests get 401 simultaneously,
-// only one refresh call is made; all concurrent callers await the same promise.
-let webRefreshPromise: Promise<boolean> | null = null;
-
-async function refreshWebToken(): Promise<boolean> {
-  if (webRefreshPromise) return webRefreshPromise;
-
-  webRefreshPromise = (async () => {
-    try {
-      const res = await axios.post<{ expiresIn?: number }>('/api/auth/refresh', null, {
-        withCredentials: true,
-        timeout: 10_000,
-      });
-      if (res.status === 200 && typeof res.data?.expiresIn === 'number') {
-        setSessionExpiresAt(Date.now() + res.data.expiresIn * 1000);
-      }
-      return res.status === 200;
-    } catch {
-      return false;
-    } finally {
-      webRefreshPromise = null;
-    }
-  })();
-
-  return webRefreshPromise;
-}
+// WEB-AUTH-01: refreshes are single-flighted per tab and serialised across tabs
+// (lib/auth/refreshSession.ts), so a burst of 401s makes one refresh call.
+const refreshWebToken = refreshSession;
 
 // Response interceptor — on 401, attempt a silent cookie-based token refresh,
 // then retry the original request exactly once. The server sets the new

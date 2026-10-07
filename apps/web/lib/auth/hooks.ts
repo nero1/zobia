@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
 import { hasSessionHint, markSessionActive, markSessionExpired, rawFetch } from '@/lib/auth/sessionExpiredBus';
+import { refreshSession } from '@/lib/auth/refreshSession';
 import { cachedRead } from '@/lib/cache/readCache';
 
 export interface AuthUser {
@@ -53,9 +54,7 @@ async function requestAuthMe(): Promise<AuthUser | null> {
     // token is still good — try one silent refresh before concluding anything.
     // (Skipped for visitors who were never signed in, so anonymous page loads
     // cost a single request instead of two.)
-    const refreshed = await rawFetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
-      .then((r) => r.ok)
-      .catch(() => false);
+    const refreshed = await refreshSession();
     if (refreshed) res = await authMeFetch();
   }
   if (!res.ok) {
