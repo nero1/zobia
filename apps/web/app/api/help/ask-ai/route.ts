@@ -15,9 +15,12 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { askAi } from "@/lib/help/service";
+import { askWithQuota } from "@/lib/help/quota";
 
 const askSchema = z.object({
+  requestId: z.string().uuid(),
+  confirmPaid: z.boolean().default(false),
+  confirmedCost: z.number().int().positive().optional(),
   question: z.string().trim().min(3).max(1000),
   docId: z.string().uuid().optional(),
 });
@@ -26,8 +29,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, askSchema);
-    const answer = await askAi(body.question, body.docId);
-    return NextResponse.json({ success: true, data: { answer }, error: null });
+    const data = await askWithQuota({ ...body, userId: auth.user.sub });
+    return NextResponse.json({ success: true, data, error: null });
   } catch (err) {
     return handleApiError(err);
   }

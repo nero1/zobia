@@ -1,3 +1,4 @@
+import { authReturnDestination } from "@/lib/auth/returnDestination";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -640,13 +641,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // Web redirect cookie (set during /api/auth/google initiation) takes priority
     // over the default /home destination so users land where they were going.
-    const destination = webRedirect && SAFE_REDIRECT_RE.test(webRedirect)
-      ? new URL(webRedirect, reqOrigin)
-      : safeRedirect
-        ? new URL(safeRedirect, reqOrigin)
-        : user.onboarding_completed
-          ? new URL("/home", reqOrigin)
-          : new URL("/onboarding", reqOrigin);
+    const requested = webRedirect && SAFE_REDIRECT_RE.test(webRedirect) ? webRedirect : safeRedirect;
+    const destination = new URL(authReturnDestination(user.onboarding_completed,requested),reqOrigin);
 
     const response = NextResponse.redirect(destination, { status: 302 });
     for (const cookie of [accessCookie, refreshCookie, ...cookiesToClear]) {

@@ -16,6 +16,8 @@ import { clsx } from "clsx";
 import { Icon } from "@/components/ui/Icon";
 
 const adminNavItems = [
+  { href: "/gate44/auto-content", label: "Official Content Studio", icon: "Ⓩ" },
+  { href: "/gate44/tales", label: "Tales Moderation", icon: "📚" },
   { href: "/gate44",                    label: "Dashboard",          icon: "◼" },
   { href: "/gate44/users",              label: "Users",              icon: "👥" },
   { href: "/gate44/data-management",    label: "Data Management",    icon: "🗄️" },
@@ -89,6 +91,14 @@ const adminNavItems = [
 
 function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const [search,setSearch] = useState('');
+  const matches = adminNavItems.filter((item)=>`${item.label} ${item.href}`.toLowerCase().includes(search.toLowerCase().trim()));
+  const group = (href: string) => /config|settings|feature-flags|footer-scripts/.test(href) ? 'Settings and configuration'
+    : /financial|payout|refund|payment|business|kyc/.test(href) ? 'Accounts and money'
+    : /moderation|watch56|support|help-center/.test(href) ? 'Safety and support'
+    : /monitoring|log|automated|ai-monitoring|data-management/.test(href) ? 'Operations'
+    : /users|announcements|messages|alerts/.test(href) ? 'People and communication'
+    : href === '/gate44' ? 'Overview' : 'Content and rewards';
 
   return (
     <nav className="space-y-0.5" aria-label="Admin navigation">
@@ -104,7 +114,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="my-1 border-t border-neutral-200 dark:border-neutral-800" />
 
-      {adminNavItems.map((item) => {
+      <label className="block px-2 py-3"><span className="sr-only">Search admin panels</span><input type="search" value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Find a panel or setting…" className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm text-neutral-900" /></label>
+      {search && <p role="status" className="px-3 text-xs text-neutral-500">{matches.length} matching panels</p>}
+      {['Overview','Settings and configuration','Accounts and money','Safety and support','People and communication','Content and rewards','Operations'].map((category)=> {
+        const items = matches.filter((item)=>group(item.href)===category);
+        return items.length ? <section key={category}><h2 className="px-3 pt-4 pb-2 text-xs font-bold uppercase tracking-wide text-neutral-500">{category}</h2>{items.map((item) => {
         const isActive =
           item.href === "/gate44"
             ? pathname === "/gate44"
@@ -126,7 +140,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             {item.label}
           </Link>
         );
-      })}
+      })}</section> : null; })}
     </nav>
   );
 }

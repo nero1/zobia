@@ -14,7 +14,7 @@
  *    when the admin has set the Help Center AI fallback free-for-all.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
@@ -33,6 +33,9 @@ export function AskAiBlock({ docId, docTitle }: { docId: string; docTitle: strin
   const [loggedIn, setLoggedIn] = useState<boolean | null>(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<string | null>(null);
+  const requestId = useRef<string | null>(null);
+  const [usage, setUsage] = useState<{ used: number; limit: number; cost: number; resetsAt: string } | null>(null);
+  const [quotaReached, setQuotaReached] = useState(false);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
@@ -51,21 +54,29 @@ export function AskAiBlock({ docId, docTitle }: { docId: string; docTitle: strin
       .catch(() => {});
   }, [loggedIn]);
 
-  async function ask() {
+  async function ask(confirmPaid = false) {
+    if (confirmPaid && (!usage || !window.confirm(t("helpQuota.confirm", "Deduct {{cost}} credits from your wallet for this question?", { cost: usage.cost })))) return;
     if (!question.trim()) return;
     setAsking(true);
     setError(null);
     try {
+      requestId.current ??= crypto.randomUUID();
       const res = await fetch("/api/help/ask-ai", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, docId }),
+        body: JSON.stringify({ question, docId, requestId: requestId.current, confirmPaid, confirmedCost: confirmPaid ? usage?.cost : undefined }),
       });
       const json = await res.json();
+      if (json?.error?.code === "HELP_AI_WEEKLY_LIMIT") {
+        setUsage(json.error.params); setQuotaReached(true); return;
+      }
       if (!res.ok) throw new Error(json?.error?.message ?? t("help.askAi.unavailable", "The AI assistant is unavailable right now."));
       setAnswer(json.data.answer);
+      setUsage(json.data.usage);
+      requestId.current = null;
     } catch (e) {
+      requestId.current = null;
       setError(e instanceof Error ? e.message : t("help.askAi.genericError", "Something went wrong."));
     } finally {
       setAsking(false);
@@ -102,16 +113,18 @@ export function AskAiBlock({ docId, docTitle }: { docId: string; docTitle: strin
       <p className="mb-1 text-sm font-semibold">{t("help.askAi.title", "Ask AI")}</p>
       <p className="mb-3 text-xs text-muted-foreground">{t("help.askAi.subtext", "Can't find what you're looking for? Try asking the AI.")}</p>
 
+      {usage && (usage.used >= 11 || quotaReached) && <p className="mb-3 text-xs">{t("helpQuota.usage", "{{used}}/{{limit}} questions used; {{remaining}} included questions left. Resets {{date}}.", { used: usage.used, limit: usage.limit, remaining: Math.max(0, usage.limit - usage.used), date: new Date(usage.resetsAt).toLocaleString() })} <a className="underline" href="/settings/subscription">{t("helpQuota.upgrade", "Upgrade your plan")}</a></p>}
+      {quotaReached && usage && usage.cost > 0 && <button disabled={asking} className="mb-3 rounded-lg border border-border px-4 py-2 text-sm" onClick={() => void ask(true)}>{t("helpQuota.pay", "Ask for {{cost}} credits", { cost: usage.cost })}</button>}
       {!answer ? (
         <div className="flex gap-2">
           <input
             type="text"
             value={question}
-            onChange={(e) => setQuestion(e.target.value)}
+            onChange={(e) => { setQuestion(e.target.value); requestId.current = null; setQuotaReached(false); }}
             placeholder={t("help.askAi.placeholder", "Ask a question about this topic…")}
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm"
           />
-          <button onClick={ask} disabled={asking || !question.trim()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
+          <button onClick={() => void ask(false)} disabled={asking || !question.trim()} className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50">
             {asking ? t("help.askAi.asking", "Asking…") : t("help.askAi.ask", "Ask")}
           </button>
         </div>

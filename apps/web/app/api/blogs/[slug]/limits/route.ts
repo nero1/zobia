@@ -38,13 +38,15 @@ export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params
       .from(schema.blogPosts)
       .where(and(eq(schema.blogPosts.blogId, blog.id), isNull(schema.blogPosts.deletedAt)));
     const used = countRow?.count ?? 0;
-    const [maxPosts, plusMax, proMax, maxMax] = await Promise.all([
+    const [slots] = await orm.select({extra:schema.blogs.extraPostSlots}).from(schema.blogs).where(eq(schema.blogs.id,blog.id));
+    const [baseMaxPosts, plusMax, proMax, maxMax] = await Promise.all([
       getMaxBlogPosts(plan),
       getMaxBlogPosts("plus"),
       getMaxBlogPosts("pro"),
       getMaxBlogPosts("max"),
     ]);
 
+    const maxPosts = baseMaxPosts + (slots?.extra ?? 0);
     return NextResponse.json({
       success: true,
       data: {

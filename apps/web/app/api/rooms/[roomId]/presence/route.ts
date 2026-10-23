@@ -1,3 +1,4 @@
+import { loadClassroomContext } from "@/lib/classroom/access";
 export const dynamic = "force-dynamic";
 
 /**
@@ -22,7 +23,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
+import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { resolveRoomCap } from "@/lib/rooms/capacity";
@@ -59,6 +60,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
+    if (room.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, userId);
+      if (!context.viewer.can.viewMemberContent) throw forbidden("Enrol in this classroom before entering its chatroom.", "CLASSROOM_ENROLMENT_REQUIRED");
+    }
     // Privileged = creator or a (co-)moderator — these always bypass the cap.
     let privileged = room.creator_id === userId;
     if (!privileged) {

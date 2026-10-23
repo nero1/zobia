@@ -6,7 +6,7 @@
  * sanitized server-side via lib/security/htmlSanitizer.ts, same as blog posts).
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { isAxiosError } from 'axios';
@@ -26,12 +26,22 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
   const isAuthenticated = !!token;
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState<string | null>(null);
+  const requestId = useRef<string | null>(null);
+  const [usage, setUsage] = useState<{ used: number; limit: number; cost: number; resetsAt: string } | null>(null);
+  const [quotaReached, setQuotaReached] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const ask = useMutation({
-    mutationFn: () => apiClient.post<{ answer: string }>('/help/ask-ai', { question, docId }),
-    onSuccess: (res) => setAnswer(res.data.answer),
+    mutationFn: (confirmPaid: boolean) => {
+      requestId.current ??= crypto.randomUUID();
+      return apiClient.post<{ answer: string; usage: { used: number; limit: number; cost: number; resetsAt: string } }>('/help/ask-ai', { question, docId, requestId: requestId.current, confirmPaid, confirmedCost: confirmPaid ? usage?.cost : undefined });
+    },
+    onSuccess: (res) => { setAnswer(res.data.answer); setUsage(res.data.usage); requestId.current = null; },
     onError: (err) => {
+      if (isAxiosError(err) && err.response?.data?.error?.code === 'HELP_AI_WEEKLY_LIMIT') {
+        setUsage(err.response.data.error.params); setQuotaReached(true); return;
+      }
+      requestId.current = null;
       const fallback = t('help.askAi.unavailable', 'The AI assistant is unavailable right now.');
       setError(isAxiosError(err) ? err.response?.data?.error?.message ?? fallback : fallback);
     },
@@ -50,10 +60,12 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
       <p className="mb-1 text-sm font-semibold text-white">{t('help.askAi.title', 'Ask AI')}</p>
       <p className="mb-3 text-xs text-neutral-400 dark:text-neutral-500">{t('help.askAi.subtext', "Can't find what you're looking for? Try asking the AI.")}</p>
+      {usage && (usage.used >= 11 || quotaReached) && <p className="mb-3 text-xs">{t('helpQuota.usage', '{{used}}/{{limit}} questions used; {{remaining}} included questions left. Resets {{date}}.', { used: usage.used, limit: usage.limit, remaining: Math.max(0, usage.limit - usage.used), date: new Date(usage.resetsAt).toLocaleString() })} <Link to={'/settings/subscription' as never} className="underline">{t('helpQuota.upgrade', 'Upgrade your plan')}</Link></p>}
+      {quotaReached && usage && usage.cost > 0 && <button disabled={ask.isPending} className="mb-3 rounded-lg border px-4 py-2 text-sm" onClick={() => { if (window.confirm(t('helpQuota.confirm', 'Deduct {{cost}} credits from your wallet for this question?', { cost: usage.cost }))) ask.mutate(true); }}>{t('helpQuota.pay', 'Ask for {{cost}} credits', { cost: usage.cost })}</button>}
       {!answer ? (
         <div className="flex gap-2">
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t('help.askAi.placeholder', 'Ask a question about this topic…')} className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white" />
-          <button onClick={() => ask.mutate()} disabled={ask.isPending || !question.trim()} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+          <input value={question} onChange={(e) => { setQuestion(e.target.value); requestId.current = null; setQuotaReached(false); }} placeholder={t('help.askAi.placeholder', 'Ask a question about this topic…')} className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white" />
+          <button onClick={() => ask.mutate(false)} disabled={ask.isPending || !question.trim()} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
             {t('help.askAi.ask', 'Ask')}
           </button>
         </div>

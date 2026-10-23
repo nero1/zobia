@@ -65,9 +65,11 @@ export function deriveNotificationActionUrl(
       return "/home";
     case "friend_request":
       return "/friends";
+    case "tale_new_chapter":
+      return isNonEmptyString(m.taleSlug) && Number.isInteger(m.ordinal) && Number(m.ordinal)>0 ? `/t/${encodeURIComponent(m.taleSlug)}/${m.ordinal}` : null;
     case "blog_new_post":
       return isNonEmptyString(m.blogSlug) && isNonEmptyString(m.postSlug)
-        ? `/blogs/${m.blogSlug}/${m.postSlug}`
+        ? `/b/${encodeURIComponent(m.blogSlug)}/${encodeURIComponent(m.postSlug)}`
         : null;
     case "wiki_moderator_granted":
       return isNonEmptyString(m.wikiId) ? `/wiki/${m.wikiId}/manage` : "/wiki";

@@ -13,6 +13,8 @@
  * Quests page stays the source of truth for live progress).
  */
 
+import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
@@ -27,9 +29,11 @@ interface DailyQuest {
   progress: number;
   goal: number;
   completed: boolean;
+  actionUrl: string;
 }
 
 interface DailyQuestApiRow {
+  actionUrl?: unknown;
   id?: unknown;
   title?: unknown;
   name?: unknown;
@@ -41,10 +45,11 @@ interface DailyQuestApiRow {
   completed?: unknown;
 }
 
-async function fetchDailyQuests(): Promise<DailyQuest[]> {
-  const { data } = await apiClient.get<{ quests?: DailyQuestApiRow[] }>('/quests/daily');
-  return (data?.quests ?? []).map((q) => ({
+async function fetchDailyQuests() {
+  const { data } = await apiClient.get<{ quests?: DailyQuestApiRow[]; xpToLevel2?: number }>('/quests/daily');
+  const quests: DailyQuest[] = (data?.quests ?? []).map((q) => ({
     id: String(q.id ?? ''),
+    actionUrl: typeof q.actionUrl === 'string' ? q.actionUrl : '/quests',
     title: String(q.title ?? q.name ?? ''),
     description: String(q.description ?? ''),
     xpReward: Number(q.xp_reward ?? 0),
@@ -53,6 +58,7 @@ async function fetchDailyQuests(): Promise<DailyQuest[]> {
     goal: Number(q.target_count ?? 1),
     completed: Boolean(q.completed ?? false),
   }));
+  return { quests, xpToLevel2: data?.xpToLevel2 ?? 0 };
 }
 
 async function fetchLoginStreak(): Promise<number> {
@@ -91,13 +97,24 @@ function QuestDeckSkeleton() {
 
 export function DailyQuestDeck() {
   const { t } = useTranslation();
-  const { data: quests, isPending } = useQuery({ queryKey: ['home', 'quests', 'daily'], queryFn: fetchDailyQuests });
+  const [tipIndex,setTipIndex] = useState(0);
+  const [tipsHidden,setTipsHidden] = useState(false);
+  const { data: deck, isPending } = useQuery({ queryKey: ['home', 'quests', 'daily'], queryFn: fetchDailyQuests });
   const { data: loginStreak = 0 } = useQuery({ queryKey: ['home', 'quests', 'loginStreak'], queryFn: fetchLoginStreak });
 
+  const quests = deck?.quests; const xpToLevel2 = deck?.xpToLevel2 ?? 0;
+  const tips = quests?.filter((q)=>!q.completed && q.xpReward>0) ?? [];
+  const tip = tips.length ? tips[tipIndex % tips.length] : undefined;
   if (isPending || !quests) return <QuestDeckSkeleton />;
 
   return (
     <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-sm">
+      {!tipsHidden && (tip || xpToLevel2>0) && <aside className="rounded-t-xl bg-blue-50 dark:bg-blue-950 p-4 text-sm">
+        <div className="flex justify-between gap-3"><strong>{t('home.tips.title','Tips for your progress')}</strong><button type="button" onClick={()=>setTipsHidden(true)} aria-label={t('home.tips.dismiss','Dismiss tips')}>×</button></div>
+        {xpToLevel2>0 && <p className="mt-2">{t('home.tips.level2','Earn {{xp}} more XP to reach Level 2 and unlock more features and higher limits.',{xp:xpToLevel2})}</p>}
+        {tip && <p className="mt-2"><Link to={tip.actionUrl as never} className="underline">{t('home.tips.earn','Earn {{xp}} XP by completing: {{action}}',{xp:tip.xpReward,action:tip.title})}</Link></p>}
+        {tips.length>1 && <button type="button" onClick={()=>setTipIndex((n)=>n+1)} className="mt-2 underline">{t('home.tips.next','Another tip')}</button>}
+      </aside>}
       <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-5 py-4">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('home.quests.dailyTitle')}</h2>
         {loginStreak > 0 && (
@@ -127,7 +144,7 @@ export function DailyQuestDeck() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm font-semibold ${q.completed ? 'text-neutral-400 dark:text-neutral-500 line-through' : 'text-neutral-900 dark:text-neutral-100'}`}>
-                      {q.title}
+                      <Link to={q.actionUrl as never} className="hover:underline">{q.title}</Link>
                     </p>
                     {q.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{q.description}</p>}
                     {!q.completed && (

@@ -30,6 +30,7 @@ export function PostBody({
 }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const [loggedOut, setLoggedOut] = useState(false);
   const [html, setHtml] = useState(serverHtml);
   const [locked, setLocked] = useState(isPaywalled);
   const [checked, setChecked] = useState(!isPaywalled);
@@ -39,7 +40,7 @@ export function PostBody({
   useEffect(() => {
     if (!isPaywalled) return;
     fetch(`/api/blogs/${blogSlug}/posts/${postSlug}`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
+      .then((r) => { if (r.status === 401) setLoggedOut(true); return r.ok ? r.json() : null; })
       .then((json) => {
         const data = json?.data;
         if (data && !data.locked && data.post?.body_html) {
@@ -52,11 +53,14 @@ export function PostBody({
   }, [blogSlug, postSlug, isPaywalled]);
 
   async function handleUnlock() {
+    const returnTo = `/b/${blogSlug}/${postSlug}`;
+    if (loggedOut) { router.push(`/auth/login?redirect=${encodeURIComponent(returnTo)}`); return; }
+    if (!window.confirm(t("blogEditing.confirmUnlock", "Deduct {{cost}} credits from your wallet to unlock this post?", { cost: paywallCreditsCost }))) return;
     setUnlocking(true);
     setError(null);
     try {
-      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/unlock`, { method: "POST", credentials: "include" });
-      if (res.status === 401) { router.push("/auth/login"); return; }
+      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/unlock`, { method: "POST", credentials: "include", headers:{"Content-Type":"application/json"},body:JSON.stringify({confirmedCost:paywallCreditsCost}) });
+      if (res.status === 401) { router.push(`/auth/login?redirect=${encodeURIComponent(returnTo)}`); return; }
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? "Unlock failed");
 
@@ -82,7 +86,8 @@ export function PostBody({
           <p className="text-sm text-amber-300 mb-3">
             {t("blogs.post.paywallNotice", "Pay {{cost}} credits to read the rest of the article.", { cost: paywallCreditsCost })}
           </p>
-          {error && <p className="text-xs text-red-400 mb-2">{error}</p>}
+          {error && <p className="text-xs text-red-400 mb-2">{error} <a href="/wallet" className="underline">{t("blogEditing.getCredits", "Get more credits")}</a> · <a href="/gifts" className="underline">{t("nav.gifts", "Gifts")}</a> · <a href="/quests" className="underline">{t("nav.quests", "Quests")}</a> · <a href="/help/search?q=credits" className="underline">{t("blogEditing.creditHelp", "How to get credits")}</a></p>}
+          {loggedOut && <p className="mb-3 text-sm">{t("blogEditing.signUpCredits", "Sign up to receive your welcome credits, or log in if you already have an account.")}</p>}
           <button
             type="button"
             onClick={handleUnlock}

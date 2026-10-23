@@ -11,6 +11,7 @@
  * - Sponsored quests section at the bottom
  */
 
+import Link from "@/components/ui/Link";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
@@ -27,6 +28,7 @@ type QuestDifficulty = "easy" | "medium" | "hard";
 type QuestTrack = "social" | "knowledge" | "wealth" | "influence" | "resilience" | "legacy" | "main";
 
 interface Quest {
+  actionUrl: string;
   id: string;
   title: string;
   description: string;
@@ -125,7 +127,7 @@ function QuestCard({ quest }: { quest: Quest }) {
                   quest.isCompleted ? "line-through text-neutral-400" : "text-neutral-900 dark:text-neutral-100"
                 }`}
               >
-                {quest.title}
+                <Link href={quest.actionUrl} className="hover:underline">{quest.title}</Link>
               </span>
               {quest.isSponsored && (
                 <span className="text-xs bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
@@ -217,6 +219,7 @@ export default function QuestsPage() {
       // Map API snake_case / alternate fields to the Quest interface
       const quests: Quest[] = (json.quests ?? []).map((q: Record<string, unknown>): Quest => ({
         id: String(q.id ?? ""),
+        actionUrl: String(q.actionUrl ?? "/quests"),
         title: String(q.title ?? q.name ?? ""),
         description: String(q.description ?? ""),
         difficulty: (["easy","medium","hard"].includes(String(q.difficulty)) ? q.difficulty : "medium") as QuestDifficulty,

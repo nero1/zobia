@@ -274,7 +274,8 @@ function AppShell() {
               // intentionally excludes it, same contract web/Expo share) decides
               // whether a brand-new OAuth signup lands on /onboarding first,
               // mirroring apps/expo/app/auth/login.tsx's identical branch.
-              navigate({ to: data.onboardingCompleted === false ? '/onboarding' : '/home', replace: true });
+              let destination='/home';try{const saved=localStorage.getItem('zobia:auth:talesReturn');if(saved&&/^\/t(?:\/[a-zA-Z0-9-]+)*$/.test(saved)){destination=saved;if(data.onboardingCompleted!==false)localStorage.removeItem('zobia:auth:talesReturn');}}catch{}
+              navigate({ to: data.onboardingCompleted === false ? '/onboarding' : destination as never, replace: true });
             } else {
               console.error('[auth] user schema parse failed:', userParsed.error);
             }
@@ -317,7 +318,7 @@ function AppShell() {
     };
   }, []);
 
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r)) || pathname === '/t' || pathname.startsWith('/t/');
   const isTabRoot = TAB_ROOTS.some((r) => pathname === r);
   const showBack = !isTabRoot && !isPublicRoute && pathname !== '/';
 

@@ -47,7 +47,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const url = new URL(req.url);
     const rawLimit = parseInt(url.searchParams.get("limit") ?? "20", 10);
-    const limit = Math.min(Math.max(1, rawLimit), 50);
+    const limit = Math.min(Math.max(1, Number.isFinite(rawLimit) ? rawLimit : 20), 50);
 
     // Cursor-based pagination: ?cursor={createdAt}:{id}
     const cursorParam = url.searchParams.get("cursor");
@@ -91,7 +91,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       type: entry.transaction_type,
       referenceId: entry.reference_id ?? null,
       description: entry.description ?? null,
-      createdAt: entry.created_at,
+      createdAt: entry.createdAt ?? entry.created_at,
     }));
 
     const starTransactions = starLedgerPage.entries.map((entry) => ({
@@ -102,7 +102,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       type: entry.transaction_type,
       referenceId: entry.reference_id ?? null,
       description: entry.description ?? null,
-      createdAt: entry.created_at,
+      createdAt: entry.createdAt ?? entry.created_at,
     }));
 
     // Encode cursors as {createdAt}:{id} strings for the client

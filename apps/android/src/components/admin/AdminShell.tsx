@@ -1,3 +1,4 @@
+import { groupAdminNavigation } from '@zobia/shared/utils';
 /**
  * apps/android/src/components/admin/AdminShell.tsx
  *
@@ -23,6 +24,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { clearAuth } = useAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const [search,setSearch]=useState('');
+  const groups=groupAdminNavigation(adminNavItems.filter(item=>`${t(item.labelKey,item.labelDefault)} ${item.href}`.toLowerCase().includes(search.toLowerCase().trim())));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = () => setDrawerOpen(false);
 
@@ -113,7 +116,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <div className="my-2 border-t border-neutral-200 dark:border-neutral-700" />
 
             <nav className="space-y-0.5" aria-label={t('admin.panel')}>
-              {adminNavItems.map((item) => {
+              <label className="block py-2"><span className="sr-only">{t('admin.nav.search','Search admin panels')}</span><input type="search" value={search} onChange={event=>setSearch(event.target.value)} placeholder={t('admin.nav.search','Search admin panels')} className="w-full rounded-lg border bg-white text-neutral-900 px-3 py-2"/></label>
+              {groups.map(group=><section key={group.key}><h2 className="px-3 pt-4 pb-2 text-xs font-bold uppercase text-neutral-500">{t(group.key,group.label)}</h2>{group.items.map((item) => {
                 const isActive = item.href === '/admin' ? pathname === '/admin' : pathname.startsWith(item.href);
                 return (
                   <Link
@@ -129,7 +133,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     {t(item.labelKey, item.labelDefault)}
                   </Link>
                 );
-              })}
+              })}</section>)}
             </nav>
           </div>
 

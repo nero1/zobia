@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { withAuth } from "@/lib/api/middleware";
+import { z } from "zod";
+import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug } from "@/lib/blogs/repo";
@@ -16,7 +17,7 @@ import { unlockPost } from "@/lib/blogs/service";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 
-export const POST = withAuth<{ slug: string; postSlug: string }>(async (_req: NextRequest, { params, auth }) => {
+export const POST = withAuth<{ slug: string; postSlug: string }>(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const blog = await getBlogBySlug(params.slug);
@@ -30,7 +31,8 @@ export const POST = withAuth<{ slug: string; postSlug: string }>(async (_req: Ne
       .from(schema.users)
       .where(eq(schema.users.id, auth.user.sub))
       .limit(1);
-    const result = await unlockPost(post.id, auth.user.sub, userRow?.plan ?? "free");
+    const body=await validateBody(req,z.object({confirmedCost:z.number().int().nonnegative()}));
+    const result = await unlockPost(post.id, auth.user.sub, userRow?.plan ?? "free", body.confirmedCost);
     return NextResponse.json({ success: true, data: result, error: null });
   } catch (err) {
     return handleApiError(err);

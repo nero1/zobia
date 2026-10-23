@@ -19,7 +19,7 @@ import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { isNavPathActive } from "@zobia/shared/utils";
+import { isNavPathActive, groupNavigation } from "@zobia/shared/utils";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -63,6 +63,9 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/forum",        labelKey: "nav.bbforum",      icon: "forum", flagKey: "bbforum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "quests" },
   { href: "/games",        labelKey: "nav.games",        icon: "games", flagKey: "games" },
+  { href: "/games/challenges", labelKey: "nav.challenges", icon: "games", flagKey: "games" },
+  { href: "/bookmarks", labelKey: "nav.bookmarks", icon: "blogs" },
+  { href: "/t", labelKey: "nav.tales", icon: "blogs" },
   { href: "/blogs",        labelKey: "nav.blogs",        icon: "blogs", flagKey: "blogs" },
   { href: "/polls",        labelKey: "nav.polls",        icon: "polls", flagKey: "polls" },
   { href: "/quizzes",      labelKey: "nav.quizzes",      icon: "quizzes", flagKey: "quizzes" },
@@ -276,7 +279,7 @@ function MobileDrawer({
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                   pathname?.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                 )}
                 aria-current={pathname?.startsWith("/gate44") ? "page" : undefined}
               >
@@ -292,7 +295,7 @@ function MobileDrawer({
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                   pathname?.startsWith("/watch56")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                 )}
                 aria-current={pathname?.startsWith("/watch56") ? "page" : undefined}
               >
@@ -300,7 +303,8 @@ function MobileDrawer({
                 {t("moderation.title", "Moderation Center")}
               </Link>
             )}
-            {visibleNavItems.map((item) => {
+            {groupNavigation(visibleNavItems).map((group) => <section key={group.key} className="mb-3"><h2 className="px-3 pt-3 pb-1 text-xs font-semibold text-neutral-500 dark:text-neutral-200">{t(group.key, group.label)}</h2>
+            {group.items.map((item) => {
               const isActive = isNavPathActive(pathname, item.href);
               const isOffForUsers = !!item.flagKey && featureFlags[item.flagKey] === false;
               return (
@@ -312,7 +316,7 @@ function MobileDrawer({
                     "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                     isActive
                       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -330,7 +334,7 @@ function MobileDrawer({
                   )}
                 </Link>
               );
-            })}
+            })}</section>)}
           </nav>
 
           {/* Divider */}
@@ -349,7 +353,7 @@ function MobileDrawer({
                     "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                     isActive
                       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -656,7 +660,7 @@ export function Navbar() {
                     "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive
                       ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                      : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
@@ -676,7 +680,7 @@ export function Navbar() {
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   pathname?.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                 )}
               >
                 <Icon name="admin" className="mr-1 inline-block align-[-2px]" />
@@ -691,7 +695,7 @@ export function Navbar() {
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   pathname?.startsWith("/watch56")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
-                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
                 )}
               >
                 <Icon name="moderation" className="mr-1 inline-block align-[-2px]" />

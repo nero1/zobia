@@ -204,7 +204,8 @@ function OnboardingPage() {
       if (token && user) {
         await setAuth(token, { ...user, username: username.toLowerCase() });
       }
-      navigate({ to: '/home', replace: true });
+      let destination='/home';try{const saved=localStorage.getItem('zobia:auth:talesReturn');if(saved&&/^\/t(?:\/[a-zA-Z0-9-]+)*$/.test(saved))destination=saved;localStorage.removeItem('zobia:auth:talesReturn');}catch{}
+      navigate({ to: destination as never, replace: true });
     } catch (err) {
       const code = (err as { response?: { data?: { error?: { code?: string; message?: string; params?: { minAge?: number } } } } })
         ?.response?.data?.error;

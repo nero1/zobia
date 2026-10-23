@@ -1,3 +1,4 @@
+import { isProtectedRealtimeChannel } from "@zobia/shared/utils";
 /**
  * lib/realtime/providers/supabase-realtime.ts
  *
@@ -25,6 +26,10 @@ import type { RealtimeProvider } from "../interface";
 
 export class SupabaseRealtimeProvider implements RealtimeProvider {
   async publish(channel: string, event: string, data: unknown): Promise<void> {
+    // This adapter currently uses public Broadcast topics with the anon-key
+    // browser client, not an app-authorized private-channel token. Never send
+    // private messages there. Authenticated REST polling remains available.
+    if (isProtectedRealtimeChannel(channel)) return;
     const supabaseUrl = env.SUPABASE_URL;
     const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
 

@@ -321,11 +321,11 @@ export default function GroupConversationPage() {
 
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [messages, setMessages] = useState<GroupMessage[]>(
-    () => readCachedMessages<GroupMessage>(`group:${groupId}`) ?? []
+    []
   );
   const [loadingGroup, setLoadingGroup] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(
-    () => (readCachedMessages<GroupMessage>(`group:${groupId}`)?.length ?? 0) === 0
+    true
   );
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -353,10 +353,16 @@ export default function GroupConversationPage() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    if (!currentUserId) return;
+    const cached = readCachedMessages<GroupMessage>(`group:${groupId}`, currentUserId);
+    if (cached?.length) setMessages((current) => current.length ? current : cached);
+  }, [currentUserId, groupId]);
+
   // Persist latest messages for instant first paint on reopen.
   useEffect(() => {
-    if (messages.length) writeCachedMessages(`group:${groupId}`, messages);
-  }, [messages, groupId]);
+    if (messages.length) writeCachedMessages(`group:${groupId}`, messages, currentUserId);
+  }, [messages, groupId, currentUserId]);
 
   // Fetch current user ID
   useEffect(() => {

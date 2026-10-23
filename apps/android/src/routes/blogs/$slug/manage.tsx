@@ -1,3 +1,4 @@
+import { PostBundles } from '@/components/blogs/PostBundles';
 /**
  * apps/android/src/routes/blogs/$slug/manage.tsx
  *
@@ -11,7 +12,8 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { PostEditor } from '@/components/blogs/PostEditor';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
@@ -43,7 +45,7 @@ async function fetchLimits(slug: string) {
 }
 
 async function fetchPosts(slug: string, status: 'published' | 'draft') {
-  const { data } = await apiClient.get<{ posts: PostRow[] }>(`/blogs/${slug}/posts?type=article&status=${status}&limit=50`);
+  const { data } = await apiClient.get<{ posts: PostRow[] }>(`/blogs/${slug}/posts?status=${status}&limit=50`);
   return data?.posts ?? [];
 }
 
@@ -56,12 +58,14 @@ function ManageBlogPage() {
   const { slug } = Route.useParams();
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const [editor, setEditor] = useState<{ postSlug?: string; type?: "article" | "page" } | null>(null);
   const [status, setStatus] = useState<'published' | 'draft'>('published');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [menuConfig, setMenuConfig] = useState<BlogMenuConfig>(DEFAULT_MENU_CONFIG);
   const [newLabel, setNewLabel] = useState('');
   const [newUrl, setNewUrl] = useState('');
 
+  const [publishedSlug,setPublishedSlug]=useState<string|null>(null);
   const limitsQuery = useQuery({ queryKey: ['blogs', 'limits', slug], queryFn: () => fetchLimits(slug) });
   const postsQuery = useQuery({ queryKey: ['blogs', 'manage-posts', slug, status], queryFn: () => fetchPosts(slug, status) });
   const menuQuery = useQuery({ queryKey: ['blogs', 'menu', slug], queryFn: () => fetchMenu(slug) });
@@ -116,13 +120,16 @@ function ManageBlogPage() {
     applyMenu({ ...menuConfig, items });
   }
 
+  if (editor) return <PostEditor key={editor.postSlug || editor.type} blogSlug={slug} {...editor} onClose={() => setEditor(null)} onSaved={(newSlug) => { if(newSlug)setPublishedSlug(newSlug); void qc.invalidateQueries({ queryKey: ['blogs', 'manage-posts', slug] }); void qc.invalidateQueries({ queryKey: ['blogs', 'limits', slug] }); }} />;
   const limits = limitsQuery.data;
   const exhausted = !!limits && limits.remaining <= 0;
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <div className="flex gap-2"><button onClick={() => setEditor({ type: 'article' })} className="rounded-full border px-3 py-2 text-sm">{t('blogs.editor.newTitle', 'New {{type}}', { type: 'article' })}</button><button onClick={() => setEditor({ type: 'page' })} className="rounded-full border px-3 py-2 text-sm">{t('blogs.editor.newTitle', 'New {{type}}', { type: 'page' })}</button></div>
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('blogs.manage.title', 'Manage blog')}</h1>
 
+      {publishedSlug && <p role="status" className="rounded-xl border border-emerald-400 bg-emerald-50 p-3 text-emerald-900">{t("blogs.published.success","Your post has been published.")}</p>}
       {limits && (
         <div className={`rounded-xl border p-3 text-sm ${exhausted ? 'border-red-200 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
           {exhausted ? (
@@ -138,7 +145,8 @@ function ManageBlogPage() {
               {t('blogs.quota.planSummary', 'Plus: {{plus}} articles · Pro: {{pro}} articles · Max: {{max}} articles', { plus: limits.planMaxPosts.plus, pro: limits.planMaxPosts.pro, max: limits.planMaxPosts.max })}
             </p>
           )}
-          {limits.plan !== 'max' && (
+          {limits.plan === 'max' && <PostBundles blogSlug={slug} onPurchased={()=>void limitsQuery.refetch()} />}
+          {limits.plan !== 'max' && limits.remaining <= 10 && (
             // Android has no in-app plan/upgrade screen yet — opens the same
             // web subscription page other Zobia surfaces link to, in the
             // system browser (mirrors how AdSlot/other Android screens open
@@ -195,7 +203,9 @@ function ManageBlogPage() {
             {postsQuery.data!.map((p) => (
               <div key={p.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2.5">
                 <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} />
-                <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">{p.title}</span>
+                {p.status === 'published' ? <><Link to={'/blogs/$slug/$postSlug' as never} params={{ slug, postSlug: p.slug } as never} className="flex-1 truncate text-sm hover:underline">{p.title}</Link>{p.slug===publishedSlug&&<span className="rounded-full bg-emerald-100 text-emerald-800 px-2 text-xs">{t("blogs.published.new","New")}</span>}</> : <button onClick={() => setEditor({ postSlug: p.slug })} className="flex-1 truncate text-left text-sm hover:underline">{p.title}</button>}
+                <button onClick={() => setEditor({ postSlug: p.slug })} className="rounded-full border px-2 py-1 text-xs">{t('common.edit', 'Edit')}</button>
+                {p.status === 'published' && <button onClick={async () => { await apiClient.patch(`/blogs/${slug}/posts/${p.slug}`, { status: 'draft' }); void postsQuery.refetch(); }} className="rounded-full border px-2 py-1 text-xs">{t('blogEditing.unpublish')}</button>}
               </div>
             ))}
           </div>

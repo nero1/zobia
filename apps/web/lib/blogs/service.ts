@@ -87,6 +87,7 @@ import {
 // Permissions
 // ---------------------------------------------------------------------------
 
+import { isUserModeratorOrAdmin } from "@/lib/forum/service";
 export { isUserModeratorOrAdmin } from "@/lib/forum/service";
 
 async function assertBlogWritable(blogId: string): Promise<{ ownerId: string; status: string }> {
@@ -562,14 +563,6 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
     getMaxWordsForPlan(input.authorPlan),
   ]);
 
-  const countRows = await orm
-    .select({ count: count() })
-    .from(schema.blogPosts)
-    .where(and(eq(schema.blogPosts.blogId, input.blogId), isNull(schema.blogPosts.deletedAt)));
-  if ((countRows[0]?.count ?? 0) >= maxPosts) {
-    throw forbidden(`Your plan allows a maximum of ${maxPosts} articles and pages. Upgrade your plan to publish more.`, "BLOG_POST_LIMIT_REACHED", { maxPosts });
-  }
-
   const words = wordCount(input.bodyMarkdown);
   if (input.type === "article" && words > maxWords) {
     throw new ApiError(400, "BLOG_WORD_LIMIT_EXCEEDED", `Your plan allows articles up to ${maxWords} words. This article is ${words} words.`, undefined, undefined, { maxWords, words });
@@ -593,6 +586,12 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
   const publishedAt = input.status === "published" ? new Date() : null;
 
   await orm.transaction(async (tx) => {
+    await tx.select({id:schema.users.id}).from(schema.users).where(eq(schema.users.id,input.authorId)).for("no key update");
+    const [lockedBlog] = await tx.select({extra:schema.blogs.extraPostSlots,owner:schema.blogs.ownerId,status:schema.blogs.status,deletedAt:schema.blogs.deletedAt}).from(schema.blogs).where(eq(schema.blogs.id,input.blogId)).for('update');
+    if (!lockedBlog || lockedBlog.owner!==input.authorId || lockedBlog.status!=='active' || lockedBlog.deletedAt) throw forbidden('This blog is not writable.');
+    const [used] = await tx.select({count:count()}).from(schema.blogPosts).where(and(eq(schema.blogPosts.blogId,input.blogId),isNull(schema.blogPosts.deletedAt)));
+    const available = maxPosts+lockedBlog.extra;
+    if ((used?.count ?? 0)>=available) throw forbidden(`This blog allows ${available} posts. Upgrade or buy an extra-post bundle.`, 'BLOG_POST_LIMIT_REACHED', {maxPosts:available});
     await tx.insert(schema.blogPosts).values({
       id: postId,
       blogId: input.blogId,
@@ -638,6 +637,7 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
 }
 
 export interface UpdatePostInput {
+  saveRevision?: boolean;
   title?: string;
   excerpt?: string | null;
   bodyMarkdown?: string;
@@ -658,6 +658,7 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
       authorId: schema.blogPosts.authorId,
       type: schema.blogPosts.type,
       status: schema.blogPosts.status,
+      publishedAt: schema.blogPosts.publishedAt,
       slug: schema.blogPosts.slug,
       contentFormat: schema.blogPosts.contentFormat,
     })
@@ -666,14 +667,20 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
     .limit(1);
   const post = rows[0];
   if (!post) throw notFound("Post not found");
-  if (post.authorId !== callerId) throw forbidden("You can't edit this post.");
+  if (post.authorId !== callerId && !(await isUserModeratorOrAdmin(callerId))) throw forbidden("You can't edit this post.");
 
   const patch: Partial<typeof schema.blogPosts.$inferInsert> = {};
 
   if (input.title !== undefined) patch.title = input.title.trim();
   if (input.excerpt !== undefined) patch.excerpt = input.excerpt?.trim() || null;
   if (input.featuredImageUrl !== undefined) patch.featuredImageUrl = input.featuredImageUrl || null;
-  if (input.categoryId !== undefined) patch.categoryId = input.categoryId || null;
+  if (input.categoryId !== undefined) {
+    if(input.categoryId) {
+      const [category] = await orm.select({id:schema.blogCategories.id}).from(schema.blogCategories).where(and(eq(schema.blogCategories.id,input.categoryId),eq(schema.blogCategories.blogId,post.blogId)));
+      if(!category) throw badRequest("Unknown category.","BLOG_UNKNOWN_CATEGORY");
+    }
+    patch.categoryId = input.categoryId || null;
+  }
   if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
 
   if (input.contentFormat !== undefined) patch.contentFormat = input.contentFormat;
@@ -696,11 +703,17 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
   const wasPublished = post.status === "published";
   if (input.status !== undefined && input.status !== post.status) {
     patch.status = input.status;
-    if (input.status === "published" && !wasPublished) patch.publishedAt = new Date();
+    if (input.status === "published" && !post.publishedAt) patch.publishedAt = new Date();
   }
 
   if (Object.keys(patch).length === 0) return;
-  await orm.update(schema.blogPosts).set({ ...patch, updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
+  if (input.saveRevision && wasPublished) {
+    delete patch.status;
+    delete patch.publishedAt;
+    await orm.update(schema.blogPosts).set({ draftContent: patch, updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
+    return;
+  }
+  await orm.update(schema.blogPosts).set({ ...patch, ...(input.status === "published" ? { draftContent: null } : {}), updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
 
   // #hashtags — re-sync from the stored row so a text edit, a publish or an
   // unpublish all leave the links matching what readers can actually see.
@@ -1065,100 +1078,40 @@ export interface UnlockResult {
   creditsSpent: number;
 }
 
-export async function unlockPost(postId: string, userId: string, userPlan: string): Promise<UnlockResult> {
+export async function unlockPost(postId: string, userId: string, _userPlan: string, confirmedCost: number): Promise<UnlockResult> {
   await requireFeatureEnabled("blogs");
   await requireFeatureEnabled("blogMonetization");
-
   const orm = await getDb();
-  const postRows = await orm
-    .select({
-      id: schema.blogPosts.id,
-      blogId: schema.blogPosts.blogId,
-      authorId: schema.blogPosts.authorId,
-      isPaywalled: schema.blogPosts.isPaywalled,
-      paywallCreditsCost: schema.blogPosts.paywallCreditsCost,
-    })
-    .from(schema.blogPosts)
-    .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt), eq(schema.blogPosts.status, "published")))
-    .limit(1);
-  const post = postRows[0];
-  if (!post) throw notFound("Post not found");
-  if (!post.isPaywalled || post.paywallCreditsCost <= 0) return { alreadyUnlocked: true, creditsSpent: 0 };
-  if (post.authorId === userId) return { alreadyUnlocked: true, creditsSpent: 0 };
-
-  const existingRows = await orm
-    .select({ id: schema.blogPostUnlocks.id })
-    .from(schema.blogPostUnlocks)
-    .where(and(eq(schema.blogPostUnlocks.postId, postId), eq(schema.blogPostUnlocks.userId, userId)))
-    .limit(1);
-  if (existingRows[0]) return { alreadyUnlocked: true, creditsSpent: 0 };
-
-  const cost = post.paywallCreditsCost;
-  const referenceId = `blog_paywall_unlock:${postId}:${userId}`;
-
-  await orm.transaction(async (tx) => {
-    await debitCoins(userId, cost, "blog_paywall_unlock", referenceId, "Unlocked a paywalled blog article", { postId, blogId: post.blogId }, tx);
-    await tx
-      .insert(schema.blogPostUnlocks)
-      .values({ postId, userId, creditsSpent: cost })
-      .onConflictDoNothing({ target: [schema.blogPostUnlocks.postId, schema.blogPostUnlocks.userId] });
-    await tx
-      .insert(schema.blogPostDailyStats)
-      .values({ postId, date: sql`CURRENT_DATE`, unlockCount: 1, unlockCredits: cost })
-      .onConflictDoUpdate({
-        target: [schema.blogPostDailyStats.postId, schema.blogPostDailyStats.date],
-        set: { unlockCount: sql`${schema.blogPostDailyStats.unlockCount} + 1`, unlockCredits: sql`${schema.blogPostDailyStats.unlockCredits} + ${cost}` },
-      });
+  const [preview] = await orm.select({authorId:schema.blogPosts.authorId}).from(schema.blogPosts).where(eq(schema.blogPosts.id,postId));
+  if(!preview) throw notFound("Post not found");
+  const [creator] = await orm.select({plan:schema.users.plan}).from(schema.users).where(eq(schema.users.id,preview.authorId));
+  // Cached configuration reads must finish before acquiring database locks.
+  const [revSharePct,economy,manifest] = await Promise.all([getBlogRevSharePct(creator?.plan ?? "free"),getBlogEconomyConfig(),loadManifest()]);
+  const result = await orm.transaction(async(tx)=>{
+    // Both the buyer and creator balances are protected in a consistent order.
+    await tx.execute(sql`SELECT id FROM users WHERE id IN (${userId},${preview.authorId}) ORDER BY id FOR NO KEY UPDATE`);
+    const [post] = await tx.select().from(schema.blogPosts).where(and(eq(schema.blogPosts.id,postId),isNull(schema.blogPosts.deletedAt),eq(schema.blogPosts.status,"published"))).for('share');
+    if(!post) throw notFound("Post not found");
+    const [blog] = await tx.select({status:schema.blogs.status,deletedAt:schema.blogs.deletedAt}).from(schema.blogs).where(eq(schema.blogs.id,post.blogId)).for('share');
+    if(!blog || blog.status!=="active" || blog.deletedAt) throw notFound("Post not found");
+    const [existing] = await tx.select({id:schema.blogPostUnlocks.id}).from(schema.blogPostUnlocks).where(and(eq(schema.blogPostUnlocks.postId,postId),eq(schema.blogPostUnlocks.userId,userId)));
+    if(existing || !post.isPaywalled || post.paywallCreditsCost<=0 || post.authorId===userId) return {alreadyUnlocked:true,creditsSpent:0};
+    const cost=post.paywallCreditsCost;
+    if(confirmedCost!==cost) throw badRequest("The article price changed. Review the current price and confirm again.","PRICE_CONFIRMATION_REQUIRED");
+    const referenceId=`blog_paywall_unlock:${postId}:${userId}`;
+    await debitCoins(userId,cost,"blog_paywall_unlock",referenceId,"Unlocked a paywalled blog article",{postId,blogId:post.blogId},tx);
+    await tx.insert(schema.blogPostUnlocks).values({postId,userId,creditsSpent:cost});
+    await tx.insert(schema.blogPostDailyStats).values({postId,date:sql`CURRENT_DATE`,unlockCount:1,unlockCredits:cost}).onConflictDoUpdate({target:[schema.blogPostDailyStats.postId,schema.blogPostDailyStats.date],set:{unlockCount:sql`${schema.blogPostDailyStats.unlockCount}+1`,unlockCredits:sql`${schema.blogPostDailyStats.unlockCredits}+${cost}`}});
+    const grossKobo=new Decimal(cost).mul(manifest.coinToCashRate).floor();
+    const netKobo=grossKobo.mul(new Decimal(1).minus(new Decimal(economy.paystackFeePct).div(100))).mul(new Decimal(1).minus(new Decimal(economy.vatPct).div(100))).mul(new Decimal(revSharePct).div(100)).floor();
+    if(netKobo.gt(0)) {
+      const [earning]=await tx.insert(schema.creatorEarnings).values({creatorId:post.authorId,sourceType:"blog_paywall",grossAmountKobo:BigInt(grossKobo.toFixed(0)),platformFeeKobo:BigInt(grossKobo.minus(netKobo).toFixed(0)),netAmountKobo:BigInt(netKobo.toFixed(0)),referenceId}).onConflictDoNothing({target:[schema.creatorEarnings.creatorId,schema.creatorEarnings.referenceId],where:sql`${schema.creatorEarnings.referenceId} IS NOT NULL`}).returning({id:schema.creatorEarnings.id});
+      if(earning) await tx.update(schema.users).set({availableEarningsKobo:sql`COALESCE(${schema.users.availableEarningsKobo},0)+${netKobo.toFixed(0)}`,updatedAt:sql`NOW()`}).where(eq(schema.users.id,post.authorId));
+    }
+    return {alreadyUnlocked:false,creditsSpent:cost};
   });
-
-  await creditPaywallEarnings(post.authorId, postId, cost, referenceId).catch((err) => {
-    logger.error({ err, postId, authorId: post.authorId }, "[blogs/service] failed to credit paywall earnings");
-  });
-
-  safeAwardXPFireAndForget(post.authorId, 5, "creator", "blog_paywall_unlocked", `blog_paywall_xp:${postId}:${userId}`);
-
-  return { alreadyUnlocked: false, creditsSpent: cost };
-}
-
-/** Credits the creator's cash-equivalent earnings for a paywall unlock, using their plan's revenue-share rate. */
-async function creditPaywallEarnings(creatorId: string, postId: string, creditsSpent: number, referenceId: string): Promise<void> {
-  const orm = await getDb();
-  const rows = await orm
-    .select({ plan: schema.users.plan })
-    .from(schema.users)
-    .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
-    .limit(1);
-  const plan = rows[0]?.plan ?? "free";
-
-  const [revSharePct, economy, manifest] = await Promise.all([getBlogRevSharePct(plan), getBlogEconomyConfig(), loadManifest()]);
-
-  // Reuse the platform's existing Credit -> kobo conversion rate (coinToCashRate)
-  // rather than introducing a second, blog-specific rate.
-  const grossKobo = new Decimal(creditsSpent).mul(manifest.coinToCashRate);
-  const afterProviderFee = grossKobo.mul(new Decimal(1).minus(new Decimal(economy.paystackFeePct).div(100)));
-  const afterVat = afterProviderFee.mul(new Decimal(1).minus(new Decimal(economy.vatPct).div(100)));
-  const netKobo = afterVat.mul(new Decimal(revSharePct).div(100)).floor();
-  const platformFeeKobo = grossKobo.minus(netKobo);
-
-  if (netKobo.lte(0)) return;
-
-  await orm.transaction(async (tx) => {
-    await tx
-      .insert(schema.creatorEarnings)
-      .values({
-        creatorId,
-        sourceType: "blog_paywall",
-        grossAmountKobo: BigInt(grossKobo.toFixed(0)),
-        platformFeeKobo: BigInt(platformFeeKobo.toFixed(0)),
-        netAmountKobo: BigInt(netKobo.toFixed(0)),
-        referenceId,
-      })
-      .onConflictDoNothing({ target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId] });
-    await tx
-      .update(schema.users)
-      .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo.toFixed(0)}`, updatedAt: sql`NOW()` })
-      .where(eq(schema.users.id, creatorId));
-  });
+  if(!result.alreadyUnlocked) safeAwardXPFireAndForget(preview.authorId,5,"creator","blog_paywall_unlocked",`blog_paywall_xp:${postId}:${userId}`);
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1320,8 +1273,9 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
   if (!post) throw notFound("Post not found");
   if (post.authorId !== ownerId) throw forbidden("Only the post's author can fund its reward pot.");
 
-  const referenceId = `blog_treasury_fund:${postId}:${Date.now()}`;
+  const referenceId = `blog_treasury_fund:${postId}:${randomUUID()}`;
   const result = await orm.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('blog_post'),hashtext(${postId}))`);
     const { rows: existingRows } = await tx.execute<{ status: string } & Record<string, unknown>>(
       sql`SELECT status FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE`
     );
@@ -1343,7 +1297,7 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
         funded_amount = ${amount},
         remaining_amount = ${amount},
         max_claimants = ${maxClaimants},
-        claimant_count = 0,
+        claimant_count = 0, generation=blog_post_treasuries.generation+1,
         status = 'active',
         updated_at = NOW()
       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status
@@ -1401,7 +1355,7 @@ export async function editPostTreasury(ownerId: string, postId: string, newAmoun
     if (delta > 0) {
       await checkAndDebit(ownerId, delta, "blog_treasury_fund", `blog_treasury_edit_debit:${treasury.id}:${Date.now()}`, "Increased a blog post reward pot", { postId }, tx);
     } else if (delta < 0) {
-      await creditCoins(ownerId, -delta, "blog_treasury_refund", `blog_treasury_edit_refund:${treasury.id}:${Date.now()}`, "Reduced a blog post reward pot", { postId }, tx);
+      await creditCoins(ownerId, -delta, "blog_treasury_refund", `blog_treasury_edit_refund:${treasury.id}:${randomUUID()}`, "Reduced a blog post reward pot", { postId }, tx);
     }
 
     const newRemaining = newAmount - alreadyPaid;
@@ -1436,9 +1390,9 @@ export async function closePostTreasury(ownerId: string, postId: string): Promis
 
   return orm.transaction(async (tx) => {
     const { rows } = await tx.execute<
-      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; generation:number } & Record<string, unknown>
     >(sql`
-      SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+      SELECT id, generation, funded_amount, remaining_amount, max_claimants, claimant_count, status
       FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE
     `);
     const treasury = rows[0];
@@ -1446,11 +1400,11 @@ export async function closePostTreasury(ownerId: string, postId: string): Promis
     if (treasury.status === "closed") throw badRequest("This reward pot is already off.", "BLOG_TREASURY_ALREADY_CLOSED");
 
     if (treasury.remaining_amount > 0) {
-      await creditCoins(ownerId, treasury.remaining_amount, "blog_treasury_refund", `blog_treasury_close_refund:${treasury.id}`, "Reward pot turned off — unclaimed funds refunded", { postId }, tx);
+      await creditCoins(ownerId, treasury.remaining_amount, "blog_treasury_refund", `blog_treasury_close_refund:${treasury.id}:${treasury.generation}`, "Reward pot turned off — unclaimed funds refunded", { postId }, tx);
     }
 
     const { rows: updated } = await tx.execute<
-      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; generation:number } & Record<string, unknown>
     >(sql`
       UPDATE blog_post_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = ${treasury.id}
       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status
@@ -1475,8 +1429,8 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
   const orm = await getDb();
   return orm.transaction(async (tx) => {
     const { rows: treasuryRows } = await tx.execute<
-      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string } & Record<string, unknown>
-    >(sql`SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE`);
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string; generation:number } & Record<string, unknown>
+    >(sql`SELECT id, generation, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE`);
     const treasury = treasuryRows[0];
     if (!treasury || treasury.status !== "active") return null;
     if (treasury.claimant_count >= treasury.max_claimants) return null;
@@ -1486,7 +1440,7 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
     if (rewardPerClaimant <= 0 || treasury.remaining_amount < rewardPerClaimant) return null;
 
     const { rowCount } = await tx.execute(
-      sql`INSERT INTO blog_post_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES (${treasury.id}, ${userId}, ${claimType}, ${rewardPerClaimant}) ON CONFLICT (treasury_id, user_id) DO NOTHING`
+      sql`INSERT INTO blog_post_treasury_claims (treasury_id, user_id, generation, claim_type, amount) VALUES (${treasury.id}, ${userId}, ${treasury.generation}, ${claimType}, ${rewardPerClaimant}) ON CONFLICT (treasury_id, user_id,generation) DO NOTHING`
     );
     if (!rowCount || rowCount === 0) return null; // already claimed
 
@@ -1497,7 +1451,7 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
       sql`UPDATE blog_post_treasuries SET claimant_count = ${newClaimantCount}, remaining_amount = ${newRemaining}, status = ${newStatus}, updated_at = NOW() WHERE id = ${treasury.id}`
     );
 
-    await creditCoins(userId, rewardPerClaimant, "blog_treasury_claim", `blog_treasury_claim:${treasury.id}:${userId}`, "Reward pot claim", { postId, claimType }, tx);
+    await creditCoins(userId, rewardPerClaimant, "blog_treasury_claim", `blog_treasury_claim:${treasury.id}:${treasury.generation}:${userId}`, "Reward pot claim", { postId, claimType }, tx);
 
     return { amount: rewardPerClaimant };
   });
@@ -1934,7 +1888,7 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
   if (netKobo.lte(0)) return;
 
   await orm.transaction(async (tx) => {
-    await tx
+    const [earning] = await tx
       .insert(schema.creatorEarnings)
       .values({
         creatorId,
@@ -1944,8 +1898,8 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
         netAmountKobo: BigInt(netKobo.toFixed(0)),
         referenceId: `${referenceId}:earnings`,
       })
-      .onConflictDoNothing({ target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId] });
-    await tx
+      .onConflictDoNothing({ target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId], where: sql`${schema.creatorEarnings.referenceId} IS NOT NULL` }).returning({id:schema.creatorEarnings.id});
+    if (earning) await tx
       .update(schema.users)
       .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo.toFixed(0)}`, updatedAt: sql`NOW()` })
       .where(eq(schema.users.id, creatorId));

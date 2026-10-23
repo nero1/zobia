@@ -223,6 +223,8 @@ export interface ChatMessage {
 
 /** Options for a chat completion request. */
 export interface CompletionOptions {
+  /** Optional per-task provider allowlist, in fallback order; never broadens operator configuration. */
+  providers?: AiProviderId[];
   model?: string;
   maxTokens?: number;
   temperature?: number;

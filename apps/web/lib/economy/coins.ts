@@ -7,7 +7,7 @@
  * Design principles:
  *  - All mutations go through `coin_ledger` (append-only); the user's
  *    `coin_balance` column is always the derived truth but updated atomically.
- *  - `SELECT FOR UPDATE` on the user row prevents race conditions.
+ *  - `SELECT FOR NO KEY UPDATE` on the user row prevents race conditions.
  *  - Amounts are always positive integers (coins, not kobo).
  *  - Decimal.js is used for all arithmetic to prevent float drift.
  *
@@ -50,12 +50,13 @@ function toLedgerEntry(row: typeof schema.coinLedger.$inferSelect): CoinLedgerEn
     description: row.description ?? undefined,
     metadata: (row.metadata as Record<string, unknown> | null) ?? undefined,
     createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
+    created_at: row.createdAt ? row.createdAt.toISOString() : undefined,
   };
 }
 
 /**
  * Fetch and lock the user's current coin balance inside a transaction.
- * Uses SELECT FOR UPDATE so concurrent operations serialize correctly.
+ * Uses SELECT FOR NO KEY UPDATE so concurrent operations serialize correctly.
  *
  * @param userId - The user's UUID
  * @param tx     - Active transaction client
@@ -67,7 +68,7 @@ async function lockAndGetBalance(userId: string, tx: DbOrTx): Promise<Decimal> {
     .select({ coinBalance: schema.users.coinBalance })
     .from(schema.users)
     .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
-    .for("update");
+    .for("no key update");
   if (!rows[0]) {
     throw new Error(`[coins] User not found: ${userId}`);
   }
@@ -314,7 +315,7 @@ export async function getBalance(
  * financial debit. The balance can change between this check and the actual
  * debit, creating a race condition.
  *
- * Always use debitCoins() (which uses SELECT FOR UPDATE internally) to actually
+ * Always use debitCoins() (which uses SELECT FOR NO KEY UPDATE internally) to actually
  * debit. For an atomic check-and-debit in a single operation, use checkAndDebit().
  *
  * @param userId - The user's UUID
@@ -336,7 +337,7 @@ export async function canAfford(
  *
  * This is the correct way to enforce affordability before debiting. Unlike
  * calling canAfford() then debitCoins() separately, this function cannot race:
- * debitCoins() internally acquires SELECT FOR UPDATE on the user row, so the
+ * debitCoins() internally acquires SELECT FOR NO KEY UPDATE on the user row, so the
  * balance cannot change between the check and the debit.
  *
  * @param userId      - The user's UUID
@@ -358,7 +359,7 @@ export async function checkAndDebit(
   metadata: Record<string, unknown> | null = null,
   txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
-  // debitCoins already does SELECT FOR UPDATE + balance check atomically
+  // debitCoins already does SELECT FOR NO KEY UPDATE + balance check atomically
   return debitCoins(userId, amount, type, referenceId, description, metadata, txClient);
 }
 
@@ -407,8 +408,8 @@ export async function transferCoins(
     const [firstId, secondId] = fromUserId < toUserId
       ? [fromUserId, toUserId]
       : [toUserId, fromUserId];
-    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, firstId)).for("update");
-    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, secondId)).for("update");
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, firstId)).for("no key update");
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, secondId)).for("no key update");
     // debitCoins and creditCoins will re-lock their rows (already locked above)
 
     const debit = await debitCoins(

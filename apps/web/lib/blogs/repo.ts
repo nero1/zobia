@@ -5,6 +5,8 @@
  * Mirrors lib/forum/repo.ts's cursor-pagination and row-shape conventions.
  */
 
+import { randomUUID } from "node:crypto";
+import { badRequest } from "@/lib/api/errors";
 import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import type { BlogMenuConfig } from "@/lib/blogs/menu";
@@ -28,155 +30,42 @@ export interface BlogSummaryRow {
 
 export type BlogTab = "popular" | "trending" | "new" | "random" | "subscribed";
 
-function toSummary(row: {
-  id: string;
-  ownerId: string;
-  slug: string;
-  title: string;
-  tagline: string | null;
-  avatarUrl: string | null;
-  coverImageUrl: string | null;
-  status: string;
-  subscriberCount: number;
-  showSubscriberCount: boolean;
-  postCount: number;
-  createdAt: Date;
-  ownerUsername: string | null;
-}): BlogSummaryRow {
-  return {
-    id: row.id,
-    owner_id: row.ownerId,
-    slug: row.slug,
-    title: row.title,
-    tagline: row.tagline,
-    avatar_url: row.avatarUrl,
-    cover_image_url: row.coverImageUrl,
-    status: row.status,
-    subscriber_count: row.subscriberCount,
-    show_subscriber_count: row.showSubscriberCount,
-    post_count: row.postCount,
-    created_at: row.createdAt.toISOString(),
-    owner_username: row.ownerUsername,
-  };
-}
-
 export interface ListBlogsResult {
   blogs: BlogSummaryRow[];
   nextCursor: string | null;
   hasMore: boolean;
 }
 
-/**
- * "Subscribed" tab — blogs the given user is subscribed to, sorted by most
- * recently updated first. "Updated" means the most recent *published*
- * article (blogs.updated_at is not bumped when a draft is later published —
- * see lib/blogs/service.ts updatePost — so a MAX(published_at) drill-down
- * is used instead), falling back to the blog's creation date for blogs with
- * no published articles yet. Cursor-paginated on the compound
- * (sortKey, id) tuple since the sort key isn't the id itself.
- *
- * The lateral MAX(published_at) join and compound-tuple cursor comparison
- * are expressed via a `sql` template rather than the query builder, to keep
- * the exact aggregation/pagination semantics unchanged.
- */
-async function listSubscribedBlogs(
-  userId: string,
-  cursor: string | null,
-  limit: number,
-  search?: string
-): Promise<ListBlogsResult> {
-  const orm = await getDb();
-
-  const searchClause = search?.trim() ? sql`AND b.title ILIKE ${`%${search.trim()}%`}` : sql``;
-  let cursorClause = sql``;
+/** Discovery cursors use the same compound score/id ordering as the query. */
+export async function listBlogs(tab: BlogTab, cursor: string | null, limit: number, search?: string, userId?: string): Promise<ListBlogsResult> {
+  let after: { score: string; id: string; seed: string; tab: string } | undefined;
   if (cursor) {
-    const [cursorSortKey, cursorId] = cursor.split("_");
-    if (cursorSortKey && cursorId) {
-      cursorClause = sql`AND (COALESCE(lp.last_post_at, b.created_at), b.id) < (${cursorSortKey}::timestamptz, ${cursorId}::uuid)`;
-    }
+    try {
+      after = JSON.parse(cursor);
+      if (!after || after.tab !== tab || !/^[0-9a-f-]{36}$/i.test(after.id) || !/^[0-9a-f-]{36}$/i.test(after.seed) || !(tab === "random" ? /^[0-9a-f]{32}$/.test(after.score) : /^-?[0-9]+(?:\.[0-9]+)?$/.test(after.score))) throw new Error();
+    } catch { throw badRequest("Invalid blog cursor."); }
   }
-
-  const { rows } = await orm.execute<BlogSummaryRow & { sort_key: string } & Record<string, unknown>>(sql`
-    SELECT b.id, b.owner_id, b.slug, b.title, b.tagline, b.avatar_url, b.cover_image_url,
-           b.status, b.subscriber_count, b.show_subscriber_count, b.post_count, b.created_at,
-           u.username AS owner_username,
-           COALESCE(lp.last_post_at, b.created_at) AS sort_key
-    FROM blogs b
-    JOIN users u ON u.id = b.owner_id
-    JOIN blog_subscriptions sub ON sub.blog_id = b.id AND sub.user_id = ${userId}
-    LEFT JOIN LATERAL (
-      SELECT MAX(p.published_at) AS last_post_at FROM blog_posts p
-      WHERE p.blog_id = b.id AND p.status = 'published' AND p.deleted_at IS NULL
-    ) lp ON true
-    WHERE b.status = 'active' AND b.deleted_at IS NULL ${searchClause} ${cursorClause}
-    ORDER BY COALESCE(lp.last_post_at, b.created_at) DESC, b.id DESC
-    LIMIT ${limit + 1}
-  `);
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-  const last = page[page.length - 1];
-  return {
-    blogs: page,
-    nextCursor: hasMore && last ? `${new Date(last.sort_key).toISOString()}_${last.id}` : null,
-    hasMore,
-  };
-}
-
-export async function listBlogs(
-  tab: BlogTab,
-  cursor: string | null,
-  limit: number,
-  search?: string,
-  userId?: string
-): Promise<ListBlogsResult> {
-  if (tab === "subscribed") {
-    if (!userId) return { blogs: [], nextCursor: null, hasMore: false };
-    return listSubscribedBlogs(userId, cursor, limit, search);
-  }
-
+  const seed = after?.seed ?? randomUUID();
+  const score = tab === "random" ? sql`md5(${seed} || b.id::text)`
+    : tab === "new" ? sql`extract(epoch FROM b.created_at)`
+    : tab === "subscribed" ? sql`extract(epoch FROM COALESCE((SELECT max(p.published_at) FROM blog_posts p WHERE p.blog_id=b.id AND p.status='published' AND p.deleted_at IS NULL),b.created_at))`
+    : tab === "trending" ? sql`b.subscriber_count::numeric`
+    : sql`(b.subscriber_count::bigint * 10 + b.post_count)::numeric`;
+  const cast = tab === "random" ? sql`text` : sql`numeric`;
   const orm = await getDb();
-
-  const conditions: SQL[] = [eq(schema.blogs.status, "active"), isNull(schema.blogs.deletedAt)];
-  if (search?.trim()) conditions.push(ilike(schema.blogs.title, `%${search.trim()}%`));
-  if (cursor && tab !== "random") conditions.push(lt(schema.blogs.id, cursor));
-
-  let orderBy: SQL[];
-  if (tab === "trending") orderBy = [desc(schema.blogs.subscriberCount), desc(schema.blogs.createdAt)];
-  else if (tab === "new") orderBy = [desc(schema.blogs.createdAt)];
-  else if (tab === "random") orderBy = [sql`RANDOM()`];
-  else orderBy = [desc(schema.blogs.subscriberCount), desc(schema.blogs.postCount)];
-
-  const rows = await orm
-    .select({
-      id: schema.blogs.id,
-      ownerId: schema.blogs.ownerId,
-      slug: schema.blogs.slug,
-      title: schema.blogs.title,
-      tagline: schema.blogs.tagline,
-      avatarUrl: schema.blogs.avatarUrl,
-      coverImageUrl: schema.blogs.coverImageUrl,
-      status: schema.blogs.status,
-      subscriberCount: schema.blogs.subscriberCount,
-      showSubscriberCount: schema.blogs.showSubscriberCount,
-      postCount: schema.blogs.postCount,
-      createdAt: schema.blogs.createdAt,
-      ownerUsername: schema.users.username,
-    })
-    .from(schema.blogs)
-    .innerJoin(schema.users, eq(schema.users.id, schema.blogs.ownerId))
-    .where(and(...conditions))
-    .orderBy(...orderBy)
-    .limit(limit + 1);
-
-  const hasMore = rows.length > limit;
-  const page = hasMore ? rows.slice(0, limit) : rows;
-  const blogs = page.map(toSummary);
-  return {
-    blogs,
-    nextCursor: hasMore ? blogs[blogs.length - 1]?.id ?? null : null,
-    hasMore,
-  };
+  const { rows } = await orm.execute<BlogSummaryRow & { score: string } & Record<string,unknown>>(sql`
+    WITH candidates AS (
+      SELECT b.id,b.owner_id,b.slug,b.title,b.tagline,b.avatar_url,b.cover_image_url,b.status,b.subscriber_count,b.show_subscriber_count,b.post_count,b.created_at,u.username AS owner_username,${score} AS score
+      FROM blogs b JOIN users u ON u.id=b.owner_id
+      WHERE b.status='active' AND b.deleted_at IS NULL
+        ${search?.trim() ? sql`AND b.title ILIKE ${'%' + search.trim() + '%'}` : sql``}
+        ${tab === 'subscribed' ? sql`AND EXISTS(SELECT 1 FROM blog_subscriptions s WHERE s.blog_id=b.id AND s.user_id=${userId ?? null})` : sql``}
+    ) SELECT *,score::text AS score FROM candidates
+      ${after ? sql`WHERE (score,id) < (${after.score}::${cast},${after.id}::uuid)` : sql``}
+      ORDER BY candidates.score DESC,candidates.id DESC LIMIT ${limit+1}
+  `);
+  const page = rows.slice(0,limit); const last = page.at(-1); const hasMore = rows.length > limit;
+  return { blogs: page.map(({score: _score,...row})=>row), hasMore, nextCursor: hasMore && last ? JSON.stringify({score:last.score,id:last.id,seed,tab}) : null };
 }
 
 export interface BlogRow {

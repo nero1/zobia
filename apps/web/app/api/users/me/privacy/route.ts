@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
  *                           turning it OFF is always allowed.
  */
 
+import { getRankForXP } from '@/lib/xp/engine';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
@@ -130,8 +131,8 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     if (body.show_online_status !== undefined) {
-      if (!userEligible(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext)) {
-        throw forbidden('Your plan does not allow showing your online status');
+      if (!body.show_online_status && getRankForXP(Number(user.xp_total ?? 0)).rankNumber < 2 && !user.is_admin) {
+        throw forbidden('Recently active privacy controls unlock at Level 2');
       }
       updates.show_online_status = Boolean(body.show_online_status);
     }
@@ -287,7 +288,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed, eligibilityContext),
         canHideSections: userEligible(user.plan, user.prestige_count, hideAllowed, eligibilityContext),
         canDisableFriendRequests: userEligible(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),
-        canShowOnlineStatus: userEligible(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext),
+        canShowOnlineStatus: user.is_admin || getRankForXP(Number(user.xp_total ?? 0)).rankNumber >= 2,
         hideableSections,
         nemesisEligible,
       },

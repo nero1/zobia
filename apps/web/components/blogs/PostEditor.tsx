@@ -9,9 +9,10 @@
  * + sanitize-html, see lib/security/htmlSanitizer.ts).
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { useCurrentUserId } from "@/lib/hooks/useCurrentUserId";
 import { TreasuryPanel } from "@/components/blogs/TreasuryPanel";
 import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
 
@@ -67,6 +68,25 @@ export function PostEditor({
   const { t } = useTranslation();
   const router = useRouter();
   const [form, setForm] = useState<PostEditorInitial>({ ...EMPTY, ...(initialType ? { type: initialType } : {}), ...initial });
+  const userId = useCurrentUserId();
+  const baseline = useRef(form);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [rewardPotSelected, setRewardPotSelected] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+  const cacheKey = userId ? `blog-draft:${userId}:${blogSlug}:${postSlug || `new-${initialType || "article"}`}` : null;
+  const dirty = JSON.stringify(form) !== JSON.stringify(baseline.current);
+  useEffect(() => {
+    if (!cacheKey) return;
+    try {
+      const saved = localStorage.getItem(cacheKey);
+      if (saved) setForm((current) => ({ ...current, ...JSON.parse(saved) }));
+    } catch { /* malformed or unavailable storage */ }
+    setDraftLoaded(true);
+  }, [cacheKey]);
+  useEffect(() => {
+    if (!cacheKey || !draftLoaded) return;
+    try { localStorage.setItem(cacheKey, JSON.stringify(form)); } catch { /* quota/private mode */ }
+  }, [cacheKey, draftLoaded, form]);
   const [categories, setCategories] = useState<BlogCategoryOption[]>([]);
   const [maxWords, setMaxWords] = useState<number>(1000);
   const [busy, setBusy] = useState(false);
@@ -98,7 +118,7 @@ export function PostEditor({
       .catch(() => {});
   }, [blogSlug]);
 
-  async function handleSave(status: "draft" | "published") {
+  async function handleSave(status: "draft" | "published", saveRevision = false) {
     setBusy(true);
     setError(null);
     try {
@@ -113,6 +133,7 @@ export function PostEditor({
         isPaywalled: form.type === "article" ? form.isPaywalled : false,
         paywallCreditsCost: form.paywallCreditsCost,
         status,
+        saveRevision,
       };
       const url = postSlug ? `/api/blogs/${blogSlug}/posts/${postSlug}` : `/api/blogs/${blogSlug}/posts`;
       const method = postSlug ? "PATCH" : "POST";
@@ -122,7 +143,14 @@ export function PostEditor({
         setMaxWords(json?.error?.params?.maxWords ?? maxWords);
         throw new Error(json?.error?.message ?? "Failed to save");
       }
-      router.push(`/blogs/dashboard?blog=${encodeURIComponent(blogSlug)}`);
+      if (cacheKey) { try { localStorage.removeItem(cacheKey); } catch { /* storage unavailable */ } }
+      baseline.current = { ...form, status: saveRevision ? form.status : status };
+      setForm(baseline.current);
+      if (saveRevision) { setNotice(t("blogEditing.savedPrivate", "Your changes have been saved but are not public yet. Publish to make them public.")); return; }
+      if (postSlug && status === "draft") { setNotice(t("blogEditing.unpublished", "This post is now a draft and is no longer visible to the public.")); return; }
+      const firstPublished = status === "published" && (!postSlug || json.data?.firstPublished);
+      const savedSlug = json.data?.slug ?? postSlug;
+      router.push(`/blogs/dashboard?blog=${encodeURIComponent(blogSlug)}${firstPublished && savedSlug ? `&published=${encodeURIComponent(savedSlug)}&type=${form.type}` : ""}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -253,23 +281,29 @@ export function PostEditor({
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              {t("blogs.editor.paywallHint", "Readers who haven't unlocked will see a preview with a \"Pay {{cost}} credits to read the rest of the article\" notice.", { cost: form.paywallCreditsCost })}
+              {t("blogs.editor.paywallHint", "Readers who haven't unlocked will see a preview with a \"Pay {{cost}} credits to read the rest of the article\" notice.", { cost: form.paywallCreditsCost > 0 ? form.paywallCreditsCost : t("blogEditing.someCredits", "some amount of") })}
             </p>
           </div>
         )}
 
-        {form.type === "article" && postSlug && <TreasuryPanel blogSlug={blogSlug} postSlug={postSlug} />}
+        {form.type === "article" && <div className="rounded-xl border border-border bg-card p-4">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={rewardPotSelected} onChange={(event) => setRewardPotSelected(event.target.checked)} />{t("blogEditing.rewardPot", "Reward pot")}</label>
+          {rewardPotSelected && (postSlug ? <TreasuryPanel blogSlug={blogSlug} postSlug={postSlug} /> : <p className="mt-2 text-xs text-muted-foreground">{t("blogEditing.saveBeforePot", "Save this post as a draft, then open its editor to fund a reward pot.")}</p>)}
+        </div>}
 
+        {notice && <p role="status" className="rounded-lg border border-green-500/40 bg-green-500/10 p-3 text-sm text-green-600">{notice}</p>}
         {error && <p className="text-sm text-red-500">{error}</p>}
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {dirty && <button type="button" onClick={() => { setForm(baseline.current); if (cacheKey) { try { localStorage.removeItem(cacheKey); } catch { /* storage unavailable */ } } }} className="rounded-xl border px-4 py-2.5 text-sm">{t("blogEditing.discard", "Discard changes")}</button>}
+          {form.status === "published" && <button type="button" disabled={busy || !dirty || overLimit} onClick={() => void handleSave("published", true)} className="rounded-xl border px-4 py-2.5 text-sm disabled:opacity-50">{t("common.save", "Save")}</button>}
           <button
             type="button"
             disabled={busy || !form.title.trim() || !form.bodyMarkdown.trim() || overLimit}
             onClick={() => handleSave("draft")}
             className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-accent disabled:opacity-50"
           >
-            {t("blogs.editor.saveDraft", "Save draft")}
+            {form.status === "published" ? t("blogEditing.unpublish", "Unpublish") : t("blogs.editor.saveDraft", "Save draft")}
           </button>
           <button
             type="button"

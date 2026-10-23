@@ -1,3 +1,4 @@
+import { loadClassroomContext } from "@/lib/classroom/access";
 export const runtime = "nodejs";
 
 /**
@@ -67,7 +68,7 @@ async function authorizeChannel(orm: Orm, userId: string, channel: string): Prom
   if (roomMatch) {
     const roomId = roomMatch[1];
     const [row] = await orm
-      .select({ id: schema.rooms.id })
+      .select({ id: schema.rooms.id, type: schema.rooms.type })
       .from(schema.rooms)
       .where(
         and(
@@ -91,6 +92,10 @@ async function authorizeChannel(orm: Orm, userId: string, channel: string): Prom
         )
       )
       .limit(1);
+    if (row?.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, userId);
+      if (!context.viewer.can.viewMemberContent) return "forbidden";
+    }
     return row ? "ok" : "forbidden";
   }
   if (groupMatch) {

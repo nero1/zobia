@@ -22,6 +22,7 @@ import { eq, and } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 
 const updateSchema = z.object({
+  saveRevision: z.boolean().optional(),
   title: z.string().trim().min(2).max(200).optional(),
   excerpt: z.string().trim().max(500).optional().nullable(),
   bodyMarkdown: z.string().trim().min(1).max(60_000).optional(),
@@ -74,6 +75,7 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
       }
     }
 
+    const [draft] = isMod ? await orm.select({ content: schema.blogPosts.draftContent }).from(schema.blogPosts).where(eq(schema.blogPosts.id, post.id)).limit(1) : [];
     const [likeRow] = await orm
       .select({ id: schema.blogPostLikes.id })
       .from(schema.blogPostLikes)
@@ -85,6 +87,8 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
       data: {
         post: { ...post, body_html: bodyHtml, body_markdown: locked ? undefined : post.body_markdown },
         locked,
+        draft: isMod ? draft?.content ?? null : null,
+        canEdit: isMod,
         previewWordCount,
         isAuthor,
         isLiked: !!likeRow,
@@ -113,7 +117,7 @@ export const PATCH = withAuth<{ slug: string; postSlug: string }>(async (req: Ne
       .where(eq(schema.users.id, auth.user.sub))
       .limit(1);
     await updatePost(post.id, auth.user.sub, userRow?.plan ?? "free", body);
-    return NextResponse.json({ success: true, data: { updated: true }, error: null });
+    return NextResponse.json({ success: true, data: { updated: true, slug: post.slug, firstPublished: body.status === "published" && !body.saveRevision && !post.published_at }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

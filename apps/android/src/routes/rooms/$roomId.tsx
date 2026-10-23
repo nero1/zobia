@@ -104,14 +104,14 @@ function RoomChatPage() {
 
   const queryKey = ['rooms', roomId, 'messages'];
 
-  const { data: messages } = useQuery({
+  const { data: messages, error: messagesError } = useQuery({
     queryKey,
     queryFn: () => fetchRoomMessages(roomId),
     staleTime: 30_000,
   });
 
   const connected = useRealtimeChannel(
-    `room:${roomId}:messages`,
+    messagesError ? null : `room:${roomId}:messages`,
     useCallback((event, data) => {
       if (event !== 'new_message') return;
       const msg = mapMessage(data as RoomMessageRow);
@@ -138,7 +138,7 @@ function RoomChatPage() {
       return false;
     },
     connected,
-    enabled: true,
+    enabled: !messagesError,
   });
 
   useEffect(() => {
@@ -211,8 +211,16 @@ function RoomChatPage() {
     sendMutation.mutate(content);
   };
 
+  if (isAxiosError(messagesError) && messagesError.response?.data?.error?.code === 'CLASSROOM_ENROLMENT_REQUIRED') {
+    return <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <p>{t('classroom.chat.enrolRequired', 'Enrol in this classroom before opening its chatroom.')}</p>
+      <Link to={'/classroom/$roomId' as never} params={{ roomId } as never} className="rounded-full bg-primary-600 px-4 py-2 text-white">{t('classroom.chat.openClassroom', 'View classroom and enrol')}</Link>
+    </div>;
+  }
+
   return (
     <div className="h-full flex flex-col bg-neutral-50 dark:bg-neutral-800">
+      <Link to={(roomType === 'classroom' ? '/classroom/$roomId' : '/rooms') as never} params={(roomType === 'classroom' ? { roomId } : {}) as never} className="px-4 py-2 text-sm text-primary-600">{roomType === 'classroom' ? t('nav.classroom', 'Classroom') : t('nav.rooms', 'Chatrooms')}</Link>
       {/* Live activity pulse bar — PRD §2.2, mirrors web room screen */}
       <div className="border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2">
         <LiveRoomPulseBar roomId={roomId} />

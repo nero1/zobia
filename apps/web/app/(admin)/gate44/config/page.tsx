@@ -20,7 +20,7 @@
  *   Miscellaneous - deep link base URL, and any unknown keys
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { GRACE_FEATURE_REGISTRY } from "@/lib/plans/graceFeatures";
@@ -1543,7 +1543,7 @@ function toConfigItem(entry: RawManifestEntry): ConfigItem {
   // Fallback for unknown keys — show as editable string in Miscellaneous
   return {
     key: entry.key,
-    label: entry.key,
+    label: entry.key.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
     description: entry.description ?? "",
     value: entry.value,
     type: "string",
@@ -1565,6 +1565,8 @@ export default function AdminConfigPage() {
   useEffect(() => {
     tRef.current = t;
   }, [t]);
+  const [query, setQuery] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [grouped, setGrouped] = useState<GroupedConfig>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1644,7 +1646,7 @@ export default function AdminConfigPage() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   async function handleSave(key: string, value: boolean | string | number | string[]) {
     try {
@@ -1687,8 +1689,11 @@ export default function AdminConfigPage() {
     setOpenGroups((prev) => ({ ...prev, [g]: !prev[g] }));
   }
 
-  const sortedGroups = GROUP_ORDER.filter((g) => grouped[g]).concat(
-    Object.keys(grouped).filter((g) => !GROUP_ORDER.includes(g))
+  const searchTerm = query.trim().toLowerCase();
+  const visibleGroups = useMemo(() => Object.fromEntries(Object.entries(grouped).map(([group, entries]) => [group, entries.filter((item) => !searchTerm || `${item.label} ${item.key} ${item.description} ${group}`.toLowerCase().includes(searchTerm))]).filter(([, entries]) => (entries as ConfigItem[]).length)), [grouped, searchTerm]) as GroupedConfig;
+  const suggestions = Object.entries(visibleGroups).flatMap(([group, entries]) => entries.map((item) => ({ ...item, group }))).slice(0, 8);
+  const sortedGroups = GROUP_ORDER.filter((g) => visibleGroups[g]).concat(
+    Object.keys(visibleGroups).filter((g) => !GROUP_ORDER.includes(g))
   );
 
   return (
@@ -1697,6 +1702,13 @@ export default function AdminConfigPage() {
         Platform Configuration
       </h1>
 
+      <div className="sticky top-0 z-10 rounded-xl border border-border bg-background p-3 shadow-sm">
+        <div className="flex gap-2">
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find a setting, key or category…" aria-label="Search settings" className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+          <button disabled={loading} onClick={() => { setLoading(true); setReloadKey((key) => key + 1); }} className="rounded-lg border px-3 py-2 text-sm">Refresh data</button>
+        </div>
+        {searchTerm && <div className="mt-2 flex flex-wrap gap-2">{suggestions.map((item) => <button key={item.key} onClick={() => { setQuery(item.key); setOpenGroups((groups) => ({ ...groups, [item.group]: true })); }} className="rounded-full bg-muted px-3 py-1 text-xs">{item.label} · {item.group}</button>)}</div>}
+      </div>
       {toast && (
         <div
           className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}
@@ -1743,16 +1755,16 @@ export default function AdminConfigPage() {
                   {group}
                 </h2>
                 <p className="text-xs text-neutral-500">
-                  {grouped[group]?.length ?? 0} settings
+                  {visibleGroups[group]?.length ?? 0} settings
                 </p>
               </div>
               <span className="text-neutral-400">
-                {openGroups[group] ? "▲" : "▼"}
+                {(searchTerm || openGroups[group]) ? "▲" : "▼"}
               </span>
             </button>
-            {openGroups[group] && (
+            {(searchTerm || openGroups[group]) && (
               <div className="border-t border-neutral-100 px-5 dark:border-neutral-800">
-                {grouped[group]?.map((item) => (
+                {visibleGroups[group]?.map((item) => (
                   <ConfigRow key={item.key} item={item} onSave={handleSave} />
                 ))}
               </div>

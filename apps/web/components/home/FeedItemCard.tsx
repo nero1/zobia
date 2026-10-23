@@ -12,6 +12,7 @@
 import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { deepLinkPathFor } from "@/lib/feed/deeplink";
+import { BookmarkButton } from "@/components/bookmarks/BookmarkButton";
 import { Icon } from "@/components/ui/Icon";
 import type { FeedContentType } from "@/lib/feed/types";
 
@@ -65,13 +66,14 @@ export function FeedItemCard({ item }: { item: FeedItemView }) {
   const href = typeof item.url === "string" && item.url ? item.url : deepLinkPathFor(item.contentType, item.contentId);
 
   return (
+    <article className="space-y-2">
     <Link
       href={href}
-      className="flex gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-card transition-colors hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+      className={`${item.imageUrl ? "flex flex-col" : "flex"} gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-card transition-colors hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700`}
     >
       {item.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+        <img src={item.imageUrl} alt="" className="aspect-[16/9] max-h-96 w-full rounded-lg object-cover" />
       ) : (
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-2xl dark:bg-neutral-800">
           <Icon emoji={CONTENT_TYPE_ICON[item.contentType] ?? "📄"} size={24} />
@@ -90,7 +92,7 @@ export function FeedItemCard({ item }: { item: FeedItemView }) {
           <span className="ml-auto shrink-0 text-[11px] text-neutral-400">{timeAgo(item.createdAt)}</span>
         </div>
         {item.title && (
-          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{item.title}</p>
+          <p className={`${item.imageUrl ? "text-lg leading-snug" : "truncate text-sm"} font-semibold text-neutral-900 dark:text-neutral-100`}>{item.title}</p>
         )}
         {item.excerpt && (
           <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{item.excerpt}</p>
@@ -106,6 +108,8 @@ export function FeedItemCard({ item }: { item: FeedItemView }) {
         )}
       </div>
     </Link>
+    <div className="px-3 pb-1"><BookmarkButton contentType={item.contentType} contentId={item.contentId} title={item.title || item.excerpt || item.contentType} /></div>
+    </article>
   );
 }
 

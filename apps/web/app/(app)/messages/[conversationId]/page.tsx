@@ -586,11 +586,11 @@ export default function DMConversationPage() {
 
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>(
-    () => readCachedMessages<DMMessage>(`dm:${conversationId}`) ?? []
+    []
   );
   const [loadingConversation, setLoadingConversation] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(
-    () => (readCachedMessages<DMMessage>(`dm:${conversationId}`)?.length ?? 0) === 0
+    true
   );
   const [error, setError] = useState<string | null>(null);
   const [coinError, setCoinError] = useState<{ message: string; balance?: number; required?: number } | null>(null);
@@ -630,10 +630,16 @@ export default function DMConversationPage() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    if (!currentUserId) return;
+    const cached = readCachedMessages<DMMessage>(`dm:${conversationId}`, currentUserId);
+    if (cached?.length) setMessages((current) => current.length ? current : cached);
+  }, [currentUserId, conversationId]);
+
   // Persist latest messages for instant first paint on reopen.
   useEffect(() => {
-    if (messages.length) writeCachedMessages(`dm:${conversationId}`, messages);
-  }, [messages, conversationId]);
+    if (messages.length) writeCachedMessages(`dm:${conversationId}`, messages, currentUserId);
+  }, [messages, conversationId, currentUserId]);
 
   useEffect(() => {
     fetch("/api/me", { credentials: "include" })

@@ -24,13 +24,13 @@ interface Friend {
   isOnline: boolean;
 }
 
-async function fetchOnlineFriends(): Promise<Friend[]> {
+async function fetchOnlineFriends(): Promise<{ friends: Friend[]; visibilityDisabled: boolean }> {
   // GET /api/friends/online replies with { success, data: friends[], friends }
   // (friends duplicated at both the top level and inside `data` for older
   // callers). apiClient's response interceptor already unwraps `data`, so
   // the value here IS the friends array already.
-  const { data } = await apiClient.get<Friend[]>('/friends/online');
-  return data ?? [];
+  const { data, headers } = await apiClient.get<Friend[]>('/friends/online');
+  return { friends: data ?? [], visibilityDisabled: headers['x-zobia-presence-visibility'] === 'disabled' };
 }
 
 function FriendsSkeleton() {
@@ -68,10 +68,11 @@ function FriendGrid({ friends, emptyKey }: { friends: Friend[]; emptyKey: string
 export function PresenceTabs() {
   const { t } = useTranslation();
   const [tab, setTab] = useState<'online' | 'recent'>('online');
-  const { data: friends } = useQuery({ queryKey: ['home', 'friends', 'online'], queryFn: fetchOnlineFriends, staleTime: 60_000 });
+  const { data: presenceData } = useQuery({ queryKey: ['home', 'friends', 'online'], queryFn: fetchOnlineFriends, staleTime: 60_000 });
 
-  if (!friends) return <FriendsSkeleton />;
+  if (!presenceData) return <FriendsSkeleton />;
 
+  const friends = presenceData?.friends ?? [];
   const online = friends.filter((f) => f.isOnline);
   const recentlyActive = friends.filter((f) => !f.isOnline);
 
@@ -94,6 +95,7 @@ export function PresenceTabs() {
         </button>
       </div>
       <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">{t('home.friends.privacyHint')}</p>
+      {presenceData?.visibilityDisabled && <Link to={'/settings/privacy' as never} className="mb-3 block text-sm text-primary-600 underline">{t('privacy.reciprocalPresence')}</Link>}
       {tab === 'online' ? (
         <FriendGrid friends={online} emptyKey="home.presence.emptyOnline" />
       ) : (

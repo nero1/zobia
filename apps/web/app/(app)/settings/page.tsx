@@ -1,4 +1,5 @@
 "use client";
+import { SUPPORTED_LOCALES, LOCALE_LABELS, LOCALE_FLAGS } from "@zobia/shared/i18n";
 
 /**
  * app/(app)/settings/page.tsx
@@ -54,16 +55,7 @@ interface UserSettings {
 const PIN_GATE_SESSION_KEY = "zobia_settings_pin_ok";
 const PIN_GATE_TTL_MS = 5 * 60 * 1000; // matches server-side pin_ok TTL
 
-const LANGUAGES = [
-  { code: "en", label: "English" },
-  { code: "yo", label: "Yoruba" },
-  { code: "ha", label: "Hausa" },
-  { code: "ig", label: "Igbo" },
-  { code: "pcm", label: "Pidgin" },
-  { code: "fr", label: "French" },
-  { code: "ar", label: "Arabic" },
-  { code: "pt", label: "Portuguese" },
-];
+const LANGUAGES = SUPPORTED_LOCALES.map((code) => ({ code, label: `${LOCALE_FLAGS[code]} ${LOCALE_LABELS[code]}` }));
 
 const NOTIFICATION_TYPES: { key: string; label: string; description: string }[] = [
   { key: "new_message", label: "New messages", description: "Direct messages and room mentions" },
@@ -1347,7 +1339,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Show online status</p>
-                <p className="text-xs text-neutral-500">Let friends see when you&apos;re online on the Home page</p>
+                <p className="text-xs text-neutral-500">Let others see when you are recently active. Turning this off also hides other people’s activity from you.</p>
               </div>
               <ToggleSwitch
                 checked={privacySettings.show_online_status}
@@ -1359,7 +1351,7 @@ export default function SettingsPage() {
             <div className="flex items-center justify-between gap-3 opacity-60">
               <div>
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Show online status</p>
-                <p className="text-xs text-neutral-500">Available on Pro plan and above</p>
+                <p className="text-xs text-neutral-500">Available at Level 2 and above</p>
               </div>
               <ToggleSwitch checked={false} onChange={() => {}} disabled />
             </div>

@@ -212,6 +212,7 @@ const PUBLIC_PREFIXES = [
   // Public slug/username → internal id resolver for deep links (read-only,
   // returns only public/live entities). Used by the Expo universal-link screens.
   "/api/public",
+  "/api/tales/public",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
   "/api/security/csp-report",
   // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
@@ -357,7 +358,7 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
 }
 
 function isPublicRoute(pathname: string): boolean {
-  if (pathname === "/" || pathname === "" || pathname === "/h") return true;
+  if (pathname === "/" || pathname === "" || pathname === "/h" || pathname === "/t") return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 

@@ -15,7 +15,7 @@ import { useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { isNavPathActive } from "@zobia/shared/utils";
+import { isNavPathActive, groupNavigation } from "@zobia/shared/utils";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -50,16 +50,19 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/forum", label: "Forum", icon: "forum", flagKey: "bbforum" },
   { href: "/quests", label: "Quests", icon: "quests" },
   { href: "/games", label: "Games", icon: "games", flagKey: "games" },
+  { href: "/games/challenges", label: "Challenges", icon: "games", flagKey: "games" },
+  { href: "/t", label: "Tales", icon: "blogs" },
   { href: "/blogs", label: "Blogs", icon: "blogs", flagKey: "blogs" },
   { href: "/polls", label: "Polls", icon: "polls", flagKey: "polls" },
   { href: "/quizzes", label: "Quizzes", icon: "quizzes", flagKey: "quizzes" },
   { href: "/business", label: "Business", icon: "business", flagKey: "businessAccounts" },
   { href: "/ads", label: "Ads", icon: "ads", flagKey: "adsSystem" },
-  { href: "/rooms", label: "Rooms", icon: "rooms", flagKey: "rooms" },
+  { href: "/rooms", label: "Chatrooms", icon: "rooms", flagKey: "rooms" },
   { href: "/guilds", label: "Guilds", icon: "guilds" },
   { href: "/messages", label: "Messages", icon: "messages" },
   { href: "/friends", label: "Friends", icon: "friends" },
   { href: "/gifts", label: "Gifts", icon: "gifts", flagKey: "gifts" },
+  { href: "/bookmarks", label: "Bookmarks", icon: "blogs" },
   { href: "/wallet", label: "Wallet", icon: "wallet" },
   { href: "/notifications", label: "Notifications", icon: "notifications" },
   { href: "/events", label: "Events", icon: "events" },
@@ -103,7 +106,7 @@ function SidebarLink({
         isActive
           ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
           : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 " +
-              "dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+              "dark:text-white dark:hover:bg-neutral-800 dark:hover:text-primary-200"
       )}
       aria-current={isActive ? "page" : undefined}
     >
@@ -192,7 +195,8 @@ export function Sidebar() {
               isActive={pathname?.startsWith("/watch56") ?? false}
             />
           )}
-          {visibleNavItems.map((item) => (
+          {groupNavigation(visibleNavItems).map((group) => <section key={group.key} className="mb-3 space-y-0.5"><h2 className="px-3 pt-3 pb-1 text-xs font-semibold text-neutral-500 dark:text-neutral-200">{group.label}</h2>
+          {group.items.map((item) => (
             <SidebarLink
               key={item.href}
               href={item.href}
@@ -202,7 +206,7 @@ export function Sidebar() {
               isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
               hasNewDot={newDotHrefs[item.href]}
             />
-          ))}
+          ))}</section>)}
         </nav>
 
         {/* Bottom section: profile + settings + logout */}

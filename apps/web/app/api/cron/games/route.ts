@@ -11,7 +11,7 @@ export const maxDuration = 300;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { expireChallenges } from "@/lib/games/challenges";
+import { expireChallenges, pruneChallenges } from "@/lib/games/challenges";
 import { validateCronSecret } from "@/lib/cron/auth";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
@@ -21,7 +21,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   try {
     const expired = await expireChallenges();
-    return NextResponse.json({ ok: true, expired, timestamp: new Date().toISOString() });
+    const pruned = await pruneChallenges();
+    return NextResponse.json({ ok: true, expired, pruned, timestamp: new Date().toISOString() });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }

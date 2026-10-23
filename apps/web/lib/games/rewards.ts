@@ -71,7 +71,7 @@ export async function grantGamingReward(
       description,
       { source, gameName: gameName ?? undefined },
       client
-    ).catch((err) => logger.error({ userId, source }, `[games] credit reward failed: ${err}`));
+    ).catch((err) => { if (client) throw err; logger.error({ userId, source }, `[games] credit reward failed: ${err}`); });
   }
 
   if (stars > 0) {
@@ -82,7 +82,7 @@ export async function grantGamingReward(
       `${referenceId}:stars`,
       description,
       client
-    ).catch((err) => logger.error({ userId, source }, `[games] star reward failed: ${err}`));
+    ).catch((err) => { if (client) throw err; logger.error({ userId, source }, `[games] star reward failed: ${err}`); });
   }
 
   if (xp > 0) {
@@ -95,6 +95,7 @@ export async function grantGamingReward(
     try {
       await safeAwardXP(userId, xp, "gaming", source, `${referenceId}:xp`, client);
     } catch (err) {
+      if (client) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error({ userId, source, referenceId }, `[grantGamingReward] XP award failed inside tx — writing to DLQ: ${errorMessage}`);
       const globalDb = await getDb();

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnnouncementsRouteImport } from './routes/announcements'
+import { Route as BookmarksRouteImport } from './routes/bookmarks'
 import { Route as CommunityNotesRouteImport } from './routes/community-notes'
 import { Route as CouncilRouteImport } from './routes/council'
 import { Route as ElderRouteImport } from './routes/elder'
@@ -42,6 +43,7 @@ import { Route as AdminAiMonitoringRouteImport } from './routes/admin/ai-monitor
 import { Route as AdminAiSettingsRouteImport } from './routes/admin/ai-settings'
 import { Route as AdminAlertsRouteImport } from './routes/admin/alerts'
 import { Route as AdminAnnouncementsRouteImport } from './routes/admin/announcements'
+import { Route as AdminAutoContentRouteImport } from './routes/admin/auto-content'
 import { Route as AdminAutomatedActionsRouteImport } from './routes/admin/automated-actions'
 import { Route as AdminBlogsRouteImport } from './routes/admin/blogs'
 import { Route as AdminBrandedRoomsRouteImport } from './routes/admin/branded-rooms'
@@ -81,6 +83,7 @@ import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminSponsoredQuestsRouteImport } from './routes/admin/sponsored-quests'
 import { Route as AdminSupportRouteImport } from './routes/admin/support'
+import { Route as AdminTalesRouteImport } from './routes/admin/tales'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
 import { Route as AdminWikiRouteImport } from './routes/admin/wiki'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
@@ -148,6 +151,8 @@ import { Route as SettingsSubscriptionRouteImport } from './routes/settings/subs
 import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SupportNewRouteImport } from './routes/support/new'
+import { Route as TIndexRouteImport } from './routes/t/index'
+import { Route as TWriteRouteImport } from './routes/t/write'
 import { Route as TweetsIndexRouteImport } from './routes/tweets/index'
 import { Route as TweetsTweetIdRouteImport } from './routes/tweets/$tweetId'
 import { Route as TweetsCreateRouteImport } from './routes/tweets/create'
@@ -179,6 +184,9 @@ import { Route as HelpCategoryDocRouteImport } from './routes/help/$category/$do
 import { Route as MessagesGroupsIndexRouteImport } from './routes/messages/groups/index'
 import { Route as MessagesGroupsGroupIdRouteImport } from './routes/messages/groups/$groupId'
 import { Route as MessagesGroupsCreateRouteImport } from './routes/messages/groups/create'
+import { Route as TSlugIndexRouteImport } from './routes/t/$slug/index'
+import { Route as TSlugOrdinalRouteImport } from './routes/t/$slug/$ordinal'
+import { Route as TSlugManageRouteImport } from './routes/t/$slug/manage'
 import { Route as WikiSlugIndexRouteImport } from './routes/wiki/$slug/index'
 import { Route as WikiSlugManageRouteImport } from './routes/wiki/$slug/manage'
 import { Route as WikiSlugSettingsRouteImport } from './routes/wiki/$slug/settings'
@@ -197,6 +205,11 @@ const IndexRoute = IndexRouteImport.update({
 const AnnouncementsRoute = AnnouncementsRouteImport.update({
   id: '/announcements',
   path: '/announcements',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BookmarksRoute = BookmarksRouteImport.update({
+  id: '/bookmarks',
+  path: '/bookmarks',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CommunityNotesRoute = CommunityNotesRouteImport.update({
@@ -352,6 +365,11 @@ const AdminAlertsRoute = AdminAlertsRouteImport.update({
 const AdminAnnouncementsRoute = AdminAnnouncementsRouteImport.update({
   id: '/admin/announcements',
   path: '/admin/announcements',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAutoContentRoute = AdminAutoContentRouteImport.update({
+  id: '/admin/auto-content',
+  path: '/admin/auto-content',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminAutomatedActionsRoute = AdminAutomatedActionsRouteImport.update({
@@ -548,6 +566,11 @@ const AdminSponsoredQuestsRoute = AdminSponsoredQuestsRouteImport.update({
 const AdminSupportRoute = AdminSupportRouteImport.update({
   id: '/admin/support',
   path: '/admin/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminTalesRoute = AdminTalesRouteImport.update({
+  id: '/admin/tales',
+  path: '/admin/tales',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminUsersRoute = AdminUsersRouteImport.update({
@@ -885,6 +908,16 @@ const SupportNewRoute = SupportNewRouteImport.update({
   path: '/support/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TIndexRoute = TIndexRouteImport.update({
+  id: '/t/',
+  path: '/t/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TWriteRoute = TWriteRouteImport.update({
+  id: '/t/write',
+  path: '/t/write',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TweetsIndexRoute = TweetsIndexRouteImport.update({
   id: '/tweets/',
   path: '/tweets/',
@@ -1041,6 +1074,21 @@ const MessagesGroupsCreateRoute = MessagesGroupsCreateRouteImport.update({
   path: '/messages/groups/create',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TSlugIndexRoute = TSlugIndexRouteImport.update({
+  id: '/t/$slug/',
+  path: '/t/$slug/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TSlugOrdinalRoute = TSlugOrdinalRouteImport.update({
+  id: '/t/$slug/$ordinal',
+  path: '/t/$slug/$ordinal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TSlugManageRoute = TSlugManageRouteImport.update({
+  id: '/t/$slug/manage',
+  path: '/t/$slug/manage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WikiSlugIndexRoute = WikiSlugIndexRouteImport.update({
   id: '/wiki/$slug/',
   path: '/wiki/$slug/',
@@ -1093,6 +1141,7 @@ const WikiSlugPagesPageSlugRevisionsRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
+  '/bookmarks': typeof BookmarksRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1123,6 +1172,7 @@ export interface FileRoutesByFullPath {
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/auto-content': typeof AdminAutoContentRoute
   '/admin/automated-actions': typeof AdminAutomatedActionsRoute
   '/admin/blogs': typeof AdminBlogsRoute
   '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
@@ -1162,6 +1212,7 @@ export interface FileRoutesByFullPath {
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
   '/admin/support': typeof AdminSupportRoute
+  '/admin/tales': typeof AdminTalesRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1208,6 +1259,7 @@ export interface FileRoutesByFullPath {
   '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/t/write': typeof TWriteRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
   '/wiki-pages/$id': typeof WikiPagesIdRoute
@@ -1234,6 +1286,7 @@ export interface FileRoutesByFullPath {
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
+  '/t/': typeof TIndexRoute
   '/tweets/': typeof TweetsIndexRoute
   '/wiki/': typeof WikiIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -1250,6 +1303,8 @@ export interface FileRoutesByFullPath {
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
+  '/t/$slug/$ordinal': typeof TSlugOrdinalRoute
+  '/t/$slug/manage': typeof TSlugManageRoute
   '/wiki/$slug/manage': typeof WikiSlugManageRoute
   '/wiki/$slug/settings': typeof WikiSlugSettingsRoute
   '/wiki/$slug/treasury': typeof WikiSlugTreasuryRoute
@@ -1265,6 +1320,7 @@ export interface FileRoutesByFullPath {
   '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
   '/messages/groups/': typeof MessagesGroupsIndexRoute
+  '/t/$slug/': typeof TSlugIndexRoute
   '/wiki/$slug/': typeof WikiSlugIndexRoute
   '/wiki/$slug/pages/new': typeof WikiSlugPagesNewRoute
   '/wiki/$slug/pages/$pageSlug/edit': typeof WikiSlugPagesPageSlugEditRoute
@@ -1274,6 +1330,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
+  '/bookmarks': typeof BookmarksRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1304,6 +1361,7 @@ export interface FileRoutesByTo {
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/auto-content': typeof AdminAutoContentRoute
   '/admin/automated-actions': typeof AdminAutomatedActionsRoute
   '/admin/blogs': typeof AdminBlogsRoute
   '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
@@ -1343,6 +1401,7 @@ export interface FileRoutesByTo {
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
   '/admin/support': typeof AdminSupportRoute
+  '/admin/tales': typeof AdminTalesRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1389,6 +1448,7 @@ export interface FileRoutesByTo {
   '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/t/write': typeof TWriteRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
   '/wiki-pages/$id': typeof WikiPagesIdRoute
@@ -1415,6 +1475,7 @@ export interface FileRoutesByTo {
   '/quizzes': typeof QuizzesIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/support': typeof SupportIndexRoute
+  '/t': typeof TIndexRoute
   '/tweets': typeof TweetsIndexRoute
   '/wiki': typeof WikiIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -1431,6 +1492,8 @@ export interface FileRoutesByTo {
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
+  '/t/$slug/$ordinal': typeof TSlugOrdinalRoute
+  '/t/$slug/manage': typeof TSlugManageRoute
   '/wiki/$slug/manage': typeof WikiSlugManageRoute
   '/wiki/$slug/settings': typeof WikiSlugSettingsRoute
   '/wiki/$slug/treasury': typeof WikiSlugTreasuryRoute
@@ -1446,6 +1509,7 @@ export interface FileRoutesByTo {
   '/games/challenges': typeof GamesChallengesIndexRoute
   '/help/$category': typeof HelpCategoryIndexRoute
   '/messages/groups': typeof MessagesGroupsIndexRoute
+  '/t/$slug': typeof TSlugIndexRoute
   '/wiki/$slug': typeof WikiSlugIndexRoute
   '/wiki/$slug/pages/new': typeof WikiSlugPagesNewRoute
   '/wiki/$slug/pages/$pageSlug/edit': typeof WikiSlugPagesPageSlugEditRoute
@@ -1456,6 +1520,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
+  '/bookmarks': typeof BookmarksRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1486,6 +1551,7 @@ export interface FileRoutesById {
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/auto-content': typeof AdminAutoContentRoute
   '/admin/automated-actions': typeof AdminAutomatedActionsRoute
   '/admin/blogs': typeof AdminBlogsRoute
   '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
@@ -1525,6 +1591,7 @@ export interface FileRoutesById {
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
   '/admin/support': typeof AdminSupportRoute
+  '/admin/tales': typeof AdminTalesRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1571,6 +1638,7 @@ export interface FileRoutesById {
   '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/t/write': typeof TWriteRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
   '/wiki-pages/$id': typeof WikiPagesIdRoute
@@ -1597,6 +1665,7 @@ export interface FileRoutesById {
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
+  '/t/': typeof TIndexRoute
   '/tweets/': typeof TweetsIndexRoute
   '/wiki/': typeof WikiIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -1613,6 +1682,8 @@ export interface FileRoutesById {
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
+  '/t/$slug/$ordinal': typeof TSlugOrdinalRoute
+  '/t/$slug/manage': typeof TSlugManageRoute
   '/wiki/$slug/manage': typeof WikiSlugManageRoute
   '/wiki/$slug/settings': typeof WikiSlugSettingsRoute
   '/wiki/$slug/treasury': typeof WikiSlugTreasuryRoute
@@ -1628,6 +1699,7 @@ export interface FileRoutesById {
   '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
   '/messages/groups/': typeof MessagesGroupsIndexRoute
+  '/t/$slug/': typeof TSlugIndexRoute
   '/wiki/$slug/': typeof WikiSlugIndexRoute
   '/wiki/$slug/pages/new': typeof WikiSlugPagesNewRoute
   '/wiki/$slug/pages/$pageSlug/edit': typeof WikiSlugPagesPageSlugEditRoute
@@ -1639,6 +1711,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/announcements'
+    | '/bookmarks'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -1669,6 +1742,7 @@ export interface FileRouteTypes {
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
+    | '/admin/auto-content'
     | '/admin/automated-actions'
     | '/admin/blogs'
     | '/admin/branded-rooms'
@@ -1708,6 +1782,7 @@ export interface FileRouteTypes {
     | '/admin/seasons'
     | '/admin/sponsored-quests'
     | '/admin/support'
+    | '/admin/tales'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -1754,6 +1829,7 @@ export interface FileRouteTypes {
     | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
+    | '/t/write'
     | '/tweets/$tweetId'
     | '/tweets/create'
     | '/wiki-pages/$id'
@@ -1780,6 +1856,7 @@ export interface FileRouteTypes {
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
+    | '/t/'
     | '/tweets/'
     | '/wiki/'
     | '/admin/payouts/appeals'
@@ -1796,6 +1873,8 @@ export interface FileRouteTypes {
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
+    | '/t/$slug/$ordinal'
+    | '/t/$slug/manage'
     | '/wiki/$slug/manage'
     | '/wiki/$slug/settings'
     | '/wiki/$slug/treasury'
@@ -1811,6 +1890,7 @@ export interface FileRouteTypes {
     | '/games/challenges/'
     | '/help/$category/'
     | '/messages/groups/'
+    | '/t/$slug/'
     | '/wiki/$slug/'
     | '/wiki/$slug/pages/new'
     | '/wiki/$slug/pages/$pageSlug/edit'
@@ -1820,6 +1900,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/announcements'
+    | '/bookmarks'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -1850,6 +1931,7 @@ export interface FileRouteTypes {
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
+    | '/admin/auto-content'
     | '/admin/automated-actions'
     | '/admin/blogs'
     | '/admin/branded-rooms'
@@ -1889,6 +1971,7 @@ export interface FileRouteTypes {
     | '/admin/seasons'
     | '/admin/sponsored-quests'
     | '/admin/support'
+    | '/admin/tales'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -1935,6 +2018,7 @@ export interface FileRouteTypes {
     | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
+    | '/t/write'
     | '/tweets/$tweetId'
     | '/tweets/create'
     | '/wiki-pages/$id'
@@ -1961,6 +2045,7 @@ export interface FileRouteTypes {
     | '/quizzes'
     | '/rooms'
     | '/support'
+    | '/t'
     | '/tweets'
     | '/wiki'
     | '/admin/payouts/appeals'
@@ -1977,6 +2062,8 @@ export interface FileRouteTypes {
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
+    | '/t/$slug/$ordinal'
+    | '/t/$slug/manage'
     | '/wiki/$slug/manage'
     | '/wiki/$slug/settings'
     | '/wiki/$slug/treasury'
@@ -1992,6 +2079,7 @@ export interface FileRouteTypes {
     | '/games/challenges'
     | '/help/$category'
     | '/messages/groups'
+    | '/t/$slug'
     | '/wiki/$slug'
     | '/wiki/$slug/pages/new'
     | '/wiki/$slug/pages/$pageSlug/edit'
@@ -2001,6 +2089,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/announcements'
+    | '/bookmarks'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -2031,6 +2120,7 @@ export interface FileRouteTypes {
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
+    | '/admin/auto-content'
     | '/admin/automated-actions'
     | '/admin/blogs'
     | '/admin/branded-rooms'
@@ -2070,6 +2160,7 @@ export interface FileRouteTypes {
     | '/admin/seasons'
     | '/admin/sponsored-quests'
     | '/admin/support'
+    | '/admin/tales'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -2116,6 +2207,7 @@ export interface FileRouteTypes {
     | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
+    | '/t/write'
     | '/tweets/$tweetId'
     | '/tweets/create'
     | '/wiki-pages/$id'
@@ -2142,6 +2234,7 @@ export interface FileRouteTypes {
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
+    | '/t/'
     | '/tweets/'
     | '/wiki/'
     | '/admin/payouts/appeals'
@@ -2158,6 +2251,8 @@ export interface FileRouteTypes {
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
+    | '/t/$slug/$ordinal'
+    | '/t/$slug/manage'
     | '/wiki/$slug/manage'
     | '/wiki/$slug/settings'
     | '/wiki/$slug/treasury'
@@ -2173,6 +2268,7 @@ export interface FileRouteTypes {
     | '/games/challenges/'
     | '/help/$category/'
     | '/messages/groups/'
+    | '/t/$slug/'
     | '/wiki/$slug/'
     | '/wiki/$slug/pages/new'
     | '/wiki/$slug/pages/$pageSlug/edit'
@@ -2183,6 +2279,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnnouncementsRoute: typeof AnnouncementsRoute
+  BookmarksRoute: typeof BookmarksRoute
   CommunityNotesRoute: typeof CommunityNotesRoute
   CouncilRoute: typeof CouncilRoute
   ElderRoute: typeof ElderRoute
@@ -2213,6 +2310,7 @@ export interface RootRouteChildren {
   AdminAiSettingsRoute: typeof AdminAiSettingsRoute
   AdminAlertsRoute: typeof AdminAlertsRoute
   AdminAnnouncementsRoute: typeof AdminAnnouncementsRoute
+  AdminAutoContentRoute: typeof AdminAutoContentRoute
   AdminAutomatedActionsRoute: typeof AdminAutomatedActionsRoute
   AdminBlogsRoute: typeof AdminBlogsRoute
   AdminBrandedRoomsRoute: typeof AdminBrandedRoomsRoute
@@ -2252,6 +2350,7 @@ export interface RootRouteChildren {
   AdminSeasonsRoute: typeof AdminSeasonsRoute
   AdminSponsoredQuestsRoute: typeof AdminSponsoredQuestsRoute
   AdminSupportRoute: typeof AdminSupportRoute
+  AdminTalesRoute: typeof AdminTalesRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWikiRoute: typeof AdminWikiRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
@@ -2293,6 +2392,7 @@ export interface RootRouteChildren {
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   SupportTicketIdRoute: typeof SupportTicketIdRoute
   SupportNewRoute: typeof SupportNewRoute
+  TWriteRoute: typeof TWriteRoute
   TweetsTweetIdRoute: typeof TweetsTweetIdRoute
   TweetsCreateRoute: typeof TweetsCreateRoute
   WikiPagesIdRoute: typeof WikiPagesIdRoute
@@ -2319,6 +2419,7 @@ export interface RootRouteChildren {
   QuizzesIndexRoute: typeof QuizzesIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   SupportIndexRoute: typeof SupportIndexRoute
+  TIndexRoute: typeof TIndexRoute
   TweetsIndexRoute: typeof TweetsIndexRoute
   WikiIndexRoute: typeof WikiIndexRoute
   AdminPayoutsAppealsRoute: typeof AdminPayoutsAppealsRoute
@@ -2335,6 +2436,8 @@ export interface RootRouteChildren {
   HelpCategoryDocRoute: typeof HelpCategoryDocRoute
   MessagesGroupsGroupIdRoute: typeof MessagesGroupsGroupIdRoute
   MessagesGroupsCreateRoute: typeof MessagesGroupsCreateRoute
+  TSlugOrdinalRoute: typeof TSlugOrdinalRoute
+  TSlugManageRoute: typeof TSlugManageRoute
   WikiSlugManageRoute: typeof WikiSlugManageRoute
   WikiSlugSettingsRoute: typeof WikiSlugSettingsRoute
   WikiSlugTreasuryRoute: typeof WikiSlugTreasuryRoute
@@ -2350,6 +2453,7 @@ export interface RootRouteChildren {
   GamesChallengesIndexRoute: typeof GamesChallengesIndexRoute
   HelpCategoryIndexRoute: typeof HelpCategoryIndexRoute
   MessagesGroupsIndexRoute: typeof MessagesGroupsIndexRoute
+  TSlugIndexRoute: typeof TSlugIndexRoute
   WikiSlugIndexRoute: typeof WikiSlugIndexRoute
   WikiSlugPagesNewRoute: typeof WikiSlugPagesNewRoute
   WikiSlugPagesPageSlugEditRoute: typeof WikiSlugPagesPageSlugEditRoute
@@ -2371,6 +2475,13 @@ declare module '@tanstack/react-router' {
       path: '/announcements'
       fullPath: '/announcements'
       preLoaderRoute: typeof AnnouncementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bookmarks': {
+      id: '/bookmarks'
+      path: '/bookmarks'
+      fullPath: '/bookmarks'
+      preLoaderRoute: typeof BookmarksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/community-notes': {
@@ -2588,6 +2699,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/announcements'
       fullPath: '/admin/announcements'
       preLoaderRoute: typeof AdminAnnouncementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/auto-content': {
+      id: '/admin/auto-content'
+      path: '/admin/auto-content'
+      fullPath: '/admin/auto-content'
+      preLoaderRoute: typeof AdminAutoContentRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/automated-actions': {
@@ -2861,6 +2979,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/support'
       fullPath: '/admin/support'
       preLoaderRoute: typeof AdminSupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/tales': {
+      id: '/admin/tales'
+      path: '/admin/tales'
+      fullPath: '/admin/tales'
+      preLoaderRoute: typeof AdminTalesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/users': {
@@ -3332,6 +3457,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SupportNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/t/': {
+      id: '/t/'
+      path: '/t'
+      fullPath: '/t/'
+      preLoaderRoute: typeof TIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/t/write': {
+      id: '/t/write'
+      path: '/t/write'
+      fullPath: '/t/write'
+      preLoaderRoute: typeof TWriteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tweets/': {
       id: '/tweets/'
       path: '/tweets'
@@ -3549,6 +3688,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MessagesGroupsCreateRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/t/$slug/': {
+      id: '/t/$slug/'
+      path: '/t/$slug'
+      fullPath: '/t/$slug/'
+      preLoaderRoute: typeof TSlugIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/t/$slug/$ordinal': {
+      id: '/t/$slug/$ordinal'
+      path: '/t/$slug/$ordinal'
+      fullPath: '/t/$slug/$ordinal'
+      preLoaderRoute: typeof TSlugOrdinalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/t/$slug/manage': {
+      id: '/t/$slug/manage'
+      path: '/t/$slug/manage'
+      fullPath: '/t/$slug/manage'
+      preLoaderRoute: typeof TSlugManageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/wiki/$slug/': {
       id: '/wiki/$slug/'
       path: '/wiki/$slug'
@@ -3638,6 +3798,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnnouncementsRoute: AnnouncementsRoute,
+  BookmarksRoute: BookmarksRoute,
   CommunityNotesRoute: CommunityNotesRoute,
   CouncilRoute: CouncilRoute,
   ElderRoute: ElderRoute,
@@ -3668,6 +3829,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminAiSettingsRoute: AdminAiSettingsRoute,
   AdminAlertsRoute: AdminAlertsRoute,
   AdminAnnouncementsRoute: AdminAnnouncementsRoute,
+  AdminAutoContentRoute: AdminAutoContentRoute,
   AdminAutomatedActionsRoute: AdminAutomatedActionsRoute,
   AdminBlogsRoute: AdminBlogsRoute,
   AdminBrandedRoomsRoute: AdminBrandedRoomsRoute,
@@ -3707,6 +3869,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminSeasonsRoute: AdminSeasonsRoute,
   AdminSponsoredQuestsRoute: AdminSponsoredQuestsRoute,
   AdminSupportRoute: AdminSupportRoute,
+  AdminTalesRoute: AdminTalesRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminWikiRoute: AdminWikiRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
@@ -3748,6 +3911,7 @@ const rootRouteChildren: RootRouteChildren = {
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   SupportTicketIdRoute: SupportTicketIdRoute,
   SupportNewRoute: SupportNewRoute,
+  TWriteRoute: TWriteRoute,
   TweetsTweetIdRoute: TweetsTweetIdRoute,
   TweetsCreateRoute: TweetsCreateRoute,
   WikiPagesIdRoute: WikiPagesIdRoute,
@@ -3774,6 +3938,7 @@ const rootRouteChildren: RootRouteChildren = {
   QuizzesIndexRoute: QuizzesIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   SupportIndexRoute: SupportIndexRoute,
+  TIndexRoute: TIndexRoute,
   TweetsIndexRoute: TweetsIndexRoute,
   WikiIndexRoute: WikiIndexRoute,
   AdminPayoutsAppealsRoute: AdminPayoutsAppealsRoute,
@@ -3790,6 +3955,8 @@ const rootRouteChildren: RootRouteChildren = {
   HelpCategoryDocRoute: HelpCategoryDocRoute,
   MessagesGroupsGroupIdRoute: MessagesGroupsGroupIdRoute,
   MessagesGroupsCreateRoute: MessagesGroupsCreateRoute,
+  TSlugOrdinalRoute: TSlugOrdinalRoute,
+  TSlugManageRoute: TSlugManageRoute,
   WikiSlugManageRoute: WikiSlugManageRoute,
   WikiSlugSettingsRoute: WikiSlugSettingsRoute,
   WikiSlugTreasuryRoute: WikiSlugTreasuryRoute,
@@ -3805,6 +3972,7 @@ const rootRouteChildren: RootRouteChildren = {
   GamesChallengesIndexRoute: GamesChallengesIndexRoute,
   HelpCategoryIndexRoute: HelpCategoryIndexRoute,
   MessagesGroupsIndexRoute: MessagesGroupsIndexRoute,
+  TSlugIndexRoute: TSlugIndexRoute,
   WikiSlugIndexRoute: WikiSlugIndexRoute,
   WikiSlugPagesNewRoute: WikiSlugPagesNewRoute,
   WikiSlugPagesPageSlugEditRoute: WikiSlugPagesPageSlugEditRoute,
