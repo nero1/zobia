@@ -14,7 +14,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
+import Link from "@/components/ui/Link";
 
 export function PostBody({
   blogSlug,
