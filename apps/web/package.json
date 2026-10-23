@@ -22,6 +22,7 @@
     "analyze:functions": "node scripts/report-function-size.mjs"
   },
   "dependencies": {
+    "@zobia/shared": "*",
     "@aws-sdk/client-s3": "^3.651.1",
     "@aws-sdk/s3-request-presigner": "^3.651.1",
     "@serwist/next": "^9.0.0",
