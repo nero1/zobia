@@ -1,5 +1,5 @@
-import { clearCachedMessages } from "@/lib/chat/messageCache";
 "use client";
+import { clearCachedMessages } from "@/lib/chat/messageCache";
 import { cachedRead, invalidateReadCache, readCacheKey, writeInvalidatesReadCache } from "@/lib/cache/readCache";
 
 /**
