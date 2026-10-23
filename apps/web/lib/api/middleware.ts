@@ -353,7 +353,7 @@ export function withAuth<TParams = Record<string, string>>(
       const withRLS = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.is_system', 'false', TRUE), set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -478,7 +478,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
       const withRLSAdmin = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.is_system', 'false', TRUE), set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -608,7 +608,7 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       const withRLSMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.is_system', 'false', TRUE), set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -741,7 +741,7 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
       const withRLSAdMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.is_system', 'false', TRUE), set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );

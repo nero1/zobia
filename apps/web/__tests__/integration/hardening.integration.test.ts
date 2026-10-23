@@ -103,6 +103,19 @@ integration('forensic hardening contracts',()=>{
   const next=await claimCronRun(key,db);expect(next).not.toBeNull();await next!.runStep('done',async()=>{executions++;});await next!.finish(true);
   expect(executions).toBe(1);expect(await claimCronRun(key,db)).toBeNull();await pool.query('DELETE FROM cron_job_runs WHERE job_key=$1',[key]);
  });
+ it('restricts request-scoped ledger reads after explicitly leaving system context',async()=>{
+  await creditCoins(other,7,'admin_grant',randomUUID());
+  const role='hardening_'+randomUUID().replaceAll('-','');const client=await pool.connect();
+  try{
+   await client.query(`CREATE ROLE "${role}" NOLOGIN`);
+   await client.query(`GRANT USAGE ON SCHEMA public TO "${role}"`);
+   await client.query(`GRANT SELECT ON coin_ledger TO "${role}"`);
+   await client.query('BEGIN');await client.query(`SET LOCAL ROLE "${role}"`);
+   await client.query("SELECT set_config('app.is_system','false',true),set_config('app.user_id',$1,true),set_config('app.current_user_id',$1,true)",[uid]);
+   const rows=await client.query('SELECT DISTINCT user_id FROM coin_ledger');
+   expect(rows.rows.every(row=>row.user_id===uid)).toBe(true);expect(rows.rows.length).toBeGreaterThan(0);
+  }finally{await client.query('ROLLBACK');await client.query(`DROP OWNED BY "${role}"`);await client.query(`DROP ROLE "${role}"`);client.release();}
+ });
  it('sets and clears server context for pooled statements and Drizzle transactions',async()=>{
   const contextual=new Pool({connectionString:process.env.TEST_DATABASE_URL,max:1});wrapPoolWithCircuitBreaker(contextual);
   try{expect((await contextual.query("SELECT current_setting('app.is_system',true) value")).rows[0].value).toBe('true');
