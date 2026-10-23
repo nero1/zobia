@@ -1,11 +1,11 @@
 # Custom bugs report
-Date and time: 2026-10-23 — 09:30:03 PM WAT (Africa/Lagos)
+Date and time: 2026-10-23 — 09:44:16 PM WAT (Africa/Lagos)
 
 ## Discovered issues
 
-Status updated after remediation (98 original findings plus 12 additional findings): ✅ means the code fix has been implemented on `fix/forensic-hardening`. Final build and release checks are still in progress; this does not mean the changes have been deployed. Findings and their original reproduction evidence below describe the pre-fix code. The FIX paragraphs record the remediation requirements.
+Status updated after remediation (98 original findings plus 12 additional findings): ✅ means the code fix has been implemented in this change. Local verification is complete. Deployment requires the migration and provider configuration described in the setup guide. Findings and their original reproduction evidence below describe the pre-fix code. The FIX paragraphs record the remediation requirements.
 
-Verification summary: unit, database integration, live API security and web/Android type checks passed before the latest edge-case changes; final regression checks are ongoing.
+Verification summary: web/Android builds, type checks and tests pass, including database upgrades, private-role access, live API security and Chromium theme/dialog/crawler checks. PR: https://github.com/nero1/zobia/pull/551. Production load, external payment delivery and production backup restoration require deployment-specific exercises.
 
 1: BUG ZOB-001: ✅ [Critical] Phone verification records are exposed through Supabase grants without RLS
 2: BUG ZOB-002: ✅ [Critical] A crypto transaction can fund multiple independent purchases
@@ -1199,17 +1199,11 @@ FIX: Resolve extension objects through their discovered namespaces; verify insta
 
 ## Review scope and verification
 
-Checkout: `nero1/zobia`, branch `main`, commit `8311ff3975fefa33b27ed7331e360e917a175116`. No existing custom bugs report was present in the checkout to revalidate. This file is the new consolidated report. Application code and migrations were unchanged during the original audit; they have since been updated on the remediation branch.
+The original audit reviewed `nero1/zobia` at commit `8311ff3975fefa33b27ed7331e360e917a175116`. No previous custom report existed in that checkout. The numbered problem descriptions and reproduction evidence document that original state; ✅ tracks the implemented remediation, including additional confirmed issues found while fixing it.
 
-The three passes were: (1) repository-wide file inventory and static searches for trust boundaries, data access, unsafe sinks, concurrency, caching and resource ownership; (2) end-to-end tracing of authentication, money movement, callbacks, schema/RLS, uploads, exports and clients; (3) counterexample checks, local reproductions and comparison with existing tests. Comments were treated as leads, not evidence. For example, returned ApiError objects were excluded as a finding after confirming middleware handles them correctly.
+Local builds, regression/security tests, database installation and upgrade checks, role permissions and browser checks pass. No live payment or production database was modified. Cron-frequency changes were excluded as requested.
 
-The inventory contained 2,328 tracked files, including 1,256 TypeScript and 898 TSX files. Critical paths received detailed manual review; repository-wide searches are not equivalent to three manual line-by-line readings of every file. Generated/binary assets were inventoried rather than audited as application source. These are all findings substantiated in this review, not a claim that no additional defects exist.
-
-Completed checks: web TypeScript compilation passed; 547 web unit tests passed across 50 suites; 133 PostgreSQL integration tests passed across 28 suites; 25 Android tests passed across 5 files. A fresh PostgreSQL baseline applied successfully. Independent catalog inspection found the nine missing Drizzle columns. Isolated PostgreSQL fixtures reproduced anonymous phone-record access, star-purchase constraint rejection, duplicate transaction hashes, missing KYC visibility with the helper GUC and recursive membership RLS. Fixtures were local and disposable, with synthetic data.
-
-Additional source-executing fixtures reproduced wrong-recipient crypto acceptance with mocked chain responses, Approval-log acceptance by the BSC adapter, credential/body forwarding on a downgrade redirect, SVG attribute loss, permissive media-scheme validation, invalid-raster fail-open behavior and noncanceling breaker timeouts. PostgreSQL preserved raw HTML in Help headlines. A WHATWG URL check confirmed the redirect guard bypass documented in the numbered findings.
-
-Production credentials, real payments, live provider/webhook deliveries, Vercel deployment behavior, on-chain exploits, browser exploit execution, load tests at thousands of concurrent users and production backup restoration were not exercised. AI prompt manipulation is identified as a code-confirmed authorization risk, not a demonstrated successful model exploit. Network-dependent findings explicitly state relevant deployment conditions. No cron-frequency recommendation is included.
+Post-remediation review: **approximately 8/10 overall** for security, accounting, structure and implementation; **7/10 for scalability confidence**, pending representative production-load testing. These are code-review estimates. Existing private objects need migration to private storage; financial game results require a trusted backend. The original baseline ratings below remain for comparison.
 
 ## Original audit ratings and projected remediation ratings
 
@@ -1230,4 +1224,4 @@ Explicit Supabase grants and portable PostgreSQL SQL are compatible: guard provi
 
 Backup/recovery is not established by a users-only export. A complete restore exercise should separately verify schema, settings, accounting history, object storage, encryption-key availability, identity-provider configuration and post-restore reconciliation. No repository-only review can confirm production backup availability or hosting quota headroom.
 
-Report signature: Codex forensic review and remediation — 2026-10-23 — 09:30:03 PM WAT (Africa/Lagos)
+Report signature: Codex forensic review and remediation — 2026-10-23 — 09:44:16 PM WAT (Africa/Lagos)

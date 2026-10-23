@@ -109,4 +109,7 @@ ALTER TABLE public.referral_commissions ALTER COLUMN tier SET DEFAULT 1;
 -- Keep operational queues private even under inherited Data API default grants.
 REVOKE ALL ON crypto_transfer_claims,account_restore_uses,object_deletion_tasks,restore_email_tasks,cron_job_runs,cron_job_steps,game_score_attestations,game_progress_tasks FROM PUBLIC;
 DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON crypto_transfer_claims,account_restore_uses,object_deletion_tasks,restore_email_tasks,cron_job_runs,cron_job_steps,game_score_attestations,game_progress_tasks FROM %I',r); END IF; END LOOP; END $$;
+
+-- Revoke retained inline exports; only newly signed streaming downloads are supported.
+UPDATE data_export_requests SET download_url=NULL,expires_at=LEAST(COALESCE(expires_at,NOW()),NOW()) WHERE download_url LIKE 'data:%';
 COMMIT;

@@ -112,7 +112,9 @@ integration("final-state database baseline and migration runner", () => {
   await client.query("INSERT INTO migrations_log(filename,checksum) VALUES($1,$2)",[baselineFile,manifest.previousBaselineChecksum]);
   await client.query("UPDATE x_manifest SET value='keep-upgrade-setting' WHERE key='minimum_age'");
   const user=await client.query("INSERT INTO users(username,email,display_name,coin_balance) VALUES('upgrade_fixture','upgrade@security.invalid','Upgrade fixture',123) RETURNING id");
+  await client.query("INSERT INTO data_export_requests(user_id,status,download_url) VALUES($1,'completed','data:application/json;base64,e30=')",[user.rows[0].id]);
   await run(url);
+  expect((await client.query("SELECT download_url,expires_at<=NOW() expired FROM data_export_requests WHERE user_id=$1",[user.rows[0].id])).rows[0]).toEqual({download_url:null,expired:true});
   expect(await catalogChecksum(client)).toBe(manifest.catalogChecksum);
   expect((await client.query("SELECT coin_balance FROM users WHERE id=$1",[user.rows[0].id])).rows[0].coin_balance).toBe('123');
   expect((await client.query("SELECT value FROM x_manifest WHERE key='minimum_age'")).rows[0].value).toBe('keep-upgrade-setting');
