@@ -379,7 +379,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    | **"Use pooler transaction mode"** | `DATABASE_URL` — all runtime app traffic on Vercel (serverless) |
    | **"Use pooler session mode"** | Not needed for this project |
 
-   Copy the **pooler transaction mode** string → paste as `DATABASE_URL`.  
+   Copy the **pooler transaction mode** string → paste as `DATABASE_URL`.
    Copy the **direct connection string** → paste as `DIRECT_URL`.
 
    > **Required: download the SSL CA certificate.** Supabase's connection
@@ -1765,3 +1765,14 @@ Crypto checkout shows the original amount, network, destination and token contra
 The localization catalogs contain 5,537 English messages and complete key/interpolation coverage for all nine supported non-English languages, including Hindi and Nigerian Pidgin. Run `node scripts/audit-i18n.mjs --check` and `node scripts/sync-i18n.mjs --check` before release. Technical terms and names may legitimately match English. Native-speaker review is separate from structural validation; eight catalogs used machine-assisted translation, while Pidgin messages were authored/reviewed directly.
 
 Expiry cleanup and personal plan changes serialize with renewals using user-first account locks. Paystack disables use the valid `cancelled` state and retain access until the recorded period ends; stale cancellation events cannot affect a newer provider subscription. Run the existing daily-economy endpoint after installing the current baseline to exercise overdue cancellation/grace transitions. No cron frequencies were changed.
+
+## Forensic hardening update — 2026-10-23
+
+- Fresh installations use the single final-state migration with **317 tables** and three complete-ledger history views. Explicit service grants and private-table revocations are conditional on role existence, so ordinary PostgreSQL does not require Supabase. Existing verified installations use the runner's atomic upgrade; never apply the fresh baseline over existing data.
+- Protected requests check live sessions and account standing. Restore tokens are single-use and transactional; two-factor users complete normal second-factor authentication, and staff return through the admin login gate. Telegram uses the signed widget callback.
+- Crypto purchases bind an immutable quote, payer ownership signature, recipient, asset, time window and globally unique finalized chain transfer. Webhooks persist verified events before acknowledgment; retry queues retain failures and expose exhausted depth.
+- Games default to **practice mode**. Browser-reported scores cannot authorize money, wagers or rewarded milestones. Financial games require a trusted backend using the server-only `GAME_RESULT_WEBHOOK_SECRET` and `/api/games/results`; never embed that secret in a game client.
+- Identity documents require a separate private storage bucket. Set `SUPABASE_PRIVATE_STORAGE_BUCKET` (default `zobia-private`), `R2_PRIVATE_BUCKET_NAME`, or `S3_PRIVATE_BUCKET_NAME` for the selected provider. Supabase storage uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Existing identity files must be moved out of public buckets, verified at their new location and removed from the old public location before rollout; changing bucket configuration does not migrate objects.
+- Personal exports are pull-driven NDJSON downloads with short-lived signed links and a final completion record. Exports omit credentials and internal security material; attachment references do not constitute an object-storage backup. Deleted accounts lose verification/discovery and private files through recoverable cleanup, then retained profile identifiers are anonymized after the restore window.
+- Feed delivery rechecks cached visibility, uses precise keyset cursors for chronological feeds and shared fill leases for expensive caches. Web/PWA/Capacitor features reuse semantic theme tokens and shared accessible dialogs. Private navigation and API content are excluded from service-worker runtime caches.
+- Database integration, restricted-role portability, unit and API security checks accompany the changes. Production provider credentials, a representative concurrency load and a complete production backup restore still require deployment-specific exercises. Cron frequency is unchanged.

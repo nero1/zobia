@@ -80,11 +80,11 @@ export async function compareNames(nameA: string, nameB: string): Promise<NameMa
         success: true,
         latencyMs: Date.now() - startedAt,
         confidence: parsed.score,
-        resultPreview: `match=${parsed.match} ${parsed.reasoning}`,
+        resultPreview: `match=${parsed.match} (personal data redacted)`,
       });
       return parsed;
     }
-    logger.warn({ content: response.content }, "[kyc/aiNameMatch] Unparseable AI response — falling back to heuristic");
+    logger.warn({ responseType: "unparseable" }, "[kyc/aiNameMatch] Unparseable AI response — falling back to heuristic");
     await logAiCall({
       provider: response.provider,
       model: response.model,
@@ -94,14 +94,14 @@ export async function compareNames(nameA: string, nameB: string): Promise<NameMa
       errorMessage: "Unparseable AI response",
     });
   } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[kyc/aiNameMatch] AI call failed — falling back to heuristic");
+    logger.warn({ err: err instanceof Error ? err.name : "Identity processing error" }, "[kyc/aiNameMatch] AI call failed — falling back to heuristic");
     await logAiCall({
       provider: "none",
       model: "n/a",
       feature: "kyc:name_match",
       success: false,
       latencyMs: Date.now() - startedAt,
-      errorMessage: err instanceof Error ? err.message : String(err),
+      errorMessage: err instanceof Error ? err.name : "Identity processing error",
     });
   }
 

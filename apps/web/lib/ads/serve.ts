@@ -16,6 +16,7 @@
  * impression — see repo.ts header comment for the rationale.
  */
 
+import { issueAdReceipt, verifyAdReceipt } from "./receipts";
 import Decimal from "decimal.js";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
@@ -24,6 +25,7 @@ import { getPlanAdsLevel } from "@/lib/ads/limits";
 import type { AdSize } from "@/lib/ads/repo";
 
 export interface ServedAd {
+  receipt: string;
   creativeId: string;
   campaignId: string;
   placementKey: string;
@@ -61,7 +63,8 @@ interface CandidateRow {
  */
 export async function serveAd(
   placementKey: string,
-  viewerPlan: string | null | undefined
+  viewerPlan: string | null | undefined,
+  userId: string
 ): Promise<ServedAd | null> {
   const level = await getPlanAdsLevel(viewerPlan);
   if (level === "none") return null;
@@ -95,6 +98,7 @@ export async function serveAd(
   if (!row) return null;
 
   return {
+    receipt: issueAdReceipt(userId,row.creative_id,placementKey),
     creativeId: row.creative_id,
     campaignId: row.campaign_id,
     placementKey,
@@ -115,7 +119,8 @@ export interface AdEventInput {
   creativeId: string;
   placementKey: string;
   type: "impression" | "click";
-  clientEventId?: string;
+  clientEventId: string;
+  receipt: string;
 }
 
 /**
@@ -126,33 +131,51 @@ export interface AdEventInput {
  * Idempotent per (creativeId, type, clientEventId) — a retried beacon flush
  * is a no-op rather than double-billing.
  */
-export async function recordAdEvents(events: AdEventInput[], userId: string | null): Promise<void> {
-  if (events.length === 0) return;
+export async function recordAdEvents(events: AdEventInput[], userId: string | null): Promise<{recorded:number; outcomes:Array<{clientEventId:string;status:"committed"|"duplicate"|"rejected"|"retryable"}>}> {
+  const outcomes: Array<{clientEventId:string;status:"committed"|"duplicate"|"rejected"|"retryable"}> = [];
 
   const orm = await getDb();
   for (const event of events.slice(0, 20)) {
+    const proof=userId ? verifyAdReceipt(event.receipt,userId,event.creativeId,event.placementKey):null;
+    if(!proof) {outcomes.push({clientEventId:event.clientEventId,status:"rejected"});continue;}
     try {
-      await orm.transaction(async (tx) => {
-        const { rows: creativeRows } = await tx.execute<{ campaign_id: string; cpm_credits: string; total_budget_credits: string; spent_credits: string }>(sql`
-          SELECT cr.campaign_id, c.cpm_credits, c.total_budget_credits, c.spent_credits
+      const status=await orm.transaction(async (tx):Promise<"committed"|"duplicate"|"rejected"> => {
+        await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR NO KEY UPDATE`);
+        const prior=await tx.execute(sql`SELECT id FROM ad_events WHERE creative_id=${event.creativeId} AND event_type=${event.type} AND client_event_id=${proof.id} LIMIT 1`);
+        if(prior.rows.length) return "duplicate";
+        const budget=await tx.execute<{n:number}>(sql`SELECT count(*)::int n FROM ad_events WHERE user_id=${userId} AND created_at >= CURRENT_DATE`);
+        if(budget.rows[0].n>=1000) return "rejected";
+        const { rows: creativeRows } = await tx.execute<{ campaign_id: string; cpm_credits: string; total_budget_credits: string; spent_credits: string;daily_budget_credits:string|null;daily_spend:string;frequency_cap_per_user_per_day:number }>(sql`
+          SELECT cr.campaign_id, c.cpm_credits, c.total_budget_credits, c.spent_credits,c.daily_budget_credits,c.frequency_cap_per_user_per_day,
+            COALESCE((SELECT spend_credits FROM ad_campaign_daily_stats WHERE campaign_id=c.id AND date=CURRENT_DATE),0)::text daily_spend
            FROM ad_creatives cr JOIN ad_campaigns c ON c.id = cr.campaign_id
-           WHERE cr.id = ${event.creativeId} FOR UPDATE OF c
+           WHERE cr.id = ${event.creativeId} AND cr.placement_key=${event.placementKey}
+             AND cr.is_active=true AND c.status='active' AND c.moderation_status='approved' AND c.deleted_at IS NULL
+             AND (c.start_at IS NULL OR c.start_at<=NOW()) AND (c.end_at IS NULL OR c.end_at>=NOW()) FOR UPDATE OF c
         `);
         const row = creativeRows[0];
-        if (!row) return;
+        if (!row) return "rejected";
 
+        if (event.type === "impression") {
+          const count=await tx.execute<{n:number}>(sql`SELECT count(*)::int n FROM ad_events WHERE user_id=${userId} AND campaign_id=${row.campaign_id} AND event_type='impression' AND created_at>=CURRENT_DATE`);
+          if (row.frequency_cap_per_user_per_day>0 && count.rows[0].n>=row.frequency_cap_per_user_per_day) return "rejected";
+        }
         const cost = event.type === "impression" ? new Decimal(row.cpm_credits).dividedBy(1000) : new Decimal(0);
         const remaining = new Decimal(row.total_budget_credits).minus(row.spent_credits);
-        if (event.type === "impression" && remaining.lte(0)) return; // budget exhausted mid-flush
+        // Read after acquiring the campaign lock: a subquery in the lock
+        // statement can retain the snapshot from before a competing charge.
+        const daily=await tx.execute<{spent:string}>(sql`SELECT COALESCE(SUM(spend_credits),0)::text spent FROM ad_campaign_daily_stats WHERE campaign_id=${row.campaign_id} AND date=CURRENT_DATE`);
+        const dailyRemaining=row.daily_budget_credits===null?remaining:new Decimal(row.daily_budget_credits).minus(daily.rows[0].spent);
+        if (event.type === "impression" && (remaining.lt(cost) || dailyRemaining.lt(cost))) return "rejected";
         const costStr = cost.toFixed(4);
 
         const { rows: inserted } = await tx.execute<{ id: string }>(sql`
           INSERT INTO ad_events (creative_id, campaign_id, placement_key, user_id, event_type, cost_credits, client_event_id)
-           VALUES (${event.creativeId},${row.campaign_id},${event.placementKey},${userId},${event.type},${costStr},${event.clientEventId ?? null})
+           VALUES (${event.creativeId},${row.campaign_id},${event.placementKey},${userId},${event.type},${costStr},${proof.id})
            ON CONFLICT (creative_id, event_type, client_event_id) WHERE client_event_id IS NOT NULL DO NOTHING
            RETURNING id
         `);
-        if (!inserted[0]) return; // duplicate — already recorded
+        if (!inserted[0]) return "duplicate";
 
         if (event.type === "impression") {
           await tx.execute(sql`
@@ -174,9 +197,13 @@ export async function recordAdEvents(events: AdEventInput[], userId: string | nu
                clicks = ad_campaign_daily_stats.clicks + ${event.type === "click" ? 1 : 0},
                spend_credits = ad_campaign_daily_stats.spend_credits + ${costStr}
         `);
+        return "committed";
       });
+      outcomes.push({clientEventId:event.clientEventId,status});
     } catch (err) {
-      logger.error({ err, event }, "[ads/serve] failed to record ad event");
+      outcomes.push({clientEventId:event.clientEventId,status:"retryable"});
+      logger.error({ err, creativeId:event.creativeId }, "[ads/serve] failed to record ad event");
     }
   }
+  return {recorded:outcomes.filter(o=>o.status==="committed").length,outcomes};
 }

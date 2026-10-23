@@ -14,7 +14,7 @@
  * throwing, so the monitoring page degrades instead of breaking.
  */
 
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { logger } from "@/lib/logger";
 
 export interface SlowQueryStat {
@@ -45,7 +45,7 @@ const QUERY_TEXT_MAX_CHARS = 300;
 
 export async function getSlowQueries(limit: number = DEFAULT_LIMIT): Promise<SlowQueryReport> {
   try {
-    const { rows } = await db.query<PgStatStatementsRow>(
+    const { rows } = await executeSql<PgStatStatementsRow>(
       `SELECT query, calls, mean_exec_time, max_exec_time, total_exec_time
        FROM pg_stat_statements
        WHERE query NOT ILIKE '%pg_stat_statements%'

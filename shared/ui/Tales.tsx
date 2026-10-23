@@ -50,11 +50,11 @@ interface ChapterData {
   isOwner: boolean;
 }
 const panel =
-  "rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4";
+  "rounded-xl border border-border bg-card p-4";
 const field =
-  "block w-full rounded-lg border border-neutral-300 bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 p-3 my-2";
+  "block w-full rounded-lg border border-input bg-background text-foreground p-3 my-2";
 const pill =
-  "inline-block rounded-full border border-neutral-300 px-4 py-2 text-sm disabled:opacity-50";
+  "inline-block rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:bg-accent disabled:opacity-50";
 function useLoad<T>(api: TalesTransport, path: string) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
@@ -159,7 +159,7 @@ export function TalesDiscovery({ api }: { api: TalesTransport }) {
     }
   }, [result.data, actualCursor, key]);
   return (
-    <div className="mx-auto max-w-4xl p-4 space-y-4 text-neutral-900 dark:text-neutral-100">
+    <div className="site-container p-4 space-y-4 text-foreground">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("tales.title", "Tales")}</h1>
         <Go api={api} to="/t/write">
@@ -219,7 +219,7 @@ export function TalesDiscovery({ api }: { api: TalesTransport }) {
             ) : (
               <span
                 aria-hidden
-                className="w-20 h-28 flex items-center justify-center bg-neutral-100 dark:bg-neutral-800 text-4xl rounded-lg"
+                className="w-20 h-28 flex items-center justify-center bg-muted text-4xl rounded-lg"
               >
                 📚
               </span>
@@ -287,7 +287,7 @@ export function TalesStory({
     );
   const { story, chapters, isOwner } = result.data;
   return (
-    <div className="mx-auto max-w-3xl p-4 space-y-4 text-neutral-900 dark:text-neutral-100">
+    <div className="site-container p-4 space-y-4 text-foreground">
       <Go api={api} to="/t">
         {t("tales.title", "Tales")}
       </Go>
@@ -450,7 +450,7 @@ export function TalesChapter({
     );
   const { chapter, story, price, locked, loginRequired, isOwner } = result.data;
   return (
-    <article className="mx-auto max-w-3xl p-4 space-y-4 text-neutral-900 dark:text-neutral-100">
+    <article className="site-container p-4 space-y-4 text-foreground">
       <Go api={api} to={`/t/${slug}`}>
         {story.title}
       </Go>
@@ -881,7 +881,7 @@ export function TalesEditor({
       </div>
     );
   return (
-    <div className="mx-auto max-w-3xl p-4 space-y-4 text-neutral-900 dark:text-neutral-100">
+    <div className="site-container p-4 space-y-4 text-foreground">
       <Go api={api} to={slug ? `/t/${slug}` : "/t"}>
         {t("action.back", "Back")}
       </Go>
@@ -1376,7 +1376,7 @@ export function TalesModeration({ api }: { api: TalesTransport }) {
     }
   }
   return (
-    <div className="mx-auto max-w-4xl p-4 space-y-4">
+    <div className="site-container p-4 space-y-4">
       <header className="flex justify-between">
         <h1 className="text-2xl font-bold">
           {t("tales.moderationTitle", "Tales moderation")}

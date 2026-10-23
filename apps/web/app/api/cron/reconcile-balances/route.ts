@@ -1,252 +1,57 @@
 export const dynamic = 'force-dynamic';
-// BUG-M05: Increase maxDuration to allow reconciliation across large user tables.
-// The default was 10 s which would time out mid-loop on datasets > ~5 000 users.
 export const maxDuration = 300;
 
-/**
- * GET /api/cron/reconcile-balances
- *
- * Nightly CRON: detect and flag balance discrepancies between
- * users.xp_total/coin_balance and their respective ledger sums. (BUG-31)
- *
- * Fixes applied:
- *  - BUG-CRON-02: use BigInt for coin/XP values to avoid precision loss on large balances.
- *  - BUG-CRON-01: raise critical system_alert when discrepancy exceeds AUTO_CORRECT_THRESHOLD.
- *  - BUG-CRON-05: AUTO_CORRECT_THRESHOLD now read from manifest (default 50).
- */
+import { NextRequest, NextResponse } from 'next/server';
+import { sql } from 'drizzle-orm';
+import { getDb } from '@/lib/db/drizzle';
+import { validateCronSecret } from '@/lib/cron/auth';
+import { getManifestValue } from '@/lib/manifest';
+import { raiseAlert } from '@/lib/alerts/dispatch';
+import { handleApiError } from '@/lib/api/errors';
 
-import { NextRequest, NextResponse } from "next/server";
-import { sql } from "drizzle-orm";
-import { getDb } from "@/lib/db/drizzle";
-import { db } from "@/lib/db";
-import { validateCronSecret } from "@/lib/cron/auth";
-import { getManifestValue } from "@/lib/manifest";
-import { logger } from "@/lib/logger";
-import { raiseAlert } from "@/lib/alerts/dispatch";
-
-const BATCH_SIZE = 500;
-const DEFAULT_AUTO_CORRECT_THRESHOLD = 50;
-
+/** Durable keyset progress; corrections and their audit trail commit together. */
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  if (!validateCronSecret(req)) {
-    return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
-  }
-
-  const orm = await getDb();
-
-  // BUG-CRON-05: read threshold from manifest so operators can tune without a code deploy
-  const manifestThreshold = await getManifestValue('reconcileAutoCorrectThreshold').catch(() => null);
-  const AUTO_CORRECT_THRESHOLD = (typeof manifestThreshold === 'number' && manifestThreshold > 0)
-    ? manifestThreshold
-    : DEFAULT_AUTO_CORRECT_THRESHOLD;
-
-  let discrepanciesFound = 0;
-  let autoCorrected = 0;
-  // PERF-06: Use keyset (cursor-based) pagination instead of OFFSET to avoid
-  // full-table scans that grow with each page. Cursor is the last seen user id.
-  let lastId = '00000000-0000-0000-0000-000000000000';
-  // BUG-M05: Bound the while(true) loop so a large dataset can't cause a silent
-  // mid-run timeout. MAX_ITERATIONS × BATCH_SIZE = 100 000 users per invocation.
-  // Incomplete runs return a partial-success response so operators know to re-run.
-  const MAX_ITERATIONS = 200;
-  let iterations = 0;
-
-  while (true) {
-    if (++iterations > MAX_ITERATIONS) {
-      logger.error({ maxIterations: MAX_ITERATIONS, lastId }, '[reconcile-balances] Hit iteration cap, stopping early');
-      return NextResponse.json(
-        { ok: false, partial: true, discrepanciesFound, autoCorrected, stoppedAtCursor: lastId },
-        { status: 206 }
-      );
-    }
-    // BUG-CRON-03 FIX: single CTE reads wallet balances and ledger sums in one
-    // snapshot-consistent query, eliminating the TOCTOU window where a concurrent
-    // XP award could change balances between the separate SELECT and SUM queries.
-    const { rows: batchRows } = await orm.execute<{
-      id: string;
-      xp_total: string;
-      coin_balance: string;
-      xp_ledger_sum: string;
-      coin_ledger_sum: string;
-    }>(sql`
-      WITH batch AS (
-        SELECT id, xp_total::text, coin_balance::text
-        FROM users
-        WHERE deleted_at IS NULL AND id > ${lastId}
-        ORDER BY id LIMIT ${BATCH_SIZE}
-      ),
-      xp_sums AS (
-        SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-        FROM xp_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
-      ),
-      coin_sums AS (
-        SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-        FROM coin_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
-      )
-      SELECT b.id, b.xp_total, b.coin_balance,
-             COALESCE(x.ledger_sum, '0') AS xp_ledger_sum,
-             COALESCE(c.ledger_sum, '0') AS coin_ledger_sum
-      FROM batch b
-      LEFT JOIN xp_sums x ON x.user_id = b.id
-      LEFT JOIN coin_sums c ON c.user_id = b.id
-    `);
-    const users = batchRows;
-    if (users.length === 0) break;
-
-    lastId = users[users.length - 1].id;
-
-    // BUG-CRON-02: use BigInt to avoid IEEE 754 precision loss on large balances
-    const xpMap   = new Map(users.map((r) => [r.id, BigInt(r.xp_ledger_sum)]));
-    const coinMap = new Map(users.map((r) => [r.id, BigInt(r.coin_ledger_sum)]));
-
-    // Classify discrepancies for this batch
-    const discXpIds: string[] = [], discXpLedger: bigint[] = [], discXpBal: bigint[] = [];
-    const discCoinIds: string[] = [], discCoinLedger: bigint[] = [], discCoinBal: bigint[] = [];
-    const fixXpIds: string[] = [], fixXpValues: bigint[] = [];
-    const fixCoinIds: string[] = [], fixCoinValues: bigint[] = [];
-    // Large discrepancies above threshold — alert without auto-correcting
-    const largeXpDiscrepancies: Array<{ userId: string; ledgerSum: bigint; walletBalance: bigint; delta: bigint }> = [];
-    const largeCoinDiscrepancies: Array<{ userId: string; ledgerSum: bigint; walletBalance: bigint; delta: bigint }> = [];
-
-    for (const user of users) {
-      const ledgerXp    = xpMap.get(user.id)   ?? 0n;
-      const ledgerCoins = coinMap.get(user.id) ?? 0n;
-      const walletXp    = BigInt(user.xp_total);
-      const walletCoins = BigInt(user.coin_balance);
-      const xpDelta    = walletXp > ledgerXp ? walletXp - ledgerXp : ledgerXp - walletXp;
-      const coinDelta  = walletCoins > ledgerCoins ? walletCoins - ledgerCoins : ledgerCoins - walletCoins;
-
-      if (xpDelta > 0n) {
-        discrepanciesFound++;
-        discXpIds.push(user.id);
-        discXpLedger.push(ledgerXp);
-        discXpBal.push(walletXp);
-        if (xpDelta <= BigInt(AUTO_CORRECT_THRESHOLD)) {
-          fixXpIds.push(user.id);
-          fixXpValues.push(ledgerXp);
-          autoCorrected++;
-        } else {
-          // BUG-CRON-01: large discrepancy — alert but do not auto-correct
-          largeXpDiscrepancies.push({ userId: user.id, ledgerSum: ledgerXp, walletBalance: walletXp, delta: xpDelta });
+  if (!validateCronSecret(req)) return NextResponse.json({error:'Unauthorised'},{status:401});
+  try {
+    const db = await getDb();
+    const rawThreshold=await getManifestValue('reconcileAutoCorrectThreshold');
+    const configured = rawThreshold===null?NaN:Number(rawThreshold);
+    const threshold = BigInt(Number.isSafeInteger(configured) && configured >= 0 ? configured : 50);
+    let scanned=0, discrepanciesFound=0, autoCorrected=0, complete=false;
+    const deadline=Date.now()+240_000;
+    while(Date.now()<deadline && scanned<10_000) {
+      const result=await db.transaction(async tx=>{
+        await tx.execute(sql`INSERT INTO cron_state(key,value_text) VALUES ('reconcile_cursor','00000000-0000-0000-0000-000000000000') ON CONFLICT(key) DO NOTHING`);
+        const state=await tx.execute<{value_text:string}>(sql`SELECT value_text FROM cron_state WHERE key='reconcile_cursor' FOR UPDATE`);
+        const cursor=state.rows[0].value_text;
+        const batch=await tx.execute<{id:string;xp_total:string;coin_balance:string;star_balance:string}>(sql`SELECT id,xp_total::text,coin_balance::text,star_balance::text FROM users WHERE deleted_at IS NULL AND id>${cursor}::uuid ORDER BY id LIMIT 50 FOR NO KEY UPDATE`);
+        let found=0,corrected=0;
+        for(const user of batch.rows) {
+          const sums=await tx.execute<{asset:string;total:string}>(sql`
+            SELECT 'xp' asset,COALESCE(SUM(amount),0)::text total FROM xp_ledger_history WHERE user_id=${user.id}
+            UNION ALL SELECT 'coins',COALESCE(SUM(amount),0)::text FROM coin_ledger_history WHERE user_id=${user.id}
+            UNION ALL SELECT 'stars',COALESCE(SUM(amount),0)::text FROM star_ledger_history WHERE user_id=${user.id}`);
+          for(const sum of sums.rows) {
+            const column=sum.asset==='xp'?'xp_total':sum.asset==='coins'?'coin_balance':'star_balance';
+            const balance=BigInt(user[column]), expected=BigInt(sum.total), delta=balance>expected?balance-expected:expected-balance;
+            if(delta===0n) continue;
+            found++;
+            const fix=delta<=threshold && expected>=0n;
+            await tx.execute(sql`INSERT INTO audit_discrepancies(user_id,asset_type,ledger_sum,wallet_balance,detected_at,resolved,resolved_at,notes) VALUES (${user.id},${sum.asset},${sum.total},${balance.toString()},NOW(),${fix},CASE WHEN ${fix} THEN NOW() ELSE NULL END,${fix?'Atomically corrected from complete ledger history':'Manual review required'})`);
+            if (!fix) await raiseAlert(tx, { type:'balance_reconciliation', category:'financial', priorityLevel:2, title:'Balance discrepancy requires review', message:'Wallet balance differs from complete accounting history.', dedupeKey:`${user.id}:${sum.asset}`, metadata:{userId:user.id,asset:sum.asset,expected:sum.total,actual:balance.toString()} });
+            if(fix) {
+              await tx.execute(sql`UPDATE users SET ${sql.identifier(column)}=${sum.total}::bigint,updated_at=NOW() WHERE id=${user.id}`);
+              corrected++;
+            }
+          }
         }
-      }
-
-      if (coinDelta > 0n) {
-        discrepanciesFound++;
-        discCoinIds.push(user.id);
-        discCoinLedger.push(ledgerCoins);
-        discCoinBal.push(walletCoins);
-        if (coinDelta <= BigInt(AUTO_CORRECT_THRESHOLD)) {
-          fixCoinIds.push(user.id);
-          fixCoinValues.push(ledgerCoins);
-          autoCorrected++;
-        } else {
-          // BUG-CRON-01: large discrepancy — alert but do not auto-correct
-          largeCoinDiscrepancies.push({ userId: user.id, ledgerSum: ledgerCoins, walletBalance: walletCoins, delta: coinDelta });
-        }
-      }
+        const last=batch.rows.at(-1)?.id ?? '00000000-0000-0000-0000-000000000000';
+        await tx.execute(sql`UPDATE cron_state SET value_text=${last},updated_at=NOW() WHERE key='reconcile_cursor'`);
+        return {count:batch.rows.length,found,corrected};
+      });
+      scanned+=result.count;discrepanciesFound+=result.found;autoCorrected+=result.corrected;
+      if(result.count===0){complete=true;break;}
     }
-
-    // DISC-01: plain INSERT (no ON CONFLICT UPDATE) so each detection is a new row.
-    // History is preserved; use the active index (WHERE resolved = false) for lookups.
-    if (discXpIds.length > 0) {
-      await orm.execute(sql`
-        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-        SELECT unnest(${sql.param(discXpIds)}::uuid[]), 'xp', unnest(${sql.param(discXpLedger.map(String))}::bigint[]), unnest(${sql.param(discXpBal.map(String))}::bigint[]), NOW()
-      `).catch(() => {});
-    }
-
-    if (discCoinIds.length > 0) {
-      await orm.execute(sql`
-        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-        SELECT unnest(${sql.param(discCoinIds)}::uuid[]), 'coins', unnest(${sql.param(discCoinLedger.map(String))}::bigint[]), unnest(${sql.param(discCoinBal.map(String))}::bigint[]), NOW()
-      `).catch(() => {});
-    }
-
-    // BUG-CRON-01: Raise critical alerts for large discrepancies that exceed the threshold.
-    for (const d of largeXpDiscrepancies) {
-      await raiseAlert(orm, {
-        type: "balance_discrepancy",
-        category: "financial",
-        priorityLevel: 2,
-        title: "Large XP balance discrepancy",
-        message: `Large XP discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
-        metadata: { userId: d.userId, assetType: 'xp', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD },
-        dedupeKey: `balance_discrepancy:xp:${d.userId}`,
-      }).catch(() => {});
-    }
-
-    for (const d of largeCoinDiscrepancies) {
-      await raiseAlert(orm, {
-        type: "balance_discrepancy",
-        category: "financial",
-        priorityLevel: 2,
-        title: "Large coin balance discrepancy",
-        message: `Large coin discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
-        metadata: { userId: d.userId, assetType: 'coins', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD },
-        dedupeKey: `balance_discrepancy:coin:${d.userId}`,
-      }).catch(() => {});
-    }
-
-    // AUDIT-01: Insert audit records and alert on ALL auto-corrections (RECONCILE-01).
-    for (let i = 0; i < fixXpIds.length; i++) {
-      const userId = fixXpIds[i];
-      const ledgerSum = fixXpValues[i];
-      const walletBalance = discXpBal[discXpIds.indexOf(userId)];
-      const discrepancyAmount = ledgerSum > walletBalance ? ledgerSum - walletBalance : walletBalance - ledgerSum;
-      await orm.execute(sql`
-        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-        VALUES (${userId}, 'xp', ${String(ledgerSum)}, ${String(walletBalance)}, NOW(), 'auto-corrected by reconcile-balances CRON')
-      `).catch(() => {});
-      await raiseAlert(orm, {
-        type: "balance_discrepancy",
-        category: "financial",
-        priorityLevel: 4,
-        title: "XP balance auto-corrected",
-        message: `XP balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
-        metadata: { userId, assetType: 'xp', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) },
-        dedupeKey: `balance_discrepancy_corrected:xp:${userId}`,
-      }).catch(() => {});
-    }
-
-    // Batch auto-correct XP
-    if (fixXpIds.length > 0) {
-      await orm.execute(sql`
-        UPDATE users SET xp_total = updates.val::bigint, updated_at = NOW()
-        FROM (SELECT unnest(${sql.param(fixXpIds)}::uuid[]) AS uid, unnest(${sql.param(fixXpValues.map(String))}::text[]) AS val) updates
-        WHERE id = updates.uid
-      `).catch(() => {});
-    }
-
-    for (let i = 0; i < fixCoinIds.length; i++) {
-      const userId = fixCoinIds[i];
-      const ledgerSum = fixCoinValues[i];
-      const walletBalance = discCoinBal[discCoinIds.indexOf(userId)];
-      const discrepancyAmount = ledgerSum > walletBalance ? ledgerSum - walletBalance : walletBalance - ledgerSum;
-      await orm.execute(sql`
-        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-        VALUES (${userId}, 'coins', ${String(ledgerSum)}, ${String(walletBalance)}, NOW(), 'auto-corrected by reconcile-balances CRON')
-      `).catch(() => {});
-      await raiseAlert(orm, {
-        type: "balance_discrepancy",
-        category: "financial",
-        priorityLevel: 4,
-        title: "Coin balance auto-corrected",
-        message: `Coin balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
-        metadata: { userId, assetType: 'coins', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) },
-        dedupeKey: `balance_discrepancy_corrected:coin:${userId}`,
-      }).catch(() => {});
-    }
-
-    // Batch auto-correct coins
-    if (fixCoinIds.length > 0) {
-      await orm.execute(sql`
-        UPDATE users SET coin_balance = updates.val::bigint, updated_at = NOW()
-        FROM (SELECT unnest(${sql.param(fixCoinIds)}::uuid[]) AS uid, unnest(${sql.param(fixCoinValues.map(String))}::text[]) AS val) updates
-        WHERE id = updates.uid
-      `).catch(() => {});
-    }
-  }
-
-  return NextResponse.json({ ok: true, discrepanciesFound, autoCorrected });
+    return NextResponse.json({ok:true,complete,scanned,discrepanciesFound,autoCorrected});
+  } catch(error){return handleApiError(error);}
 }

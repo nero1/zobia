@@ -20,6 +20,7 @@ import { enqueueAdEvent } from "./adEventQueue";
 import { Icon } from "@/components/ui/Icon";
 
 interface ServedAd {
+  receipt: string;
   creativeId: string;
   placementKey: string;
   title: string | null;
@@ -62,7 +63,7 @@ export default function InterstitialAd({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (!ad || impressedRef.current) return;
     impressedRef.current = true;
-    enqueueAdEvent({ creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
+    enqueueAdEvent({ receipt:ad.receipt, creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
   }, [ad]);
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export default function InterstitialAd({ onClose }: { onClose: () => void }) {
 
   function handleClick() {
     if (!ad) return;
-    enqueueAdEvent({ creativeId: ad.creativeId, placementKey: ad.placementKey, type: "click" });
+    enqueueAdEvent({ receipt:ad.receipt, creativeId: ad.creativeId, placementKey: ad.placementKey, type: "click" });
   }
 
   return (

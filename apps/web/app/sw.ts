@@ -45,6 +45,10 @@ const offlineFallbackPlugin = {
 // `TypeError: c.handle is not a function` inside the generated sw.js, which broke
 // JS chunk loading and navigation. All handlers below are now real instances.
 const runtimeCaching: RuntimeCaching[] = [
+  {
+    matcher: ({request,url}) => request.mode === 'navigate' || request.headers.has('rsc') || request.headers.has('next-router-prefetch') || (request.headers.get('accept')??'').includes('text/x-component') || url.pathname.includes('/storage/v1/object/sign/') || url.searchParams.has('X-Amz-Signature'),
+    handler: new NetworkOnly({plugins:[offlineFallbackPlugin]}),
+  },
   // Auth routes must NOT be cached: NetworkOnly is a plain pass-through to the
   // network, so the browser's native cookie jar processes Set-Cookie on both the
   // OAuth initiation request and the callback navigation. (A bare fetch function
@@ -131,6 +135,14 @@ const serwist = new Serwist({
 
 serwist.addEventListeners();
 
+async function purgePrivateCaches():Promise<void>{
+  const keep=new Set(['google-fonts','static-font-assets','static-js-assets','static-style-assets']);
+  const names=await caches.keys();
+  await Promise.all(names.filter(name=>!name.includes('precache') && !keep.has(name)).map(name=>caches.delete(name)));
+}
+self.addEventListener('activate',event=>event.waitUntil(purgePrivateCaches()));
+self.addEventListener('message',event=>{if(event.data?.type==='PURGE_PRIVATE_CACHES')event.waitUntil(purgePrivateCaches());});
+
 // ---------------------------------------------------------------------------
 // Web Push (ZSB-17)
 // ---------------------------------------------------------------------------
@@ -208,7 +220,7 @@ self.addEventListener("notificationclick", (event) => {
   // carrying an absolute/external URL.
   const rawAction = (event.notification.data as { action?: unknown } | undefined)?.action;
   const resolvedAction = typeof rawAction === "string" ? (ACTION_ALIASES[rawAction] ?? rawAction) : null;
-  const path = resolvedAction && resolvedAction.startsWith("/") ? resolvedAction : "/home";
+  const path = resolvedAction && resolvedAction.startsWith("/") && !resolvedAction.startsWith("//") && !/[\\\u0000-\u0020]/.test(resolvedAction) ? resolvedAction : "/home";
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {

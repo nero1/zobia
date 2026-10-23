@@ -51,6 +51,10 @@ export async function grantGamingReward(
   client?: DbOrTx,
   gameName?: string | null
 ): Promise<RewardBundle> {
+  if (!client) {
+    const db=await getDb();
+    return db.transaction(tx=>grantGamingReward(userId,bundle,source,referenceId,tx,gameName));
+  }
   const credits = Math.max(0, Math.floor(bundle.credits));
   const xp = Math.max(0, Math.floor(bundle.xp));
   const stars = Math.max(0, Math.floor(bundle.stars));
@@ -157,7 +161,7 @@ export async function checkPlayMilestones(userId: string): Promise<void> {
     const [countRow] = await globalDb
       .select({ plays: sql<number>`COUNT(*)::int` })
       .from(schema.gamePlays)
-      .where(and(eq(schema.gamePlays.userId, userId), eq(schema.gamePlays.counted, true)));
+      .where(and(eq(schema.gamePlays.userId, userId), eq(schema.gamePlays.counted, true),sql`EXISTS(SELECT 1 FROM game_score_attestations a WHERE a.play_id=${schema.gamePlays.id})`));
     const totalPlays = countRow?.plays ?? 0;
     if (totalPlays === 0) return;
 
@@ -182,22 +186,26 @@ export async function checkPlayMilestones(userId: string): Promise<void> {
       .orderBy(sql`${schema.gamePlayMilestones.gamesPlayedThreshold} ASC`);
 
     for (const m of milestones) {
+      await globalDb.transaction(async tx=>{
       // Claim first (idempotency gate), then pay.
-      const claimed = await globalDb
+      const claimed = await tx
         .insert(schema.gameMilestoneClaims)
         .values({ userId, threshold: m.gamesPlayedThreshold })
         .onConflictDoNothing()
         .returning({ threshold: schema.gameMilestoneClaims.threshold });
-      if (claimed.length === 0) continue; // another request already claimed it
+      if (claimed.length === 0) return; // another request already claimed it
 
       await grantGamingReward(
         userId,
         { credits: m.rewardCredits, xp: m.rewardXp, stars: m.rewardStars },
         "game_play_milestone",
-        `milestone:${userId}:${m.gamesPlayedThreshold}`
+        `milestone:${userId}:${m.gamesPlayedThreshold}`,
+        tx
       );
+      });
     }
   } catch (err) {
     logger.error({ err, userId }, `[games] checkPlayMilestones failed`);
+    throw err;
   }
 }

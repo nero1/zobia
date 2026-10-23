@@ -11,12 +11,12 @@
  */
 
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 
 export default async function BusinessPostRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { rows } = await db.query<{ page_id: string }>(
+  const { rows } = await executeSql<{ page_id: string }>(
     `SELECT bp.id AS page_id
      FROM business_page_posts p
      JOIN business_pages bp ON bp.id = p.page_id

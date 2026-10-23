@@ -48,7 +48,7 @@ function redirectToLoginClearingCookies(loginUrl: URL): NextResponse {
 
 /** Validate that a redirect target is a relative same-site path. */
 function isSafeRelativePath(value: string | null | undefined): value is string {
-  return typeof value === "string" && /^\/[^/]/.test(value);
+  return typeof value === "string" && value.startsWith("/") && !value.startsWith("//") && !/[\\\u0000-\u0020]/.test(value);
 }
 
 export async function GET(req: NextRequest): Promise<NextResponse> {

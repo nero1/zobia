@@ -297,7 +297,7 @@ export default function ChallengesPage() {
       </div>
 
       <div className="mb-4 flex gap-2" role="tablist" aria-label={t("challengeInbox.tabs", "Challenge status")}>
-        {(["active", "completed", "expired", "archived"] as const).map((status) => <button key={status} role="tab" aria-selected={statusFilter === status} onClick={() => setStatusFilter(status)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === status ? "bg-primary-600 text-white" : "bg-muted text-foreground"}`}>{t(`challengeInbox.${status}`)}</button>)}
+        {(["active", "completed", "expired", "archived"] as const).map((status) => <button key={status} role="tab" aria-selected={statusFilter === status} onClick={() => setStatusFilter(status)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === status ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"}`}>{t(`challengeInbox.${status}`)}</button>)}
       </div>
       <div className="space-y-3">
         {filteredChallenges.length === 0 && (

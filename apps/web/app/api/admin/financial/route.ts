@@ -126,7 +126,7 @@ export const GET = withAdminAuth(async (_req: NextRequest, _ctx) => {
       ]);
 
     // BUG-45: audit read-path admin access to financial records
-    writeAuditLog({
+    await writeAuditLog({
       actorId: _ctx.auth.user.sub,
       action: "financial_read",
       metadata: { generatedAt: new Date().toISOString() },

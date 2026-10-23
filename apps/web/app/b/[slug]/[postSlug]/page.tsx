@@ -26,7 +26,7 @@ import { getTheme, resolveLayout } from "@/lib/blogs/themes";
 import { listBlogCategories } from "@/lib/blogs/repo";
 import { listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
 import { BlogPostLayout } from "@/components/blogs/layouts/BlogPostLayout";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { Icon } from "@/components/ui/Icon";
 import { DEFAULT_OG_IMAGE } from "@/lib/seo/metadata";
 
@@ -90,7 +90,7 @@ export default async function PublicBlogPostPage({
 
   let contactViewer: { username: string } | null = null;
   if (isContactPage && viewer) {
-    const { rows } = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1 LIMIT 1`, [viewer.userId]);
+    const { rows } = await executeSql<{ username: string }>(`SELECT username FROM users WHERE id = $1 LIMIT 1`, [viewer.userId]);
     contactViewer = rows[0] ? { username: rows[0].username } : null;
   }
 

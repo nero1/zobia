@@ -16,6 +16,7 @@ import { enqueueAdEvent } from "./adEventQueue";
 import { Icon } from "@/components/ui/Icon";
 
 interface ServedAd {
+  receipt: string;
   creativeId: string;
   placementKey: string;
   title: string | null;
@@ -57,7 +58,7 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
     if (phase !== "watching" || !ad) return;
     if (!impressedRef.current) {
       impressedRef.current = true;
-      enqueueAdEvent({ creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
+      enqueueAdEvent({ receipt:ad.receipt, creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
     }
     if (secondsLeft <= 0) {
       void claim();

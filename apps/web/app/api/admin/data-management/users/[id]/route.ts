@@ -78,7 +78,7 @@ export const PATCH = withAdminAuth<{ id: string }>(async (req: NextRequest, { pa
       .returning({ id: u.id, username: u.username, email: u.email, display_name: u.displayName });
     if (!updated) throw notFound("User not found");
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_edit_user",
       targetId: id,
@@ -114,7 +114,7 @@ export const DELETE = withAdminAuth<{ id: string }>(async (_req: NextRequest, { 
 
     await anonymizeUserAccount(id, { reason: "admin_delete" });
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_delete_user",
       targetId: id,

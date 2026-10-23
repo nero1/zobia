@@ -20,7 +20,7 @@ let connection: Connection | null = null;
 function getConnection(): Connection {
   if (connection) return connection;
   const rpcUrl = process.env.SOLANA_RPC_URL || DEFAULT_SOLANA_RPC;
-  connection = new Connection(rpcUrl, "confirmed");
+  connection = new Connection(rpcUrl, "finalized");
   return connection;
 }
 
@@ -69,7 +69,7 @@ export const solanaAdapter: ChainAdapter = {
     const conn = getConnection();
     const tx = await conn.getParsedTransaction(txHash, {
       maxSupportedTransactionVersion: 0,
-      commitment: "confirmed",
+      commitment: "finalized",
     });
     if (!tx) return notFound;
 
@@ -89,14 +89,7 @@ export const solanaAdapter: ChainAdapter = {
     // Best-effort sender: the fee payer (index 0) is the transaction's signer.
     const from = accountKeys[0] ?? "";
 
-    const slot = tx.slot;
-    let confirmations = SOLANA_MIN_CONFIRMATIONS;
-    try {
-      const currentSlot = await conn.getSlot("confirmed");
-      confirmations = Math.max(1, currentSlot - slot);
-    } catch {
-      // keep default
-    }
+    const confirmations = SOLANA_MIN_CONFIRMATIONS; // getParsedTransaction(finalized) established finality.
 
     return {
       hash: txHash,

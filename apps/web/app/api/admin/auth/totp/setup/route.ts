@@ -24,14 +24,17 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { getStaffRoles } from "@/lib/auth/roles";
+import { requirePinVerified } from "@/lib/auth/pinGuard";
+import {enforceRateLimit,RATE_LIMITS} from "@/lib/security/rateLimit";
+import { eq,and,isNull,sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { encryptField } from "@/lib/security/fieldEncryption";
 import { generateTotpSecret, verifyTotp } from "@/lib/auth/totp";
 import { redis } from "@/lib/redis";
-import { ACCESS_TOKEN_COOKIE, getSession } from "@/lib/auth/session";
+import { ACCESS_TOKEN_COOKIE, getSessionFresh } from "@/lib/auth/session";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 
 // ---------------------------------------------------------------------------
@@ -59,7 +62,10 @@ async function resolveAdminUserId(req: NextRequest, consume: boolean): Promise<s
     const userId = consume
       ? await redis.getdel(key)
       : await redis.get(key);
-    if (userId) return userId;
+    if (userId) {
+      if(!(await getStaffRoles(userId)).isAdmin)throw unauthorized("Admin access required");
+      return userId;
+    }
     throw unauthorized("Invalid or expired setup token");
   }
 
@@ -70,9 +76,10 @@ async function resolveAdminUserId(req: NextRequest, consume: boolean): Promise<s
   if (!accessToken) throw unauthorized("Authentication required");
 
   const payload = await verifyAccessToken(accessToken);
-  const session = await getSession(payload.sid!);
-  if (!session || !session.is_admin) throw unauthorized("Admin access required");
+  const session = await getSessionFresh(payload.sid!);
+  if (!session || session.uid!==payload.sub || !(await getStaffRoles(payload.sub)).isAdmin) throw unauthorized("Admin access required");
 
+  if(consume && !(await requirePinVerified(payload.sub,payload.sid!)))throw unauthorized("Verify your PIN before replacing your authenticator");
   return payload.sub as string;
 }
 
@@ -82,7 +89,8 @@ async function resolveAdminUserId(req: NextRequest, consume: boolean): Promise<s
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
-    const adminId = await resolveAdminUserId(req, false); // read-only — preserve token for POST
+    const adminId = await resolveAdminUserId(req, false);
+    await enforceRateLimit(adminId,"user",RATE_LIMITS.auth); // read-only — preserve token for POST
 
     const secret = generateTotpSecret();
 
@@ -108,7 +116,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
-    const adminId = await resolveAdminUserId(req, true); // consume token (one-time use)
+    const adminId = await resolveAdminUserId(req, false);
+    await enforceRateLimit(adminId,"user",RATE_LIMITS.auth); // consume token (one-time use)
     const body = await validateBody(req, setupSchema);
 
     const valid = await verifyTotp(body.secret, body.verificationCode);
@@ -123,15 +132,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw badRequest("TOTP code has already been used. Please wait for the next code.");
     }
 
+    await resolveAdminUserId(req,true);
     const orm = await getDb();
-    await orm
+    const updated=await orm
       .update(schema.users)
       .set({
         totpSecret: encryptField(body.secret),
         totpEnabled: true,
         updatedAt: new Date(),
       })
-      .where(eq(schema.users.id, adminId));
+      .where(and(eq(schema.users.id,adminId),eq(schema.users.isAdmin,true),eq(schema.users.isBanned,false),isNull(schema.users.deletedAt),
+        sql`NOT(${schema.users.isSuspended} AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
+        req.cookies.get("admin_setup_token")?eq(schema.users.totpEnabled,false):sql`true`)).returning({id:schema.users.id});
+    if(!updated.length)throw unauthorized("Setup expired or an authenticator is already configured");
 
     return NextResponse.json({
       success: true,

@@ -162,7 +162,7 @@ async function chargeCredits(userId: string, submissionId: string, costCredits: 
 async function refundCredits(userId: string, submissionId: string, costCredits: number): Promise<void> {
   if (costCredits <= 0) return;
   await creditCoins(userId, costCredits, "refund", submissionId, "KYC submission cancelled/rejected — fee refunded").catch((err) => {
-    logger.error({ err: err instanceof Error ? err.message : String(err), submissionId }, "[kyc] Credit refund failed");
+    logger.error({ err: err instanceof Error ? err.name : "Identity processing error", submissionId }, "[kyc] Credit refund failed");
   });
 }
 
@@ -175,7 +175,8 @@ async function attachDocuments(tx: DbOrTx, submissionId: string, userId: string,
       and(
         inArray(schema.kycDocuments.id, documentIds),
         eq(schema.kycDocuments.userId, userId),
-        sql`${schema.kycDocuments.submissionId} IS NULL`
+        sql`${schema.kycDocuments.submissionId} IS NULL`,
+        eq(schema.kycDocuments.uploadState,"ready")
       )
     );
 }
@@ -282,7 +283,7 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
       lastName: input.lastName,
     });
   } catch (err) {
-    logger.error({ err: err instanceof Error ? err.message : String(err), submissionId }, "[kyc] Paystack BVN validation request failed");
+    logger.error({ err: err instanceof Error ? err.name : "Identity processing error", submissionId }, "[kyc] Paystack BVN validation request failed");
     await orm
       .update(schema.kycSubmissions)
       .set({ status: "manual_review", paystackVerificationStatus: "failed", aiNotes: "Paystack BVN request failed — routed to manual review.", updatedAt: sql`NOW()` })
@@ -309,7 +310,7 @@ export async function handleBvnIdentificationResult(params: {
     .limit(1);
   const submission = rows[0];
   if (!submission) {
-    logger.warn({ customerCode: params.paystackCustomerCode }, "[kyc] BVN webhook for unknown/already-resolved submission");
+    logger.warn({ eventType:"unmatched_bvn_result" }, "[kyc] BVN webhook for unknown/already-resolved submission");
     return;
   }
 
@@ -385,7 +386,7 @@ export async function submitTier1International(userId: string, input: SubmitTier
   if (initialStatus === "ai_review") {
     // Fire-and-forget — the submitter already got the "under review" notice above.
     runTier1AiReview(submissionId).catch((err) =>
-      logger.error({ err: err instanceof Error ? err.message : String(err), submissionId }, "[kyc] AI review failed")
+      logger.error({ err: err instanceof Error ? err.name : "Identity processing error", submissionId }, "[kyc] AI review failed")
     );
   } else {
     await alertAdmins("kyc_submission", `New Tier 1 KYC submission awaiting manual review`, { submissionId, userId });
@@ -488,9 +489,7 @@ async function finalizeAiReview(
     .set({ aiNameMatchScore: String(nameMatchScore), aiDocumentConfidence: String(documentConfidence), aiProvider: "deepseek/gemini", aiNotes: notes, updatedAt: sql`NOW()` })
     .where(eq(schema.kycSubmissions.id, submissionId));
 
-  if (combinedScore >= manifest.kyc.aiAutoApproveThreshold) {
-    await approveSubmission(submissionId, null);
-  } else if (combinedScore < manifest.kyc.aiEscalateBelowThreshold) {
+  if (combinedScore < manifest.kyc.aiEscalateBelowThreshold) {
     await orm
       .update(schema.kycSubmissions)
       .set({ status: "manual_review", aiEscalated: true, updatedAt: sql`NOW()` })

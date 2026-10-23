@@ -28,7 +28,7 @@
 
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { cryptoRpcBreaker } from "@/lib/payments/circuit";
@@ -165,6 +165,9 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
       expectedTokenAmount: schema.payments.expectedTokenAmount,
       currency: schema.payments.currency,
       amountKobo: schema.payments.amountKobo,
+      receivingAddress: schema.payments.walletAddress,
+      senderAddress: schema.payments.senderAddress,
+      createdAt: schema.payments.createdAt,
     })
     .from(schema.payments)
     .where(
@@ -192,7 +195,8 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
   const chain = payment.chain as "bsc" | "solana";
   const adapter = getChainAdapter(chain);
   const token = getToken(payment.tokenSymbol as CryptoCurrency);
-  const receivingAddress = receivingAddressFor(chain);
+  const receivingAddress = payment.receivingAddress;
+  if (!receivingAddress || !payment.senderAddress || !payment.createdAt) return { success: false, pending: false, providerReference, amountSmallestUnit: Number(payment.amountKobo), currency: payment.currency, raw: { reason: "payment_proof_missing" } };
 
   const transfer = await cryptoRpcBreaker.execute(() =>
     adapter.getTransfer(payment.txHash as string, receivingAddress, token.contractAddress)
@@ -218,6 +222,11 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
     };
   }
 
+  const sameAddress = (a: string, b: string) => chain === "bsc" ? a.toLowerCase() === b.toLowerCase() : a === b;
+  const created = new Date(payment.createdAt).getTime();
+  if (!sameAddress(transfer.to, receivingAddress) || !sameAddress(transfer.from, payment.senderAddress) || !transfer.blockTime || transfer.blockTime * 1000 < created - 60_000 || transfer.blockTime * 1000 > created + 48 * 3600_000) {
+    return { success: false, pending: false, providerReference, amountSmallestUnit: Number(payment.amountKobo), currency: payment.currency, raw: { reason: "payment_proof_mismatch" } };
+  }
   const expected = BigInt(payment.expectedTokenAmount);
   if (transfer.valueBaseUnits < expected) {
     logger.warn(
@@ -302,6 +311,7 @@ export async function createPendingCryptoPayment(params: {
       provider: "crypto",
       status: "pending",
       idempotencyKey,
+      providerReference:idempotencyKey,
       referenceId: params.referenceId ?? null,
       metadata: params.metadata ?? {},
       chain: computed.chain,
@@ -342,8 +352,9 @@ export async function submitTransactionHash(params: {
   senderAddress: string;
 }): Promise<void> {
   const orm = await getDb();
-  const rows = await orm
-    .select({ id: schema.payments.id, status: schema.payments.status })
+  await orm.transaction(async tx => {
+  const rows = await tx
+    .select({ id: schema.payments.id, status: schema.payments.status, chain:schema.payments.chain, txHash:schema.payments.txHash, sender:schema.payments.senderAddress })
     .from(schema.payments)
     .where(
       and(
@@ -352,18 +363,26 @@ export async function submitTransactionHash(params: {
         eq(schema.payments.provider, "crypto")
       )
     )
-    .limit(1);
+    .for("update").limit(1);
   const payment = rows[0];
   if (!payment) throw new Error("[crypto] Payment not found for this reference");
   if (payment.status !== "pending") throw new Error(`[crypto] Payment is already ${payment.status}`);
 
-  await orm
+  const normalized = /^0x/i.test(params.txHash) ? params.txHash.toLowerCase() : params.txHash;
+  if (payment.txHash && (payment.txHash !== normalized || payment.sender !== params.senderAddress)) throw new Error("Payment already has another transaction proof");
+  const claim = await tx.execute(sql`INSERT INTO crypto_transfer_claims(chain,tx_hash,payment_id) VALUES (${payment.chain},${normalized},${payment.id}) ON CONFLICT DO NOTHING RETURNING payment_id`);
+  if (!claim.rowCount) {
+    const existing=await tx.execute<{payment_id:string}>(sql`SELECT payment_id FROM crypto_transfer_claims WHERE chain=${payment.chain} AND tx_hash=${normalized}`);
+    if(existing.rows[0]?.payment_id !== payment.id) throw new Error("Transaction has already been claimed");
+  }
+  await tx
     .update(schema.payments)
     .set({
-      txHash: params.txHash,
-      providerTransactionId: params.txHash,
-      walletAddress: params.senderAddress,
+      txHash: /^0x/i.test(params.txHash) ? params.txHash.toLowerCase() : params.txHash,
+      providerTransactionId: /^0x/i.test(params.txHash) ? params.txHash.toLowerCase() : params.txHash,
+      senderAddress: params.senderAddress,
       updatedAt: new Date(),
     })
     .where(and(eq(schema.payments.id, payment.id), isNull(schema.payments.txHash)));
+  });
 }

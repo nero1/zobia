@@ -8,6 +8,7 @@
  * @module lib/help/service
  */
 
+import sanitizeHtml from "sanitize-html";
 import { renderHelpText } from "./variables";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
@@ -222,7 +223,7 @@ export async function searchDocs(query: string, limit = 20): Promise<SearchResul
     ORDER BY ts_rank(d.search_vector, plainto_tsquery('english', ${q})) DESC
     LIMIT ${capped}
   `);
-  return Promise.all(rows.map(async (row) => ({ ...row, snippet: await renderHelpText(row.snippet) })));
+  return Promise.all(rows.map(async (row) => ({ ...row, snippet: sanitizeHtml(await renderHelpText(row.snippet), { allowedTags: ["b"], allowedAttributes: {} }) })));
 }
 
 // ---------------------------------------------------------------------------

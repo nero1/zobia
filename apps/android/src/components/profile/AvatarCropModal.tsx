@@ -10,6 +10,7 @@
  * precedent — no native camera/gallery plugin is wired in for uploads here).
  */
 
+import {AccessibleDialog} from "@zobia/shared/ui/Dialog";
 import { useState, useCallback, useEffect } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
 import { useTranslation } from 'react-i18next';
@@ -132,7 +133,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
   }
 
   return (
-    <div
+    <AccessibleDialog onClose={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
@@ -141,7 +142,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-neutral-800 p-4 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl bg-card p-4 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('profile.avatar.modalTitle')}</h2>
           <button onClick={onClose} aria-label={t('action.close')} className="rounded-full p-1 text-neutral-500 dark:text-neutral-400">
@@ -230,6 +231,6 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
           </button>
         </div>
       </div>
-    </div>
+    </AccessibleDialog>
   );
 }

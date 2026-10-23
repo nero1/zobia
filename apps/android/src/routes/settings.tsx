@@ -9,6 +9,7 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App } from '@capacitor/app';
+import { Browser } from '@capacitor/browser';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { restorePurchases } from '@/lib/payments/googlePlay';
@@ -556,8 +557,7 @@ function DataAndAccountSection() {
   const qc = useQueryClient();
 
   const [exporting, setExporting] = useState(false);
-  const [exportedJson, setExportedJson] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle');
+  const [exportError, setExportError] = useState(false);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -565,32 +565,15 @@ function DataAndAccountSection() {
 
   async function handleExport() {
     setExporting(true);
-    setExportedJson(null);
+    setExportError(false);
     try {
-      // The response embeds the export as a `data:application/json;base64,...`
-      // URI in the JSON body itself (see app/api/users/me/export/route.ts) —
-      // decoded and shown inline rather than opened via Browser.open(), since
-      // Chrome Custom Tabs (what Browser.open() uses) refuse to navigate to
-      // data: URIs. Long-press → Share/Copy on the text below works natively,
-      // no extra native dependency needed.
       const { data } = await apiClient.post<{ downloadUrl: string }>('/users/me/export');
-      const base64 = data.downloadUrl.split(',')[1] ?? '';
-      const decoded = decodeURIComponent(escape(atob(base64)));
-      setExportedJson(decoded);
+      await Browser.open({url:data.downloadUrl});
     } catch {
-      // non-fatal — user can retry
+      setExportError(true);
     } finally {
       setExporting(false);
     }
-  }
-
-  async function handleCopy() {
-    if (!exportedJson) return;
-    try {
-      await navigator.clipboard.writeText(exportedJson);
-      setCopyState('copied');
-      setTimeout(() => setCopyState('idle'), 2000);
-    } catch { /* clipboard unavailable — text is still selectable */ }
   }
 
   async function handleDeleteAccount() {
@@ -621,14 +604,7 @@ function DataAndAccountSection() {
         >
           {exporting ? t('settings.dataAccount.exporting', 'Preparing…') : t('settings.dataAccount.export', 'Request my data')}
         </button>
-        {exportedJson && (
-          <div className="mt-2">
-            <pre className="max-h-40 overflow-auto rounded-lg bg-neutral-100 dark:bg-neutral-800 p-2 text-[10px] text-neutral-700 dark:text-neutral-300 select-all">{exportedJson}</pre>
-            <button onClick={() => void handleCopy()} className="mt-1 text-xs font-semibold text-primary-600 dark:text-primary-300">
-              {copyState === 'copied' ? t('settings.dataAccount.copied', 'Copied!') : t('settings.dataAccount.copy', 'Copy to clipboard')}
-            </button>
-          </div>
-        )}
+        {exportError && <p role="alert" className="mt-2 text-xs text-destructive">{t('settings.dataAccount.exportFailed','Unable to prepare your download. Please try again.')}</p>}
       </div>
 
       <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4">

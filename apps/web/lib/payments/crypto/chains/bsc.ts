@@ -15,6 +15,7 @@ import {
   isAddress,
   getAddress,
   parseAbiItem,
+  toEventSelector,
   type PublicClient,
 } from "viem";
 import { bsc } from "viem/chains";
@@ -107,7 +108,7 @@ export const bscAdapter: ChainAdapter = {
       const log = receipt.logs.find((l) => {
         if (getAddress(l.address) !== target) return false;
         // topics[0] is the event signature hash; topics[2] is the indexed `to`.
-        if (!l.topics[2]) return false;
+        if (l.topics[0] !== toEventSelector(ERC20_TRANSFER_EVENT) || l.topics.length !== 3 || !l.topics[2] || !/^0x[0-9a-f]{64}$/i.test(l.data)) return false;
         const toAddr = `0x${l.topics[2].slice(-40)}`;
         return getAddress(toAddr) === wantTo;
       });
@@ -131,6 +132,7 @@ export const bscAdapter: ChainAdapter = {
 
     // Native BNB transfer: read the tx itself for value/to.
     const tx = await c.getTransaction({ hash: txHash as `0x${string}` });
+    if (!tx.to || getAddress(tx.to) !== getAddress(expectedTo)) return notFound;
     return {
       hash: txHash,
       from: tx.from,

@@ -578,15 +578,7 @@ export async function getCommissionStats(
     .where(eq(schema.referralCommissions.referrerId, referrerId))
     .groupBy(schema.referralCommissions.tier);
 
-  // NOTE: `referral_commissions.tier` is `integer` (schema.ts), not text, and
-  // the raw-SQL version's `SELECT tier` never cast it to text either — so
-  // `r.tier` was always a JS number there too, meaning the original
-  // `r.tier === '1'` string comparison always evaluated false (a
-  // pre-existing bug: this function always returned all-zero commission
-  // stats). Drizzle's stricter typing surfaced this at compile time; fixed
-  // to compare against the actual numeric tier values rather than silently
-  // reproducing the dead comparison — flagging this as an intentional
-  // behavior change (a bug fix) in the migration report.
+  // The baseline and typed model both enforce an integer tier.
   const t1 = rows.find((r) => r.tier === 1);
   const t2 = rows.find((r) => r.tier === 2);
 

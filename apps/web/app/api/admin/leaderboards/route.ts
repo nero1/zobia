@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { withAuth } from "@/lib/api/middleware";
+import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
 interface LeaderboardRow {
@@ -25,7 +25,7 @@ interface LeaderboardRow {
   is_suspended: boolean;
 }
 
-export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
+export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const orm = await getDb();
 

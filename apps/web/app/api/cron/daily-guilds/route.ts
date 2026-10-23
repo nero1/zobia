@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -16,7 +17,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 
 const GUILD_TIERS = [
   { name: 'bronze_1',   minMembers: 5,  promotionXP: 1_000,   next: 'bronze_2'   as string | null },
@@ -60,8 +61,8 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_guilds_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_guilds_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
@@ -70,6 +71,9 @@ export const GET = async (req: NextRequest) => {
 
   // 1 & 2. Guild tier demotion + promotion
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("guildTiers",async()=>{
+
     const { rows: guilds } = await orm.execute<{
       id: string; captain_id: string; tier: string;
       member_count: number; below_min_since: string | null;
@@ -163,12 +167,17 @@ export const GET = async (req: NextRequest) => {
 
     results.guildTierDemotion = { demoted, flagged };
     results.guildTierPromotions = promoted;
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`guildTiers: ${String(err)}`);
   }
 
   // 3. "The Patron" badge
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("patronBadge",async()=>{
+
     const { rows: patronCandidates } = await orm.execute<{ user_id: string; room_count: string }>(sql`
       WITH room_totals AS (
         SELECT room_id, sender_id, SUM(coin_cost) AS total_coins
@@ -194,12 +203,17 @@ export const GET = async (req: NextRequest) => {
       `).catch(() => {});
     }
     results.patronBadge = { awarded: patronCandidates.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`patronBadge: ${String(err)}`);
   }
 
   // 4. Guild contribution alerts — fully set-based (replaces N+1 loop)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("guildContributionAlerts",async()=>{
+
     // Single CTE: compute guild averages, find below-threshold members,
     // batch-upsert alerts, and return data needed for notifications.
     const { rows: alertRows } = await orm.execute<{
@@ -286,12 +300,17 @@ export const GET = async (req: NextRequest) => {
     `).catch(() => {});
 
     results.guildContributionAlerts = { alertsSent: alertRows.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`guildContributionAlerts: ${String(err)}`);
   }
 
   // 5. Weekly guild quest reset (Mondays only) — batch INSERT
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("guildQuestReset",async()=>{
+
     if (new Date().getUTCDay() === 1) {
       const today = new Date();
       const weekStart = today.toISOString().slice(0, 10);
@@ -369,10 +388,13 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.guildQuestReset = { ran: false, reason: "Not Monday" };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`guildQuestReset: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

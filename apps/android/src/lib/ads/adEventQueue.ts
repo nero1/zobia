@@ -25,6 +25,7 @@ const FLUSH_DEBOUNCE_MS = 2500;
 const FLUSH_INTERVAL_MS = 20_000;
 
 export interface QueuedAdEvent {
+  receipt: string;
   creativeId: string;
   placementKey: string;
   type: 'impression' | 'click';
@@ -86,12 +87,15 @@ export async function flushAdEventQueue(): Promise<void> {
     const queue = await readQueue();
     if (queue.length === 0) return;
 
-    const batch = queue.slice(0, MAX_BATCH);
+    const batch = queue.filter(e=>typeof e.receipt==='string').slice(0, MAX_BATCH);
     const rest = queue.slice(MAX_BATCH);
 
     try {
-      await apiClient.post('/ads/events', { events: batch });
-      await writeQueue(rest);
+      const response=await apiClient.post<{outcomes:Array<{clientEventId:string;status:string}>}>('/ads/events', { events: batch });
+      const outcomes=response.data?.outcomes;
+      if(!Array.isArray(outcomes)) return;
+      const acknowledged=new Set(outcomes.filter(o=>['committed','duplicate','rejected'].includes(o.status)).map(o=>o.clientEventId));
+      await writeQueue(queue.filter(e=>typeof e.receipt==='string' && !acknowledged.has(e.clientEventId)));
       if (rest.length > 0) {
         flushTimer = setTimeout(() => void flushAdEventQueue(), FLUSH_DEBOUNCE_MS);
       }

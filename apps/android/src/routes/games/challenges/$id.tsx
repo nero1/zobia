@@ -55,7 +55,7 @@ function ChallengeDetailPage() {
   if (status === 'pending') {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
   }
@@ -63,16 +63,16 @@ function ChallengeDetailPage() {
   if (status === 'error' || !detail) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
+        <p className="text-sm text-muted-foreground">{t('error.generic')}</p>
       </div>
     );
   }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
-      <Link to="/games/challenges" className="text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.challenges', 'Challenges')}</Link>
-      <h1 className="mt-2 text-lg font-bold text-neutral-900 dark:text-neutral-100">{detail.gameName}</h1>
-      <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+      <Link to="/games/challenges" className="text-sm text-primary inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.challenges', 'Challenges')}</Link>
+      <h1 className="mt-2 text-lg font-bold text-foreground">{detail.gameName}</h1>
+      <p className="mt-0.5 text-sm text-muted-foreground">
         @{detail.challengerUsername} vs @{detail.opponentUsername}
       </p>
       {detail.wagerCredits > 0 && (
@@ -83,9 +83,9 @@ function ChallengeDetailPage() {
 
       <div className="my-4 flex flex-col gap-2">
         {detail.rounds_detail.map((r) => (
-          <div key={r.round_no} className="flex items-center justify-between rounded-xl bg-white dark:bg-neutral-800 px-4 py-3 shadow-card">
-            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('games.round', 'Round')} {r.round_no}</span>
-            <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
+          <div key={r.round_no} className="flex items-center justify-between rounded-xl bg-card px-4 py-3 shadow-card">
+            <span className="text-sm font-medium text-foreground">{t('games.round', 'Round')} {r.round_no}</span>
+            <span className="text-sm font-bold text-foreground">
               {r.challenger_score ?? '—'} : {r.opponent_score ?? '—'}
             </span>
           </div>
@@ -97,7 +97,7 @@ function ChallengeDetailPage() {
           to="/games/$slug/play"
           params={{ slug: detail.gameSlug }}
           search={{ c: detail.id }}
-          className="block w-full rounded-lg bg-primary-600 py-3 text-center text-sm font-semibold text-white"
+          className="block w-full rounded-lg bg-primary py-3 text-center text-sm font-semibold text-primary-foreground"
         >
           {t('games.playRound', 'Play your round')}
         </Link>

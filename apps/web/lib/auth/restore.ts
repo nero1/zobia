@@ -10,6 +10,8 @@ import { eq, and, isNotNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { signAccessToken } from "@/lib/auth/jwt";
+import { randomBytes } from "node:crypto";
 import { createSession } from "@/lib/auth/session";
 import { redis } from "@/lib/redis";
 import * as jose from "jose";
@@ -35,7 +37,10 @@ function getRestoreSecret(): Uint8Array {
 }
 
 export async function signRestoreToken(userId: string): Promise<string> {
-  return new jose.SignJWT({ sub: userId, purpose: "account_restore" })
+  const db = await getDb();
+  const [deleted] = await db.select({ at: schema.users.deletedAt }).from(schema.users).where(eq(schema.users.id, userId));
+  if (!deleted?.at) throw new Error("Account is not deleted");
+  return new jose.SignJWT({ sub: userId, purpose: "account_restore", deletion: deleted.at.toISOString() })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setJti(crypto.randomUUID())
@@ -43,15 +48,15 @@ export async function signRestoreToken(userId: string): Promise<string> {
     .sign(getRestoreSecret());
 }
 
-export async function verifyRestoreToken(token: string): Promise<{ userId: string; jti: string } | null> {
+export async function verifyRestoreToken(token: string): Promise<{ userId: string; jti: string; deletion: string } | null> {
   try {
     const { payload } = await jose.jwtVerify(token, getRestoreSecret(), {
       algorithms: ["HS256"],
     });
-    if (payload.purpose !== "account_restore" || typeof payload.sub !== "string" || typeof payload.jti !== "string") {
+    if (payload.purpose !== "account_restore" || typeof payload.sub !== "string" || typeof payload.jti !== "string" || typeof payload.deletion !== "string") {
       return null;
     }
-    return { userId: payload.sub, jti: payload.jti };
+    return { userId: payload.sub, jti: payload.jti, deletion: payload.deletion as string };
   } catch {
     return null;
   }
@@ -68,18 +73,21 @@ export async function verifyRestoreToken(token: string): Promise<{ userId: strin
  * @param email - The registered email of the deleted account
  * @returns true if the email was found and restore email sent; false otherwise
  */
-export async function initiateAccountRestore(email: string): Promise<boolean> {
-  const db = await getDb();
-  const rows = await db
-    .select({ id: schema.users.id, email: schema.users.email, displayName: schema.users.displayName })
-    .from(schema.users)
-    .where(and(sql`LOWER(${schema.users.email}) = LOWER(${email})`, isNotNull(schema.users.deletedAt)))
-    .limit(1);
+export async function initiateAccountRestore(email:string):Promise<boolean>{
+  const db=await getDb();
+  const result=await db.execute<{id:string}>(sql`SELECT id FROM users WHERE LOWER(email)=LOWER(${email}) AND deleted_at>NOW()-INTERVAL '30 days' AND NOT is_banned AND NOT(is_suspended AND (suspended_until IS NULL OR suspended_until>NOW())) LIMIT 1`);
+  const user=result.rows[0];if(!user)return false;
+  const {queueRestoreEmail,processRestoreEmail}=await import('@/lib/notifications/restoreQueue');
+  await queueRestoreEmail(user.id);
+  await processRestoreEmail(user.id).catch(error=>logger.error({errorType:error instanceof Error?error.name:'Error'},'[restore] Delivery queued for retry'));
+  return true;
+}
 
-  const row = rows[0];
-  if (!row) return false;
-  const user = { id: row.id, email: row.email ?? "", display_name: row.displayName };
-
+/** Only the durable delivery worker calls this; links are generated at send time. */
+export async function deliverAccountRestoreEmail(userId:string):Promise<boolean>{
+  const db=await getDb();
+  const result=await db.execute<{id:string;email:string;display_name:string|null}>(sql`SELECT id,email,display_name FROM users WHERE id=${userId} AND email IS NOT NULL AND deleted_at>NOW()-INTERVAL '30 days' AND NOT is_banned AND NOT(is_suspended AND (suspended_until IS NULL OR suspended_until>NOW())) LIMIT 1`);
+  const user=result.rows[0];if(!user)return false;
   const rawToken = await signRestoreToken(user.id);
   // BUG-AUTH-01 FIX: use a URL fragment (#token=) so the token is never sent in
   // server request logs or Referer headers when the user clicks the link.
@@ -102,7 +110,7 @@ export async function initiateAccountRestore(email: string): Promise<boolean> {
     );
   } catch (err) {
     logger.error({ err, userId: user.id }, "[restore] Failed to send restore email");
-    return false;
+    throw err;
   }
 
   return true;
@@ -117,6 +125,10 @@ export interface RestoreResult {
   accessToken?: string;
   refreshToken?: string;
   error?: string;
+  preAuthCode?: string;
+  requiresAdminLogin?:boolean;
+  expiresIn?: number;
+  refreshTtl?: number;
 }
 
 /**
@@ -132,39 +144,26 @@ export async function completeAccountRestore(
     return { success: false, error: "Invalid or expired restore token" };
   }
 
-  const { userId, jti } = payload;
-
-  // BUG-45 FIX: single-use token enforcement via atomic Redis SET NX.
-  // SET NX is atomic: if the key already exists it returns null (already consumed);
-  // if it didn't exist it sets it and returns "OK" (first use). This eliminates
-  // the TOCTOU race between a separate EXISTS check and a subsequent SET.
-  const usedKey = `restore:used:${jti}`;
-  const marked = await redis.set(usedKey, "1", "EX", RESTORE_TOKEN_TTL_SECONDS, "NX").catch(() => null);
-  if (marked === null) {
-    return { success: false, error: "Restore link has already been used. Please request a new one." };
-  }
-
+  const { userId, jti, deletion } = payload;
   const db = await getDb();
-  const rows = await db
-    .update(schema.users)
-    .set({ deletedAt: null, updatedAt: sql`NOW()` })
-    .where(and(eq(schema.users.id, userId), isNotNull(schema.users.deletedAt)))
-    .returning({
-      id: schema.users.id,
-      email: schema.users.email,
-      username: schema.users.username,
-      isAdmin: schema.users.isAdmin,
-      isModerator: schema.users.isModerator,
-      isCreator: schema.users.isCreator,
-      displayName: schema.users.displayName,
-      deletedAt: schema.users.deletedAt,
-    });
-
-  if (!rows[0]) {
-    return { success: false, error: "Account not found or is already active" };
+  const row = await db.transaction(async tx => {
+    const [user] = await tx.select().from(schema.users).where(eq(schema.users.id, userId)).for("update");
+    if (!user?.deletedAt || user.deletedAt.toISOString() !== deletion || user.isBanned || (user.isSuspended && (!user.suspendedUntil || user.suspendedUntil > new Date())) || user.deletedAt.getTime() < Date.now() - 30 * 86400_000) return null;
+    const used = await tx.execute(sql`INSERT INTO account_restore_uses(jti,user_id) VALUES (${jti},${userId}) ON CONFLICT DO NOTHING RETURNING jti`);
+    if (!used.rowCount) return null;
+    await tx.update(schema.users).set({ deletedAt: null, updatedAt: new Date() }).where(eq(schema.users.id,userId));
+    await tx.insert(schema.adminAuditLog).values({ adminId:userId, action:"account_restore", targetType:"user", targetId:userId, metadata:{method:"self_restore_token"} });
+    return user;
+  });
+  if (!row) return { success:false, error:"Restore token is unavailable or account cannot be restored" };
+  if(row.isAdmin)return {success:true,requiresAdminLogin:true};
+  if (row.totpEnabled) {
+    const pre = await signAccessToken({sub:row.id,username:row.username,is_admin:row.isAdmin,sid:"pre_auth",type:"pre_auth"},300);
+    const code = randomBytes(32).toString("hex");
+    await redis.pipeline().setex(`pre_auth:${row.id}`,300,pre).setex(`web_pre_auth:${code}`,300,pre).exec();
+    return { success:true, preAuthCode:code };
   }
 
-  const row = rows[0];
   const user = {
     id: row.id,
     email: row.email,
@@ -176,23 +175,9 @@ export async function completeAccountRestore(
     deleted_at: row.deletedAt,
   };
 
-  // Audit log
-  await db
-    .insert(schema.adminAuditLog)
-    .values({
-      adminId: userId,
-      action: "account_restore",
-      targetType: "user",
-      targetId: userId,
-      metadata: { method: "self_restore_token" },
-    })
-    .catch(() => {});
-
-  // (Token already marked consumed atomically via SET NX above)
-
   // Issue new session tokens
   try {
-    const { accessToken, refreshToken } = await createSession(
+    const { accessToken, refreshToken, expiresIn, refreshTtl } = await createSession(
       {
         id: user.id,
         email: user.email ?? "",
@@ -203,7 +188,7 @@ export async function completeAccountRestore(
       },
       options
     );
-    return { success: true, accessToken, refreshToken };
+    return { success: true, accessToken, refreshToken, expiresIn, refreshTtl };
   } catch (err) {
     logger.error({ err, userId }, "[restore] Session creation failed after restore");
     return { success: false, error: "Account restored but session creation failed — please log in manually" };

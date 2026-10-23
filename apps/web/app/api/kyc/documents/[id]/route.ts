@@ -12,12 +12,13 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq,sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { isAdminOrModerator } from "@/lib/auth/roles";
+import { queueObjectDeletion } from "@/lib/storage/deletionQueue";
 import { storage } from "@/lib/storage";
 
 export const GET = withAuth<{ id: string }>(
@@ -53,16 +54,15 @@ export const DELETE = withAuth<{ id: string }>(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
       const orm = await getDb();
-      const [doc] = await orm
-        .select({ user_id: schema.kycDocuments.userId, storage_key: schema.kycDocuments.storageKey, submission_id: schema.kycDocuments.submissionId })
-        .from(schema.kycDocuments)
-        .where(eq(schema.kycDocuments.id, params.id))
-        .limit(1);
-      if (!doc || doc.user_id !== userId) throw notFound("Document not found");
-      if (doc.submission_id !== null) throw badRequest("This document is already part of a submission and cannot be deleted.", "DOC_ATTACHED");
-
-      await orm.delete(schema.kycDocuments).where(eq(schema.kycDocuments.id, params.id));
-      await storage.delete(doc.storage_key, { ignoreNotFound: true }).catch(() => {});
+      await orm.transaction(async tx=>{
+        await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
+        const docs=await tx.select().from(schema.kycDocuments).where(eq(schema.kycDocuments.id,params.id)).for('update');
+        const doc=docs[0];
+        if(!doc || doc.userId!==userId)throw notFound("Document not found");
+        if(doc.submissionId!==null)throw badRequest("This document is already part of a submission and cannot be deleted.","DOC_ATTACHED");
+        await queueObjectDeletion(tx,doc.storageKey);
+        await tx.delete(schema.kycDocuments).where(eq(schema.kycDocuments.id,params.id));
+      });
 
       return NextResponse.json({ success: true, data: { deleted: true }, error: null });
     } catch (err) {

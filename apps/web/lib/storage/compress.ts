@@ -127,12 +127,7 @@ export async function compressImage(
       logger.error({ err: err }, '[compress] Sharp error:');
     }
 
-    return {
-      buffer: inputBuffer,
-      mimeType: 'image/jpeg',
-      originalSizeBytes,
-      compressedSizeBytes: originalSizeBytes,
-    };
+    throw new Error("Invalid or unsupported image", { cause: err });
   }
 }
 

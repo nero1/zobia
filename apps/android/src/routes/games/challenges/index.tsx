@@ -153,13 +153,13 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
   }
 
   return (
-    <div className="mb-4 flex flex-col gap-3 rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
-      <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{t('games.newChallenge', 'New challenge')}</h2>
+    <div className="mb-4 flex flex-col gap-3 rounded-xl bg-card p-4 shadow-card">
+      <h2 className="text-sm font-bold text-foreground">{t('games.newChallenge', 'New challenge')}</h2>
 
       <select
         value={gameSlug}
         onChange={(e) => setGameSlug(e.target.value)}
-        className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
+        className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
       >
         {games.map((g) => <option key={g.slug} value={g.slug}>{g.name}</option>)}
       </select>
@@ -170,7 +170,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
           onChange={(e) => setOpponentQuery(e.target.value)}
           placeholder={t('games.opponentUsername', 'Opponent username')}
           autoComplete="off"
-          className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
+          className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
         />
         {opponentSelected && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-success-600 dark:text-success-300">
@@ -179,7 +179,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
         )}
         {opponentSelected?.isFriend && opponentSelected.activityVisible && !opponentSelected.recentlyActive && <p role="status" className="mt-2 text-xs text-amber-600">{t('games.challenges.inactiveFriend','This friend has not been active recently and may not respond before the invitation expires.')}</p>}
         {!opponentSelected && opponentSuggestions.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+          <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-card">
             {opponentSuggestions.map((u) => (
               <button
                 key={u.id}
@@ -189,7 +189,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
               >
                 <span className="text-lg">{u.avatarEmoji}</span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-neutral-900 dark:text-neutral-100">{u.displayName}</span>
+                  <span className="block truncate font-medium text-foreground">{u.displayName}</span>
                   <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">@{u.username}{u.recentlyActive ? ` · ${t("games.challenges.recentBadge","Recent")}` : ""}</span>
                 </span>
               </button>
@@ -202,7 +202,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
         <select
           value={rounds}
           onChange={(e) => setRounds(Number(e.target.value) as 1 | 3)}
-          className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
+          className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
         >
           <option value={1}>{t('games.bestOf1', 'Best of 1')}</option>
           <option value={3}>{t('games.bestOf3', 'Best of 3')}</option>
@@ -214,7 +214,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
           value={wagerCredits}
           onChange={(e) => setWagerCredits(Math.max(0, Number(e.target.value) || 0))}
           placeholder={t('games.wager', 'wager')}
-          className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
+          className="flex-1 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
         />
       </div>
 
@@ -231,7 +231,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
         type="button"
         disabled={create.isPending}
         onClick={submit}
-        className="w-full rounded-lg bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+        className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
       >
         {t('games.sendChallenge', 'Send challenge')}
       </button>
@@ -266,16 +266,16 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
   const busy = act.isPending || remove.isPending || archive.isPending;
 
   return (
-    <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+    <div className="rounded-xl bg-card p-4 shadow-card">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold text-neutral-900 dark:text-neutral-100">{c.gameName}</p>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+          <p className="truncate text-sm font-bold text-foreground">{c.gameName}</p>
+          <p className="text-xs text-muted-foreground">
             {incoming ? `${t('games.from', 'from')} @${c.challengerUsername}` : `${t('games.to', 'to')} @${c.opponentUsername}`}
             {' · '}{c.rounds === 1 ? t('games.bestOf1', 'Best of 1') : t('games.bestOf3', 'Best of 3')}
           </p>
         </div>
-        <span className="flex-shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-[10px] font-semibold text-neutral-600 dark:text-neutral-400">
+        <span className="flex-shrink-0 rounded-full bg-muted px-2 py-1 text-[10px] font-semibold text-neutral-600 dark:text-neutral-400">
           {t(`games.status.${c.status}`, c.status)}
         </span>
       </div>
@@ -300,7 +300,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
               type="button"
               disabled={busy}
               onClick={() => act.mutate('decline')}
-              className="rounded-lg bg-neutral-200 dark:bg-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
+              className="rounded-lg bg-neutral-200 dark:bg-neutral-700 px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
             >
               {t('games.decline', 'Decline')}
             </button>
@@ -311,7 +311,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
             type="button"
             disabled={busy}
             onClick={() => act.mutate('cancel')}
-            className="rounded-lg bg-neutral-200 dark:bg-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
+            className="rounded-lg bg-neutral-200 dark:bg-neutral-700 px-3 py-1.5 text-xs font-semibold text-foreground disabled:opacity-50"
           >
             {t('games.cancel', 'Cancel')}
           </button>
@@ -320,7 +320,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
           <Link
             to="/games/challenges/$id"
             params={{ id: c.id }}
-            className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
           >
             {t('games.playRound', 'Play your round')}
           </Link>
@@ -345,7 +345,7 @@ function ChallengeCard({ c, me }: { c: GameChallengeSummary; me: string | null }
             type="button"
             disabled={busy}
             onClick={() => archive.mutate()}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400 disabled:opacity-50"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground disabled:opacity-50"
           >
 <Icon emoji="🗄" size={14} /> {t('games.challenges.archive', 'Archive')}
           </button>
@@ -390,8 +390,8 @@ function ChallengesPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('games.challenges', 'Challenges')}</h1>
-        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.title', 'Games')}</Link>
+        <h1 className="text-lg font-bold text-foreground">{t('games.challenges', 'Challenges')}</h1>
+        <Link to="/games" className="text-sm text-primary inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.title', 'Games')}</Link>
       </div>
 
       <NewChallengeForm games={games ?? []} onCreated={() => undefined} />
@@ -401,20 +401,20 @@ function ChallengesPage() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('games.challenges.search.placeholder', 'Search by game or player…')}
-        className="mb-3 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
+        className="mb-3 w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground"
       />
 
       <div className="mb-4 flex gap-2" role="tablist" aria-label={t('challengeInbox.tabs', 'Challenge status')}>
-        {(['active', 'completed', 'expired', 'archived'] as const).map((tab) => <button key={tab} role="tab" aria-selected={tab === statusFilter} onClick={() => setStatusFilter(tab)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === tab ? 'bg-primary-600 text-white' : 'bg-white dark:bg-neutral-900'}`}>{t(`challengeInbox.${tab}`)}</button>)}
+        {(['active', 'completed', 'expired', 'archived'] as const).map((tab) => <button key={tab} role="tab" aria-selected={tab === statusFilter} onClick={() => setStatusFilter(tab)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === tab ? 'bg-primary text-primary-foreground' : 'bg-card'}`}>{t(`challengeInbox.${tab}`)}</button>)}
       </div>
       {status === 'pending' && (
         <div className="space-y-3 animate-pulse">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl bg-white dark:bg-neutral-800" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl bg-card" />)}
         </div>
       )}
 
       {status === 'success' && filtered.length === 0 && (
-        <p className="py-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
+        <p className="py-6 text-center text-sm text-muted-foreground">
           {(challenges ?? []).length === 0 ? t('games.noChallenges', 'No challenges yet.') : t('games.challenges.noResults', 'No challenges match your search.')}
         </p>
       )}

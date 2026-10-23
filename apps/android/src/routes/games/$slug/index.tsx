@@ -76,6 +76,7 @@ function GameDetailPage() {
           </div>
         </div>
 
+        {game.scoreVerification!=='server' && <p role="note" className="rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">{t('games.verificationNotice','Client-reported scores are practice scores. Currency rewards and wagers require a trusted server-verified result.')}</p>}
         {game.description && (
           <p className="text-neutral-700 dark:text-neutral-300 text-sm leading-relaxed mb-4">{game.description}</p>
         )}

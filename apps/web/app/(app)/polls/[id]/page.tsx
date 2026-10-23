@@ -13,12 +13,12 @@
  */
 
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 
 export default async function PollRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { rows } = await db.query<{ slug: string }>(
+  const { rows } = await executeSql<{ slug: string }>(
     `SELECT slug FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [id]
   );

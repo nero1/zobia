@@ -931,14 +931,14 @@ import { useFloatingNotification } from "@/hooks/useFloatingNotification";
 
 function MyComponent() {
   const { fireXP, fireCredits, fireStars, fireReferral, fireDeckComplete } = useFloatingNotification();
-  
+
   // After a quest rewards the user:
   fireXP(500);
   fireCredits(100);
-  
+
   // After deck completion:
   fireDeckComplete(500, 100, "Credits");
-  
+
   // After referral joins (auto-fired via realtime):
   fireReferral();
 }
@@ -4419,3 +4419,14 @@ Subscription expiry snapshots candidates, then locks the account and rechecks th
 The migration directory now contains one final-state SQL baseline covering the former 0001–0039 files. Each of its 309 tables has its final columns and constraints; 809 resulting configuration/reference rows replace historical inserts/updates. Required stock extensions, final indexes, foreign keys, trigger functions, RLS and conditional platform grants are included. PostgreSQL does not need Supabase roles or `auth` functions. Client grants are allowlisted after revoking inherited access, while a present trusted service role receives explicit CRUD grants.
 
 The baseline targets an empty application schema and is atomic. The runner serializes installations, commits schema and migration history together, verifies checksums, and adopts a completed predecessor history only after catalog verification. Adoption synchronizes the baseline grant/revocation allowlist before recording history; it does not leave old inherited private-table grants in place. Manually applied SQL can be verified/registered with `--adopt-baseline`; incomplete schemas are rejected without rebuilding data or resetting settings. Optional demo data remains separate. See [database setup](../apps/web/db/README.md) for commands and reproducible comparisons.
+
+## Forensic hardening update — 2026-10-23
+
+- Fresh installations use the single final-state migration with **317 tables** and three complete-ledger history views. Explicit service grants and private-table revocations are conditional on role existence, so ordinary PostgreSQL does not require Supabase. Existing verified installations use the runner's atomic upgrade; never apply the fresh baseline over existing data.
+- Protected requests check live sessions and account standing. Restore tokens are single-use and transactional; two-factor users complete normal second-factor authentication, and staff return through the admin login gate. Telegram uses the signed widget callback.
+- Crypto purchases bind an immutable quote, payer ownership signature, recipient, asset, time window and globally unique finalized chain transfer. Webhooks persist verified events before acknowledgment; retry queues retain failures and expose exhausted depth.
+- Games default to **practice mode**. Browser-reported scores cannot authorize money, wagers or rewarded milestones. Financial games require a trusted backend using the server-only `GAME_RESULT_WEBHOOK_SECRET` and `/api/games/results`; never embed that secret in a game client.
+- Identity documents require a separate private storage bucket. Set `SUPABASE_PRIVATE_STORAGE_BUCKET` (default `zobia-private`), `R2_PRIVATE_BUCKET_NAME`, or `S3_PRIVATE_BUCKET_NAME` for the selected provider. Supabase storage uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Existing identity files must be moved out of public buckets, verified at their new location and removed from the old public location before rollout; changing bucket configuration does not migrate objects.
+- Personal exports are pull-driven NDJSON downloads with short-lived signed links and a final completion record. Exports omit credentials and internal security material; attachment references do not constitute an object-storage backup. Deleted accounts lose verification/discovery and private files through recoverable cleanup, then retained profile identifiers are anonymized after the restore window.
+- Feed delivery rechecks cached visibility, uses precise keyset cursors for chronological feeds and shared fill leases for expensive caches. Web/PWA/Capacitor features reuse semantic theme tokens and shared accessible dialogs. Private navigation and API content are excluded from service-worker runtime caches.
+- Database integration, restricted-role portability, unit and API security checks accompany the changes. Production provider credentials, a representative concurrency load and a complete production backup restore still require deployment-specific exercises. Cron frequency is unchanged.

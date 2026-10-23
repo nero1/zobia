@@ -8,13 +8,15 @@ export const dynamic = 'force-dynamic';
  * Never includes sensitive information (connection strings, stack traces).
  */
 
+import {enforceRateLimit,getClientIp} from "@/lib/security/rateLimit";
+import {handleApiError} from "@/lib/api/errors";
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { dbCircuit } from "@/lib/db/circuit";
 
-export async function GET(): Promise<NextResponse> {
+async function checkHealth(): Promise<NextResponse> {
   const checks: Record<string, "ok" | "error"> = {};
   const latencyMs: Record<string, number> = {};
   const errors: Record<string, string> = {};
@@ -57,7 +59,7 @@ export async function GET(): Promise<NextResponse> {
   }
 
   // 3. Critical env vars
-  const requiredEnvVars = ["JWT_SECRET", "DATABASE_URL", "REDIS_URL"];
+  const requiredEnvVars = ["JWT_SECRET", "DATABASE_URL"];
   const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
   if (missingEnvVars.length > 0) {
     checks.config = "error";
@@ -79,4 +81,19 @@ export async function GET(): Promise<NextResponse> {
     },
     { status: httpStatus }
   );
+}
+
+type Snapshot={payload:unknown;status:number;until:number};
+let snapshot:Snapshot|null=null,pending:Promise<Snapshot>|null=null;
+export async function GET(req:Request):Promise<NextResponse>{
+ try{
+  await enforceRateLimit(getClientIp(req),'ip',{name:'health:ready',limit:30,windowMs:60_000,globalLimit:300,bypassL1:true});
+  if(!snapshot || snapshot.until<=Date.now()){
+   if(!pending)pending=checkHealth().then(async response=>{
+    snapshot={payload:await response.json(),status:response.status,until:Date.now()+10_000};return snapshot;
+   }).finally(()=>{pending=null;});
+   await pending;
+  }
+  return NextResponse.json(snapshot!.payload,{status:snapshot!.status,headers:{'Cache-Control':'public, max-age=5, s-maxage=10'}});
+ }catch(error){return handleApiError(error);}
 }

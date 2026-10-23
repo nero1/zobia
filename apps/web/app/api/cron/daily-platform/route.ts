@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -30,7 +31,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { endSeason } from "@/lib/seasons/seasonEngine";
 import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
@@ -47,17 +48,22 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_platform_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_platform_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
   const results: Record<string, unknown> = {};
+  const {retryGameProgress}=await import("@/lib/games/progress");
+  results.gameProgress=await retryGameProgress();
   const errors: string[] = [];
   const now = new Date();
 
   // 1. Season transitions
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("seasonTransitions",async()=>{
+
     const seasonTransitions: { ended?: string[]; upcoming?: string } = {};
 
     const { rows: endedSeasons } = await orm.execute<{ id: string; name: string }>(sql`
@@ -84,19 +90,29 @@ export const GET = async (req: NextRequest) => {
     if (activated[0]) seasonTransitions.upcoming = activated[0].id;
 
     results.seasonTransitions = seasonTransitions;
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`seasonTransitions: ${String(err)}`);
   }
 
   // 2. Monthly gift drops
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("giftDrops",async()=>{
+
     results.giftDrops = await processPendingGiftDrops(orm);
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`giftDrops: ${String(err)}`);
   }
 
   // 3. Mystery XP drop
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("mysteryXpDrop",async()=>{
+
     const { rows: flagRows } = await orm.execute<{ value: string }>(sql`
       SELECT value FROM x_manifest WHERE key = 'feature_mystery_xp_drops' LIMIT 1
     `);
@@ -138,20 +154,30 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.mysteryXpDrop = { fired: false, reason: 'Feature disabled' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`mysteryXpDrop: ${String(err)}`);
   }
 
   // 4. Flash XP lifecycle
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("flashXpLifecycle",async()=>{
+
     const { advanceFlashXPLifecycle } = await import('@/lib/events/flashXP');
     results.flashXpLifecycle = await advanceFlashXPLifecycle();
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`flashXpLifecycle: ${String(err)}`);
   }
 
   // 5. Annual cultural event recurrence
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("annualEventRecurrence",async()=>{
+
     interface RecurringEventRow extends Record<string, unknown> {
       id: string; name: string; description: string; event_type: string;
       xp_multiplier: string; metadata: string; starts_at: string; ends_at: string;
@@ -197,6 +223,8 @@ export const GET = async (req: NextRequest) => {
     }
 
     results.annualEventRecurrence = { eventsCloned, targetYear: nextYear };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`annualEventRecurrence: ${String(err)}`);
   }
@@ -206,6 +234,9 @@ export const GET = async (req: NextRequest) => {
   // has no month/day anchor pair (a month has no fixed length), so the clone's
   // new starts_at/ends_at are simply +1 month on the original event's.
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("monthlyEventRecurrence",async()=>{
+
     interface MonthlyRecurringEventRow extends Record<string, unknown> {
       id: string; name: string; description: string; event_type: string;
       xp_multiplier: string; coin_bonus_pct: number; metadata: string;
@@ -246,12 +277,17 @@ export const GET = async (req: NextRequest) => {
     }
 
     results.monthlyEventRecurrence = { eventsCloned: monthlyEventsCloned };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`monthlyEventRecurrence: ${String(err)}`);
   }
 
   // 6. Moderation digest (Fridays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("moderationDigest",async()=>{
+
     if (now.getUTCDay() === 5) {
       const [digestRes, adminRes] = await Promise.all([
         orm.execute<{ open_reports: string; escalated: string; actions_taken: string; new_reports_7d: string }>(sql`
@@ -280,12 +316,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.moderationDigest = { skipped: true, reason: 'Not Friday' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`moderationDigest: ${String(err)}`);
   }
 
   // 7. Master Teacher award (end-of-season)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("masterTeacherAward",async()=>{
+
     const { rows: endedSeasonRows } = await orm.execute<{ id: string }>(sql`
       SELECT id FROM seasons WHERE is_active = FALSE AND ends_at >= NOW() - INTERVAL '7 days' LIMIT 1
     `);
@@ -322,12 +363,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.masterTeacherAward = { skipped: true, reason: 'No recently ended season' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`masterTeacherAward: ${String(err)}`);
   }
 
   // 8. Alliance wars — weekly resolution + pairing (Sundays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("allianceWarsResolved",async()=>{
+
     if (now.getUTCDay() === 0) {
       // Step A: Pair alliances that have no active war
       const { rows: unpairedAlliances } = await orm.execute<{ id: string }>(sql`
@@ -513,12 +559,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.allianceWarsResolved = { skipped: true, reason: 'Not Sunday' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`allianceWarsResolved: ${String(err)}`);
   }
 
   // 9. Telegram delivery queue flush (batch 200)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("telegramDelivery",async()=>{
+
     const { rows: queueRows } = await orm.execute<{
       id: string; broadcast_id: string; telegram_ids: string[]; message_text: string | null;
     }>(sql`
@@ -554,12 +605,17 @@ export const GET = async (req: NextRequest) => {
     }
 
     results.telegramDelivery = { sent: telegramSent, failed: telegramFailed, batches: queueRows.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`telegramDelivery: ${String(err)}`);
   }
 
   // 10. Drop / ceremony / event room expiry
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("dropRoomExpiry",async()=>{
+
     const { rows: closed } = await orm.execute<{ count: string }>(sql`
       WITH closed AS (
         UPDATE rooms
@@ -571,63 +627,35 @@ export const GET = async (req: NextRequest) => {
       SELECT COUNT(*) AS count FROM closed
     `);
     results.dropRoomExpiry = { closed: parseInt(closed[0]?.count ?? "0") };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`dropRoomExpiry: ${String(err)}`);
   }
 
   // SYS-01: Retry failed XP awards (dead-letter queue)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("xpDlqRetry",async()=>{
+
     await retryFailedXPAwards();
     results.xpDlqRetry = { ok: true };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`xpDlqRetry: ${String(err)}`);
   }
 
   // WEBHOOK-RETRY-01: Retry failed webhook deliveries
   try {
-    const { rows: failedWebhooks } = await orm.execute<{
-      id: string; provider: string; event_type: string; payload: string; retry_count: number;
-    }>(sql`
-      SELECT id, provider, event_type, payload::text AS payload, retry_count
-      FROM failed_webhooks
-      WHERE resolved_at IS NULL AND retry_count < 3
-        AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-      ORDER BY created_at ASC LIMIT 50
-    `);
+    const stepErrors=errors.length;
+    await lease.runStep("webhookRetry",async()=>{
 
-    let webhookRetried = 0;
-    let webhookResolved = 0;
+    const { retryWebhookInbox } = await import("@/lib/payments/webhookInbox");
+    results.webhookRetry = await retryWebhookInbox();
 
-    for (const row of failedWebhooks) {
-      try {
-        if (row.provider === 'paystack') {
-          const { handlePaystackWebhookPayload } = await import('@/lib/payments/paystackWebhookHandler');
-          await handlePaystackWebhookPayload(row.event_type, JSON.parse(row.payload));
-        } else {
-          // 'crypto' (and any other non-webhook provider) has no inbound
-          // webhook to retry — payments are reconciled by the crypto
-          // pending-payment sweep below instead.
-          await orm.execute(sql`UPDATE failed_webhooks SET resolved_at = NOW(), updated_at = NOW() WHERE id = ${row.id}`).catch(() => {});
-          continue;
-        }
-        await orm.execute(sql`
-          UPDATE failed_webhooks SET resolved_at = NOW(), updated_at = NOW() WHERE id = ${row.id}
-        `).catch(() => {});
-        webhookResolved++;
-      } catch (retryErr) {
-        const nextRetry = new Date(Date.now() + Math.pow(2, row.retry_count + 1) * 60_000).toISOString();
-        await orm.execute(sql`
-          UPDATE failed_webhooks
-          SET retry_count = retry_count + 1, error = ${String(retryErr)}, next_retry_at = ${nextRetry}, updated_at = NOW()
-          WHERE id = ${row.id}
-        `).catch(() => {});
-      }
-      webhookRetried++;
-    }
-    results.webhookRetry = { attempted: webhookRetried, resolved: webhookResolved };
-  } catch (err) {
-    errors.push(`webhookRetry: ${String(err)}`);
-  }
+    },()=>errors.length===stepErrors);
+  } catch (err) { errors.push(`webhookRetry: ${String(err)}`); }
 
   // CRYPTO-RECONCILE-01: safety-net reconciliation for crypto payments still
   // 'pending' past a short timeout (the primary confirmation path is the
@@ -637,6 +665,9 @@ export const GET = async (req: NextRequest) => {
   // cache (see lib/payments/crypto/priceFeed.ts's lazy-refresh design note —
   // this is a best-effort convenience, not required for correctness).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("cryptoReconcile",async()=>{
+
     const { verifyPayment } = await import('@/lib/payments/crypto');
     const { processChargeSuccess } = await import('@/lib/payments/paystackWebhookHandler');
     const { refreshAllPricesBestEffort } = await import('@/lib/payments/crypto/priceFeed');
@@ -681,14 +712,21 @@ export const GET = async (req: NextRequest) => {
       }
     }
     results.cryptoReconcile = { checked: pendingCrypto.length, reconciled: cryptoReconciled, markedFailed: cryptoFailed };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`cryptoReconcile: ${String(err)}`);
   }
 
   // PUSH-RECEIPT-01: Poll Expo push receipts (stage 2)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("pushReceiptPoll",async()=>{
+
     const { pollPushReceipts } = await import('@/lib/notifications/push');
     results.pushReceiptPoll = { resolved: await pollPushReceipts() };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`pushReceiptPoll: ${String(err)}`);
   }
@@ -702,7 +740,7 @@ export const GET = async (req: NextRequest) => {
       const [coinDisc, starDisc] = await Promise.all([
         orm.execute<{ user_id: string; ledger_sum: string; wallet_balance: string }>(sql`
           SELECT cl.user_id, SUM(cl.amount)::bigint AS ledger_sum, u.coin_balance AS wallet_balance
-          FROM coin_ledger cl JOIN users u ON u.id = cl.user_id
+          FROM coin_ledger_history cl JOIN users u ON u.id = cl.user_id
           WHERE u.deleted_at IS NULL
             AND u.updated_at > NOW() - INTERVAL '30 days'
           GROUP BY cl.user_id, u.coin_balance
@@ -711,7 +749,7 @@ export const GET = async (req: NextRequest) => {
         `),
         orm.execute<{ user_id: string; ledger_sum: string; wallet_balance: string }>(sql`
           SELECT sl.user_id, SUM(sl.amount)::bigint AS ledger_sum, u.star_balance AS wallet_balance
-          FROM star_ledger sl JOIN users u ON u.id = sl.user_id
+          FROM star_ledger_history sl JOIN users u ON u.id = sl.user_id
           WHERE u.deleted_at IS NULL
             AND u.updated_at > NOW() - INTERVAL '30 days'
           GROUP BY sl.user_id, u.star_balance
@@ -753,29 +791,20 @@ export const GET = async (req: NextRequest) => {
   }
   results.circuitMetrics = circuitResult.status === "fulfilled" ? circuitResult.value : [];
 
-  // SCHEMA-02: Prune expired sessions older than refresh token lifetime (30 days)
-  try {
-    await orm.execute(sql`
-      WITH expired AS (
-        SELECT id FROM sessions
-        WHERE expires_at < NOW() - INTERVAL '1 day'
-        LIMIT 10000
-      )
-      DELETE FROM sessions WHERE id IN (SELECT id FROM expired)
-    `);
-  } catch (err) {
-    logger.warn({ err }, '[daily-platform] Failed to prune expired sessions');
-  }
-
   // BUG-068: Purge stale data export requests to prevent unbounded table growth.
   // Completed/failed requests are retained for 30 days; stuck processing requests
   // older than 7 days are expired (the export job likely crashed).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("step-33035",async()=>{
+
     await orm.execute(sql`
       DELETE FROM data_export_requests
       WHERE (status IN ('completed', 'failed') AND created_at < NOW() - INTERVAL '30 days')
          OR (status IN ('pending', 'processing') AND created_at < NOW() - INTERVAL '7 days')
     `);
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     logger.warn({ err }, '[daily-platform] Failed to prune stale data export requests');
   }
@@ -783,11 +812,17 @@ export const GET = async (req: NextRequest) => {
   // Prune audit_log / admin_audit_log rows past the retention window (see
   // lib/audit/pruneAuditLogs.ts) — otherwise these grow unbounded.
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("auditLogPrune",async()=>{
+
     results.auditLogPrune = await pruneAuditLogs();
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`auditLogPrune: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

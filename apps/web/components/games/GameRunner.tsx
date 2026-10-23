@@ -350,6 +350,7 @@ export default function GameRunner({
 
   return (
     <div className="flex w-full flex-col items-center gap-4">
+      <p role="note" className="w-full rounded-xl border border-border bg-muted p-3 text-sm text-muted-foreground">{t('games.verificationNotice','Client-reported scores are practice scores. Currency rewards and wagers require a trusted server-verified result.')}</p>
 
       {/* ── Pre-game setup screen ── */}
       {phase === "pregame" && (

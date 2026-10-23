@@ -31,7 +31,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { invalidateAllSessions } from "@/lib/auth/session";
-import { storage } from "@/lib/storage";
+import { queueObjectDeletion } from "@/lib/storage/deletionQueue";
 
 export interface AnonymizeAccountOptions {
   /** Optional free-text reason, recorded by the caller's own audit log entry — not stored on the user row. */
@@ -64,6 +64,11 @@ export async function anonymizeUserAccount(
         city: null,
         pushToken: null,
         pinHash: null,
+        kycTier: 0,
+        isVerified: false,
+        phoneVerifiedAt: null,
+        contactDiscoveryEnabled: false,
+        contactDiscoveryConsentedAt: null,
         deletedAt: new Date(),
         updatedAt: new Date(),
       })
@@ -75,8 +80,7 @@ export async function anonymizeUserAccount(
     await tx.delete(schema.creatorWalletAddresses).where(eq(schema.creatorWalletAddresses.creatorId, userId));
     await tx
       .delete(schema.creatorKyc)
-      .where(eq(schema.creatorKyc.creatorId, userId))
-      .catch(() => {});
+      .where(eq(schema.creatorKyc.creatorId, userId));
 
     // Hard-delete identity KYC PII (Tiers 1-3) — BVN digits, encrypted ID
     // numbers, full legal names, uploaded document storage keys. Collect
@@ -87,6 +91,9 @@ export async function anonymizeUserAccount(
       .from(schema.kycDocuments)
       .where(eq(schema.kycDocuments.userId, userId));
     kycStorageKeys = docRows.map((r) => r.storageKey);
+    for(const key of kycStorageKeys)await queueObjectDeletion(tx,key);
+    await tx.delete(schema.userPushTokens).where(eq(schema.userPushTokens.userId,userId));
+    await tx.delete(schema.dataExportRequests).where(eq(schema.dataExportRequests.userId,userId));
 
     // Cascades to kyc_documents rows attached to a submission via
     // ON DELETE CASCADE; the second delete below catches any documents
@@ -95,9 +102,6 @@ export async function anonymizeUserAccount(
     await tx.delete(schema.kycDocuments).where(eq(schema.kycDocuments.userId, userId));
   });
 
-  if (kycStorageKeys.length > 0) {
-    await storage.deleteMany(kycStorageKeys).catch(() => {});
-  }
 
   // Invalidate all active sessions so the (now-deleted) user can't keep
   // refreshing tokens, and so an admin-triggered delete kicks the user out

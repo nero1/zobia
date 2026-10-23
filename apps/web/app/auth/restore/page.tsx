@@ -47,9 +47,11 @@ export default function RestorePage() {
     if (!token) return;
     setStatus("loading");
     try {
-      const { data } = await apiClient.patch("/auth/account/restore", { token });
-      if (data?.data?.accessToken) {
-        // Tokens are stored by the apiClient interceptors / auth context on response.
+      const { data } = await apiClient.patch("/api/auth/account/restore", { token });
+      if(data?.data?.requiresAdminLogin){router.replace("/gate44/login");return;}
+      if (data?.data?.preAuthCode) { router.replace(`/auth/2fa?code=${encodeURIComponent(data.data.preAuthCode)}`); return; }
+      if (data?.data?.restored) {
+        // The restore handler has set the HttpOnly session cookies.
         setStatus("success");
         setTimeout(() => router.replace("/home"), 1500);
       } else {

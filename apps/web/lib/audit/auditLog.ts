@@ -2,11 +2,10 @@
  * lib/audit/auditLog.ts
  *
  * Immutable audit log for sensitive operations. (BUG-30)
- * All writes are fire-and-forget — never block the main request path.
+ * Required evidence is persisted before the request completes.
  */
 
 import { getDb, schema } from "@/lib/db/drizzle";
-import { logger } from "@/lib/logger";
 
 export type AuditAction =
   | "login_success"
@@ -75,23 +74,8 @@ export interface AuditLogParams {
   userAgent?: string;
 }
 
-/**
- * Write an audit log entry. Fire-and-forget — errors are logged but never thrown.
- */
-export function writeAuditLog(params: AuditLogParams): void {
-  getDb()
-    .then((db) =>
-      db.insert(schema.auditLog).values({
-        actorId: params.actorId ?? null,
-        action: params.action,
-        targetType: params.targetType ?? null,
-        targetId: params.targetId ?? null,
-        metadata: params.metadata ?? null,
-        ipAddress: params.ipAddress ?? null,
-        userAgent: params.userAgent ?? null,
-      })
-    )
-    .catch((err) => {
-      logger.error({ err }, "[audit] Failed to write audit log");
-    });
+/** Await before responding; callers can include a transaction for atomic evidence. */
+export async function writeAuditLog(params:AuditLogParams,client?:import('@/lib/db/drizzle').DbOrTx):Promise<void>{
+  const db=client??await getDb();
+  await db.insert(schema.auditLog).values({actorId:params.actorId??null,action:params.action,targetType:params.targetType??null,targetId:params.targetId??null,metadata:params.metadata??null,ipAddress:params.ipAddress??null,userAgent:params.userAgent??null});
 }

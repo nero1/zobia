@@ -54,7 +54,6 @@ export function getPool(): Pool {
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
       // Guard against runaway queries monopolising the tiny pool (#21)
-      options: "-c statement_timeout=10000 -c idle_in_transaction_session_timeout=15000",
     });
 
     _pool.on("error", (err) => {

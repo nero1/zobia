@@ -25,6 +25,7 @@
  *      calls GET /api/users/me/avatar on open to pre-flight this.
  */
 
+import {AccessibleDialog} from "@zobia/shared/ui/Dialog";
 import { useState, useCallback, useEffect, useRef } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 import { useTranslation } from "react-i18next";
@@ -168,7 +169,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
   }
 
   return (
-    <div
+    <AccessibleDialog onClose={onClose}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
       role="dialog"
       aria-modal="true"
@@ -291,6 +292,6 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
           </button>
         </div>
       </div>
-    </div>
+    </AccessibleDialog>
   );
 }

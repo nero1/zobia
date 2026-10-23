@@ -458,8 +458,8 @@ export async function refreshAccessToken(
 
   // Read fresh (never the L1 cache): rotation compares token hashes that change
   // on every refresh, so a stale copy could mis-flag a valid token as reused.
-  const session = await getSessionFresh(payload.sid!);
-  if (!session) {
+  const initialSession = await getSessionFresh(payload.sid!);
+  if (!initialSession || initialSession.uid !== payload.sub) {
     throw new SessionRevokedError("Session has been revoked or has expired");
   }
 
@@ -476,6 +476,16 @@ export async function refreshAccessToken(
   }
 
   try {
+  const session = await getSessionFresh(payload.sid!);
+  if (!session || session.uid !== payload.sub) throw new SessionRevokedError("Session revoked");
+  const absoluteExpiry = new Date(session.created_at).getTime() + (session.impersonatedBy ? 900 : 30 * 86400) * 1000;
+  const remaining = Math.floor((absoluteExpiry - Date.now()) / 1000);
+  if (remaining <= 0) throw new SessionRevokedError("Session reached its maximum lifetime");
+  if (session.impersonatedBy) {
+    const db = await getDb();
+    const [actor] = await db.select({ id: schema.users.id }).from(schema.users).where(and(eq(schema.users.id, session.impersonatedBy), eq(schema.users.isAdmin, true), eq(schema.users.isBanned, false), sql`${schema.users.deletedAt} IS NULL`, sql`NOT (${schema.users.isSuspended} AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW()))`));
+    if (!actor) throw new SessionRevokedError("Impersonation is no longer authorized");
+  }
   // Reuse detection — if session has a stored hash and it doesn't match, check grace window
   if (session.refreshTokenHash) {
     const presentedHash = createHash("sha256").update(refreshToken).digest("hex");
@@ -501,7 +511,9 @@ export async function refreshAccessToken(
     : session.is_moderator ? "moderator"
     : session.is_creator   ? "creator"
     : "default";
-  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
+  const configuredTtls = manifest.sessionTtls[ttlRole];
+  const accessTtl = Math.min(configuredTtls.accessTtl, remaining);
+  const refreshTtl = Math.min(configuredTtls.refreshTtl, remaining);
 
   // BUG-010 FIX: fetch current email from DB (not from the session record) so
   // that access tokens issued during a refresh always carry the up-to-date email
@@ -589,12 +601,14 @@ export async function refreshAccessToken(
   // One round-trip instead of two: rewrite the session record and extend the
   // per-user session-index TTL together, so active users are not evicted
   // (BUG-16) without paying a second sequential Upstash request (REDIS-COST-01).
-  await redis
-    .pipeline()
-    .setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord))
-    .expire(userSessionsKey(session.uid), refreshTtl)
-    .exec()
-    .catch(() => {});
+  const persisted = await redis.eval(`
+    local current = redis.call('GET', KEYS[1])
+    if not current or current ~= ARGV[1] then return 0 end
+    if not redis.call('ZSCORE', KEYS[2], ARGV[4]) then return 0 end
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    if redis.call('TTL', KEYS[2]) < tonumber(ARGV[3]) then redis.call('EXPIRE', KEYS[2], ARGV[3]) end
+    return 1`, 2, sessionKey(session.sid), userSessionsKey(session.uid), JSON.stringify(session), JSON.stringify(updatedRecord), String(refreshTtl), session.sid);
+  if (Number(persisted) !== 1) throw new SessionRevokedError("Session changed or was revoked during refresh");
   // Refresh the L1 cache so the rotated record (new hash) is served immediately
   // and the stale pre-rotation copy can never linger on this instance.
   memSet(sessionCacheKey(session.sid), updatedRecord, SESSION_CACHE_TTL_MS);

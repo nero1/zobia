@@ -17,6 +17,7 @@
  * parity later.
  */
 
+import { visibleFeedItems } from "./visibility";
 import { getDb } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
@@ -449,11 +450,11 @@ async function personalizeAndPaginate(
     const weights = await loadUserInterestWeights(userId);
     if (weights.size > 0) {
       items = pool.map((item) => {
-        if (item.tier !== "interest" && item.tier !== "recency") return item;
+        if (!["interest", "recency", "organic_popular", "organic_trending"].includes(item.tier)) return item;
         const score = interestMatchScore(item, weights);
-        return { ...item, finalScore: computeFinalScore(item.tier, Math.min(1, score)) };
+        return { ...item, finalScore: item.finalScore + Math.min(1, Math.max(0,score)) * 0.25 };
       });
-      items = [...items].sort((a, b) => b.finalScore - a.finalScore);
+      items = [...items].sort((a, b) => b.finalScore - a.finalScore || a.contentType.localeCompare(b.contentType) || a.contentId.localeCompare(b.contentId));
     }
   }
 
@@ -467,16 +468,20 @@ async function personalizeAndPaginate(
 async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedPage> {
   let cursorCreatedAt: string | null = null;
   let cursorId: string | null = null;
+  let cursorType = "";
   if (cursor) {
     try {
-      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as { createdAt: string; id: string };
+      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as { createdAt: string; id: string;kind?:string };
+      if (typeof decoded.createdAt !== "string" || decoded.createdAt.length > 40 || !/^\d{4}-\d{2}-\d{2}T/.test(decoded.createdAt) || !Number.isFinite(Date.parse(decoded.createdAt)) || typeof decoded.id !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(decoded.id) || (decoded.kind !== undefined && (typeof decoded.kind !== "string" || decoded.kind.length > 40))) throw new Error("Invalid feed cursor");
       cursorCreatedAt = decoded.createdAt;
       cursorId = decoded.id;
+      cursorType=decoded.kind??"";
     } catch {
       // ignore malformed cursor — start from the top
     }
   }
 
+  const branchCursor=(kind:string)=>sql`(${cursorCreatedAt}::timestamptz IS NULL OR (created_at,id::text,${kind}::text)<(${cursorCreatedAt}::timestamptz,${cursorId}::text,${cursorType}::text))`;
   const orm = await getDb();
   const { rows } = await orm.execute<RawCandidateRow & Record<string, unknown>>(
     // The whole UNION is wrapped in an outer subquery so the cursor WHERE,
@@ -486,61 +491,61 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
     // `column "content_id" does not exist` ("...there is a column named
     // content_id in table "*SELECT* 1", but it cannot be referenced from
     // this part of the query"), 500ing the whole tab.
-    sql`SELECT * FROM (
+    sql`SELECT *,to_char(created_at,'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_created_at FROM (
        SELECT * FROM (
          SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
                 NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
                 0::numeric AS popularity_score, NULL::text AS tag
-         FROM moments WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 50
+         FROM moments WHERE expires_at > NOW() AND ${branchCursor("moment")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at, 0::numeric, NULL
-         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL ORDER BY created_at DESC LIMIT 50
+         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL AND ${branchCursor("tweet")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at, 0::numeric, NULL
-         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
+         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' AND ${branchCursor("blog_post")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'forum_question', id::text, author_id::text, title, body, NULL, created_at, 0::numeric, NULL
-         FROM forum_questions WHERE deleted_at IS NULL AND status = 'visible' ORDER BY created_at DESC LIMIT 50
+         FROM forum_questions WHERE deleted_at IS NULL AND status = 'visible' AND ${branchCursor("forum_question")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' ORDER BY created_at DESC LIMIT 50
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' AND ${branchCursor("room")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'classroom', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' ORDER BY created_at DESC LIMIT 50
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' AND ${branchCursor("classroom")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'wiki_page', id::text, created_by::text, title, NULL, NULL, created_at, 0::numeric, NULL
-         FROM wiki_pages WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
+         FROM wiki_pages WHERE deleted_at IS NULL AND status = 'published' AND ${branchCursor("wiki_page")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'game', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM games WHERE deleted_at IS NULL AND is_active = true AND is_public = true ORDER BY created_at DESC LIMIT 50
+         FROM games WHERE deleted_at IS NULL AND is_active = true AND is_public = true AND ${branchCursor("game")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'poll', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
-         FROM polls WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
+         FROM polls WHERE deleted_at IS NULL AND status = 'active' AND ${branchCursor("poll")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
          SELECT 'quiz', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
-         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
+         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' AND ${branchCursor("quiz")} ORDER BY created_at DESC, id DESC LIMIT 50
        ) x
      ) feed
-     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND content_id < ${cursorId})
-     ORDER BY created_at DESC, content_id DESC
+     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND (content_id,content_type) < (${cursorId}::text,${cursorType}::text))
+     ORDER BY created_at DESC, content_id DESC, content_type DESC
      LIMIT ${limit}
   `
   );
@@ -548,7 +553,7 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
   const items = rows.map((r) => toFeedItem(r, "recency", 0.5));
   const nextCursor =
     rows.length === limit
-      ? Buffer.from(JSON.stringify({ createdAt: rows[rows.length - 1].created_at, id: rows[rows.length - 1].content_id })).toString("base64")
+      ? Buffer.from(JSON.stringify({ createdAt: rows[rows.length - 1].cursor_created_at, id: rows[rows.length - 1].content_id, kind:rows[rows.length - 1].content_type })).toString("base64")
       : null;
   return { items: items.map(toPublicItem), nextCursor };
 }
@@ -557,11 +562,14 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
 async function fetchFriendsPage(userId: string, cursor: string | null, limit: number): Promise<FeedPage> {
   let cursorCreatedAt: string | null = null;
   let cursorId: string | null = null;
+  let cursorType = "";
   if (cursor) {
     try {
-      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as { createdAt: string; id: string };
+      const decoded = JSON.parse(Buffer.from(cursor, "base64").toString("utf8")) as { createdAt: string; id: string;kind?:string };
+      if (typeof decoded.createdAt !== "string" || decoded.createdAt.length > 40 || !/^\d{4}-\d{2}-\d{2}T/.test(decoded.createdAt) || !Number.isFinite(Date.parse(decoded.createdAt)) || typeof decoded.id !== "string" || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(decoded.id) || (decoded.kind !== undefined && (typeof decoded.kind !== "string" || decoded.kind.length > 40))) throw new Error("Invalid feed cursor");
       cursorCreatedAt = decoded.createdAt;
       cursorId = decoded.id;
+      cursorType=decoded.kind??"";
     } catch {
       // ignore malformed cursor
     }
@@ -580,55 +588,56 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
 
   // As in fetchNewPage, the cursor WHERE/ORDER BY/LIMIT must sit on an outer
   // subquery wrapping the entire UNION, not trail the final branch.
+  const branchCursor=(kind:string)=>sql`(${cursorCreatedAt}::timestamptz IS NULL OR (created_at,id::text,${kind}::text)<(${cursorCreatedAt}::timestamptz,${cursorId}::text,${cursorType}::text))`;
   const orm = await getDb();
   const { rows } = await orm.execute<RawCandidateRow & Record<string, unknown>>(
-    sql`SELECT * FROM (
+    sql`SELECT *,to_char(created_at,'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS cursor_created_at FROM (
        SELECT * FROM (
          SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
                 NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
                 0::numeric AS popularity_score, NULL::text AS tag
-         FROM moments WHERE expires_at > NOW() AND ${connectedTo("user_id")}
+         FROM moments WHERE expires_at > NOW() AND ${connectedTo("user_id")} AND ${branchCursor("moment")}
          ORDER BY created_at DESC LIMIT 30
        ) a
        UNION ALL
        SELECT * FROM (
          SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at, 0::numeric, NULL
-         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL AND ${connectedTo("user_id")}
+         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL AND ${connectedTo("user_id")} AND ${branchCursor("tweet")}
          ORDER BY created_at DESC LIMIT 30
        ) b
        UNION ALL
        SELECT * FROM (
          SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at, 0::numeric, NULL
-         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' AND ${connectedTo("author_id")}
+         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' AND ${connectedTo("author_id")} AND ${branchCursor("blog_post")}
          ORDER BY created_at DESC LIMIT 30
        ) c
        UNION ALL
        SELECT * FROM (
          SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' AND ${connectedTo("creator_id")}
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' AND ${connectedTo("creator_id")} AND ${branchCursor("room")}
          ORDER BY created_at DESC LIMIT 30
        ) d
        UNION ALL
        SELECT * FROM (
          SELECT 'classroom', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' AND ${connectedTo("creator_id")}
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' AND ${connectedTo("creator_id")} AND ${branchCursor("classroom")}
          ORDER BY created_at DESC LIMIT 30
        ) e
        UNION ALL
        SELECT * FROM (
          SELECT 'poll', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
-         FROM polls WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         FROM polls WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")} AND ${branchCursor("poll")}
          ORDER BY created_at DESC LIMIT 30
        ) f
        UNION ALL
        SELECT * FROM (
          SELECT 'quiz', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
-         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")} AND ${branchCursor("quiz")}
          ORDER BY created_at DESC LIMIT 30
        ) g
      ) feed
-     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND content_id < ${cursorId})
-     ORDER BY created_at DESC, content_id DESC
+     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND (content_id,content_type) < (${cursorId}::text,${cursorType}::text))
+     ORDER BY created_at DESC, content_id DESC, content_type DESC
      LIMIT ${limit}
   `
   );
@@ -636,7 +645,7 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
   const items = rows.map((r) => toFeedItem(r, "recency", 0.5));
   const nextCursor =
     rows.length === limit
-      ? Buffer.from(JSON.stringify({ createdAt: rows[rows.length - 1].created_at, id: rows[rows.length - 1].content_id })).toString("base64")
+      ? Buffer.from(JSON.stringify({ createdAt: rows[rows.length - 1].cursor_created_at, id: rows[rows.length - 1].content_id, kind:rows[rows.length - 1].content_type })).toString("base64")
       : null;
   return { items: items.map(toPublicItem), nextCursor };
 }
@@ -653,7 +662,8 @@ export async function fetchFeedPage(
 ): Promise<FeedPage> {
   if (tab === "friends") {
     if (!userId) return { items: [], nextCursor: null };
-    return fetchFriendsPage(userId, cursor, limit);
+    const friends=await fetchFriendsPage(userId,cursor,limit);
+    return {...friends,items:await visibleFeedItems(friends.items,userId)};
   }
 
   let page: FeedPage;
@@ -662,8 +672,9 @@ export async function fetchFeedPage(
   } else {
     // for_you / trending — served from the cached candidate pool (see cache.ts).
     const pool = await getCandidatePool(tab === "trending" ? "trending" : "for_you", () => computeCandidatePool(tab === "trending" ? "trending" : "for_you"));
-    page = await personalizeAndPaginate(pool, userId, cursor, limit);
+    page = await personalizeAndPaginate(await visibleFeedItems(pool,userId), userId, cursor, limit);
   }
+  page.items=await visibleFeedItems(page.items,userId);
   return withPortalSuggestion(page, tab, userId, cursor);
 }
 

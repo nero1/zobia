@@ -50,7 +50,8 @@ async function archiveTable(
   const orm = await getDb();
   let totalArchived = 0;
 
-  while (true) {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline && totalArchived < 25_000) {
     const result = await orm.transaction(async (tx) => {
       const selectResult = await tx.execute(sql`
         SELECT id FROM ${sql.raw(sourceTable)}

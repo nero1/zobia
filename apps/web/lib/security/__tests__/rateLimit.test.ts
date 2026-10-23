@@ -151,7 +151,7 @@ describe("Redis outage behaviour", () => {
     expect(result.allowed).toBe(false);
   });
 
-  it("fails OPEN for ordinary limiters so an outage cannot take the app down", async () => {
+  it("fails CLOSED for ordinary distributed limiters", async () => {
     mockEval.mockRejectedValue(new Error("redis down"));
 
     const result = await checkUserRateLimit(nextSubject(), {
@@ -161,7 +161,7 @@ describe("Redis outage behaviour", () => {
       skipThreshold: 0,
     });
 
-    expect(result.allowed).toBe(true);
+    expect(result.allowed).toBe(false);
   });
 });
 

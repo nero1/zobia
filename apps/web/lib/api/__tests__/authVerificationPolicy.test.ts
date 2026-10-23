@@ -1,16 +1,4 @@
-/**
- * Tests for the session-verification policy introduced by REDIS-COST-01.
- *
- * `withAuth` no longer reads `session:<sid>` and `user:status:<uid>` from Redis
- * on every authenticated request. It trusts the short-lived signed access token
- * on ordinary routes and performs live Redis + database verification only where
- * acting on a stale credential could be materially harmful.
- *
- * That trade is only safe if the "sensitive" classification is right, so these
- * tests pin it explicitly: every money-moving and privilege-granting surface
- * must be verified, and the high-volume read surfaces must not be. A regression
- * here is a security regression, not a performance one.
- */
+/** Revoked sessions must not read private data or perform mutations. */
 
 import { requiresLiveVerification } from "@/lib/api/middleware";
 
@@ -74,16 +62,14 @@ describe("requiresLiveVerification — ordinary surfaces", () => {
   ];
 
   it.each(ordinaryRequests)(
-    "trusts the signed access token for %s %s",
+    "verifies revocation for %s %s",
     (method, path) => {
-      expect(requiresLiveVerification(req(method), path)).toBe(false);
+      expect(requiresLiveVerification(req(method), path)).toBe(true);
     }
   );
 
-  it("does not verify reads of sensitive surfaces — reading is not escalation", () => {
-    // A GET of payout history is authorised by the same token that was
-    // authorised moments ago; only state CHANGES need live confirmation.
-    expect(requiresLiveVerification(req("GET"), "/api/payouts/history")).toBe(false);
-    expect(requiresLiveVerification(req("HEAD"), "/api/payments/status")).toBe(false);
+  it("verifies sensitive reads and HEAD requests", () => {
+    expect(requiresLiveVerification(req("GET"), "/api/payouts/history")).toBe(true);
+    expect(requiresLiveVerification(req("HEAD"), "/api/payments/status")).toBe(true);
   });
 });

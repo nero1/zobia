@@ -90,6 +90,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         currency: schema.storeItems.currency,
         starsGranted: schema.storeItems.starsGranted,
         isActive: schema.storeItems.isActive,
+        validUntil:schema.storeItems.validUntil,
       })
       .from(schema.storeItems)
       .where(and(eq(schema.storeItems.id, body.packId), eq(schema.storeItems.itemType, "star_pack")))
@@ -97,9 +98,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     if (!packRows[0]) throw notFound("Star pack not found");
     const pack = packRows[0];
+    if(!Number.isSafeInteger(Number(pack.priceKobo)) || Number(pack.priceKobo)<0 || pack.currency!=='NGN')throw badRequest("This pack has an invalid price or unsupported billing currency");
     const starsGranted = pack.starsGranted ?? 0;
 
-    if (!pack.isActive) {
+    if (!pack.isActive || (pack.validUntil && pack.validUntil.getTime()<=Date.now())) {
       throw badRequest("This star pack is currently unavailable");
     }
 

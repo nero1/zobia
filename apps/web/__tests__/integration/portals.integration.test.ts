@@ -40,8 +40,13 @@ jest.mock("@/lib/redis", () => {
   return {
     redis: {
       get: jest.fn(async (k: string) => store.get(k) ?? null),
+      set:jest.fn(async(k:string,v:string,_mode:string,_ttl:number,nx?:string)=>{if(nx==='NX' && store.has(k))return null;store.set(k,v);return 'OK';}),
+      eval:jest.fn(async(script:string,n:number,...args:string[])=>{
+        if(n===2){const [key,lock,token,_ttl,value]=args;if(store.get(lock)!==token)return 0;store.set(key,value);store.delete(lock);return 1;}
+        const [key,token]=args;if(store.get(key)!==token)return 0;store.delete(key);return 1;
+      }),
       setex: jest.fn(async (k: string, _s: number, v: string) => { store.set(k, v); return "OK"; }),
-      del: jest.fn(async (k: string) => { store.delete(k); return 1; }),
+      del: jest.fn(async (...keys: string[]) => { for(const k of keys)store.delete(k); return keys.length; }),
     },
   };
 });

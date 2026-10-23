@@ -170,31 +170,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
-    // Upsert user
-    const user = await upsertUser(message.from);
-
-    // Create platform session token (S-06: use null not "" for missing email/username)
-    const session = await createSession({
-      id: user.id,
-      email: user.email ?? null,
-      username: user.username ?? (message.from.username ? `tg_${message.from.username}` : `tg_${message.from.id}`),
-      is_admin: user.is_admin,
-    });
-
-    const userPayload = JSON.stringify({
-      id: user.id,
-      username: user.username ?? message.from.username ?? "",
-      displayName: [message.from.first_name, message.from.last_name].filter(Boolean).join(" "),
-      email: user.email ?? null,
-      isAdmin: user.is_admin,
-      onboardingCompleted: user.onboarding_completed,
-    });
-
-    // Mark state as approved with token
-    await orm
-      .update(schema.telegramLoginStates)
-      .set({ status: "approved", token: session.accessToken, userPayload, updatedAt: new Date() })
-      .where(eq(schema.telegramLoginStates.state, state));
+    // Bot commands never establish a session: the signed Telegram widget callback
+    // is the canonical flow and enforces signup, suspension and two-factor policy.
+    await orm.update(schema.telegramLoginStates).set({ status: "expired", updatedAt: new Date() }).where(eq(schema.telegramLoginStates.state, state));
   } catch (err) {
     logger.error({ err: err }, "[telegram:bot] Error processing start command:");
   }

@@ -145,18 +145,17 @@ async function findExistingLedgerEntry(
   referenceId: string | null
 ): Promise<CoinLedgerEntry | null> {
   if (!referenceId) return null;
-  const rows = await tx
-    .select()
-    .from(schema.coinLedger)
-    .where(
-      and(
-        eq(schema.coinLedger.userId, userId),
-        eq(schema.coinLedger.transactionType, type),
-        eq(schema.coinLedger.referenceId, referenceId)
-      )
-    )
-    .limit(1);
-  return rows[0] ? toLedgerEntry(rows[0]) : null;
+  // The archive and live table are one immutable business history. Locking
+  // the account serializes this lookup with all balance changes and archival.
+  await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR NO KEY UPDATE`);
+  const rows = await tx.select().from(schema.coinLedger).where(and(
+    eq(schema.coinLedger.userId,userId), eq(schema.coinLedger.transactionType,type),
+    eq(schema.coinLedger.referenceId,referenceId))).limit(1);
+  if (rows[0]) return toLedgerEntry(rows[0]);
+  const archived = await tx.select().from(schema.coinLedgerArchive).where(and(
+    eq(schema.coinLedgerArchive.userId,userId), eq(schema.coinLedgerArchive.transactionType,type),
+    eq(schema.coinLedgerArchive.referenceId,referenceId))).limit(1);
+  return archived[0] ? toLedgerEntry(archived[0]) : null;
 }
 
 // ---------------------------------------------------------------------------

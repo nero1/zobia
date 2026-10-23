@@ -61,6 +61,7 @@ export function markSessionActive(): void {
 
 /** Forget the signed-in hint (explicit logout, or once expiry was announced). */
 export function clearSessionHint(): void {
+  if(typeof navigator!=="undefined")navigator.serviceWorker?.controller?.postMessage({type:"PURGE_PRIVATE_CACHES"});
   hadSession = false;
   try {
     window.localStorage.removeItem(HAD_SESSION_KEY);

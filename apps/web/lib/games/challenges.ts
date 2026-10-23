@@ -117,6 +117,9 @@ export async function createChallenge(params: {
   )`);
   if(!eligible.rows.length) throw forbidden('Choose a friend or an available recent player.','CHALLENGE_OPPONENT_UNAVAILABLE');
 
+  const verification=await db.execute<{score_verification:string}>(sql`SELECT score_verification FROM games WHERE id=${gameId}`);
+  if(wagerCredits>0 && (verification.rows[0]?.score_verification!=='server' || !process.env.GAME_RESULT_WEBHOOK_SECRET))throw badRequest("Wagers require a game with trusted server-verified results.","WAGER_REQUIRES_VERIFIED_GAME");
+
   // Affordability is re-checked atomically at accept time; this is a fast UX guard.
   if (wagerCredits > 0 && !(await canAfford(challengerId, wagerCredits))) {
     throw badRequest("You do not have enough credits for this wager.", "INSUFFICIENT_BALANCE");
@@ -173,6 +176,8 @@ export async function acceptChallenge(challengeId: string, userId: string): Prom
     // Ledger debits and escrow transition share the row lock and transaction.
     // Deterministic account ordering prevents reciprocal challenges deadlocking.
     if (row.wager_credits > 0) {
+      const verified=await tx.execute<{score_verification:string}>(sql`SELECT score_verification FROM games WHERE id=${row.game_id} FOR SHARE`);
+      if(verified.rows[0]?.score_verification!=='server' || !process.env.GAME_RESULT_WEBHOOK_SECRET)throw badRequest("Wagers require trusted server-verified results.","WAGER_REQUIRES_VERIFIED_GAME");
       for (const participant of [row.challenger_id, row.opponent_id].sort()) {
         await debitCoins(participant, row.wager_credits, "game_wager",
           `chal:${row.id}:stake:${participant}`, "Challenge wager stake", { challengeId: row.id }, tx);
@@ -336,9 +341,12 @@ export async function recordChallengeRoundPlay(
       .from(schema.gameChallengeRounds)
       .where(eq(schema.gameChallengeRounds.id, roundId))
       .for("update");
-    if (!round || round.status === "complete") return null;
+    if (!round) return null;
 
     const c = await lockChallenge(tx, round.challengeId);
+    if(userId!==c.challenger_id && userId!==c.opponent_id)throw forbidden('Not a participant');
+    if(c.status!=='active')return null;
+    if(round.status==='complete')return maybeSettleSeries(tx,c);
     const isChallenger = c.challenger_id === userId;
 
     // Ignore a second submission for the same side in this round.
@@ -453,7 +461,7 @@ async function settleSeries(
   }
 
   // Award the game's per-win reward bundle to the series winner as the prize.
-  if (winnerId && game) {
+  if (winnerId && game && game.score_verification==='server' && process.env.GAME_RESULT_WEBHOOK_SECRET) {
     const bundle = await grantGamingReward(
       winnerId,
       {
@@ -487,7 +495,7 @@ async function settleSeries(
   return true;
   });
   if (!settled) return;
-  if (winnerId) await triggerActivityQuestProgress(winnerId, "challenge_win", orm);
+  if (winnerId && game?.score_verification==='server' && !!process.env.GAME_RESULT_WEBHOOK_SECRET) await triggerActivityQuestProgress(winnerId, "challenge_win", orm);
 
   // Notify both participants outside the lock (best-effort).
   notify(pending.challenger_id, "game_challenge_completed", { challengeId: pending.id, winnerId }).catch(() => {});
@@ -502,7 +510,7 @@ export async function expireChallenges(): Promise<number> {
   const rows = await orm
     .select({ id: schema.gameChallenges.id })
     .from(schema.gameChallenges)
-    .where(and(or(inArray(schema.gameChallenges.status, ["pending", "active"]), and(eq(schema.gameChallenges.status, "expired"), sql`${schema.gameChallenges.escrowCredits} > 0`)), lt(schema.gameChallenges.expiresAt, sql`NOW()`)))
+    .where(and(or(inArray(schema.gameChallenges.status, ["pending", "active"]), and(eq(schema.gameChallenges.status, "expired"), sql`${schema.gameChallenges.escrowCredits} > 0`)), or(lt(schema.gameChallenges.expiresAt, sql`NOW()`),sql`(${schema.gameChallenges.escrowCredits}>0 AND EXISTS(SELECT 1 FROM games g WHERE g.id=${schema.gameChallenges.gameId} AND g.score_verification<>'server'))`)))
     .limit(200);
 
   let count = 0;

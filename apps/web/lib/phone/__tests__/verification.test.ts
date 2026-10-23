@@ -64,6 +64,8 @@ function pendingCodeRow(overrides: {
   ];
 }
 
+beforeAll(()=>{process.env.PHONE_OTP_PEPPER="test-phone-pepper-with-at-least-32-characters";});
+
 beforeEach(() => {
   mockQuery.mockReset();
   mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });

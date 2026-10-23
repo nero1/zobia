@@ -1,5 +1,5 @@
 -- Zobia Social — final PostgreSQL baseline (2026-10-23)
--- Consolidates the state after migrations 0001–0039 at commit 8c20d630.
+-- Final schema after the forensic hardening review; previous baseline upgrade is separate.
 -- Each table is declared once in its final shape. No historical column
 -- alterations, data backfills or intermediate schema states are replayed.
 -- Reference data contains only the resulting catalog/configuration rows.
@@ -60,8 +60,21 @@ END
 $monitoring$;
 
 
+
+
+
 -- Functions
 
+
+CREATE FUNCTION public.app_group_member(group_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$ SELECT EXISTS(SELECT FROM public.group_chat_members WHERE group_chat_id=group_id AND user_id::text=current_setting('app.current_user_id',true)) $$;
+
+CREATE FUNCTION public.app_guild_member(target_id uuid) RETURNS boolean
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'pg_catalog', 'public'
+    AS $$ SELECT EXISTS(SELECT FROM public.guild_members WHERE guild_id=target_id AND user_id::text=current_setting('app.current_user_id',true) AND left_at IS NULL) $$;
 
 CREATE FUNCTION public.automation_official_name() RETURNS trigger
     LANGUAGE plpgsql SECURITY DEFINER
@@ -153,6 +166,8 @@ BEGIN
 END $$;
 
 
+SET default_tablespace = '';
+
 SET default_table_access_method = heap;
 
 
@@ -176,6 +191,13 @@ CREATE TABLE public.account_appeals (
     CONSTRAINT account_appeals_appeal_type_check CHECK ((appeal_type = ANY (ARRAY['suspension'::text, 'ban'::text]))),
     CONSTRAINT account_appeals_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'under_review'::text, 'approved'::text, 'denied'::text]))),
     CONSTRAINT account_appeals_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.account_restore_uses (
+    jti text NOT NULL,
+    user_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT account_restore_uses_pkey PRIMARY KEY (jti)
 );
 
 CREATE TABLE public.account_type_play_products (
@@ -1717,6 +1739,23 @@ CREATE TABLE public.creator_wallet_addresses (
     CONSTRAINT creator_wallet_addresses_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.cron_job_runs (
+    job_key text NOT NULL,
+    run_date date NOT NULL,
+    lease_token uuid NOT NULL,
+    lease_until timestamp with time zone NOT NULL,
+    completed_at timestamp with time zone,
+    CONSTRAINT cron_job_runs_pkey PRIMARY KEY (job_key, run_date)
+);
+
+CREATE TABLE public.cron_job_steps (
+    job_key text NOT NULL,
+    run_date date NOT NULL,
+    step text NOT NULL,
+    completed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT cron_job_steps_pkey PRIMARY KEY (job_key, run_date, step)
+);
+
 CREATE TABLE public.cron_state (
     key text NOT NULL,
     value_text text,
@@ -1757,6 +1796,15 @@ CREATE TABLE public.crypto_price_cache (
     fetched_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT crypto_price_cache_usd_price_check CHECK ((usd_price > (0)::numeric)),
     CONSTRAINT crypto_price_cache_pkey PRIMARY KEY (token_symbol)
+);
+
+CREATE TABLE public.crypto_transfer_claims (
+    chain text NOT NULL,
+    tx_hash text NOT NULL,
+    payment_id uuid NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT crypto_transfer_claims_payment_id_key UNIQUE (payment_id),
+    CONSTRAINT crypto_transfer_claims_pkey PRIMARY KEY (chain, tx_hash)
 );
 
 CREATE TABLE public.data_export_requests (
@@ -1886,6 +1934,10 @@ CREATE TABLE public.failed_webhooks (
     last_error text,
     next_retry_at timestamp with time zone,
     updated_at timestamp with time zone DEFAULT now(),
+    max_attempts integer DEFAULT 5 NOT NULL,
+    event_key text,
+    processing_token uuid,
+    CONSTRAINT failed_webhooks_event_key_key UNIQUE (event_key),
     CONSTRAINT failed_webhooks_pkey PRIMARY KEY (id)
 );
 
@@ -2137,6 +2189,15 @@ CREATE TABLE public.game_plays (
     CONSTRAINT game_plays_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.game_progress_tasks (
+    play_id uuid NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    lease_token uuid,
+    completed_at timestamp with time zone,
+    CONSTRAINT game_progress_tasks_pkey PRIMARY KEY (play_id)
+);
+
 CREATE TABLE public.game_ratings (
     game_id uuid NOT NULL,
     user_id uuid NOT NULL,
@@ -2157,6 +2218,14 @@ CREATE TABLE public.game_saves (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT game_saves_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.game_score_attestations (
+    play_id uuid NOT NULL,
+    score bigint NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT game_score_attestations_score_check CHECK ((score >= 0)),
+    CONSTRAINT game_score_attestations_pkey PRIMARY KEY (play_id)
 );
 
 CREATE TABLE public.games (
@@ -2189,6 +2258,8 @@ CREATE TABLE public.games (
     rating_count integer DEFAULT 0 NOT NULL,
     favorite_count integer DEFAULT 0 NOT NULL,
     search_vector tsvector GENERATED ALWAYS AS (((setweight(to_tsvector('english'::regconfig, COALESCE(name, ''::text)), 'A'::"char") || setweight(to_tsvector('english'::regconfig, COALESCE(tagline, ''::text)), 'B'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE(description, ''::text)), 'C'::"char"))) STORED,
+    score_verification text DEFAULT 'practice'::text NOT NULL,
+    CONSTRAINT games_score_verification_check CHECK ((score_verification = ANY (ARRAY['practice'::text, 'server'::text]))),
     CONSTRAINT games_pkey PRIMARY KEY (id)
 );
 
@@ -2351,6 +2422,7 @@ CREATE TABLE public.guild_alliances (
     wars_won integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    wars_drawn integer DEFAULT 0 NOT NULL,
     CONSTRAINT guild_alliances_name_key UNIQUE (name),
     CONSTRAINT guild_alliances_pkey PRIMARY KEY (id)
 );
@@ -2517,6 +2589,7 @@ CREATE TABLE public.guild_wars (
     final_hour_starts_at timestamp with time zone NOT NULL,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
+    resolved_at timestamp with time zone,
     CONSTRAINT guild_wars_status_check CHECK ((status = ANY (ARRAY['active'::text, 'final_hour'::text, 'completed'::text, 'cancelled'::text]))),
     CONSTRAINT guild_wars_pkey PRIMARY KEY (id)
 );
@@ -2552,6 +2625,7 @@ CREATE TABLE public.guilds (
     banned_at timestamp with time zone,
     banned_by uuid,
     admin_notes text,
+    below_minimum_days integer DEFAULT 0 NOT NULL,
     CONSTRAINT guilds_recruitment_type_check CHECK ((recruitment_type = ANY (ARRAY['open'::text, 'approval'::text, 'invite_only'::text]))),
     CONSTRAINT guilds_tier_check CHECK ((tier = ANY (ARRAY['bronze_1'::text, 'bronze_2'::text, 'bronze_3'::text, 'silver_1'::text, 'silver_2'::text, 'silver_3'::text, 'gold_1'::text, 'gold_2'::text, 'gold_3'::text, 'platinum_1'::text, 'platinum_2'::text, 'platinum_3'::text, 'legend'::text]))),
     CONSTRAINT guilds_treasury_balance_max CHECK ((treasury_balance <= '1000000000000'::bigint)),
@@ -2646,7 +2720,9 @@ CREATE TABLE public.kyc_documents (
     content_type text,
     size_bytes integer,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    upload_state text DEFAULT 'ready'::text NOT NULL,
     CONSTRAINT kyc_documents_doc_type_check CHECK ((doc_type = ANY (ARRAY['govt_id_front'::text, 'govt_id_back'::text, 'proof_of_address'::text, 'selfie'::text, 'nin_slip'::text, 'liveness_selfie'::text]))),
+    CONSTRAINT kyc_documents_upload_state_check CHECK ((upload_state = ANY (ARRAY['uploading'::text, 'ready'::text]))),
     CONSTRAINT kyc_documents_pkey PRIMARY KEY (id)
 );
 
@@ -3078,6 +3154,18 @@ CREATE TABLE public.notifications (
     CONSTRAINT notifications_pkey PRIMARY KEY (id)
 );
 
+CREATE TABLE public.object_deletion_tasks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    storage_key text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    lease_token uuid,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT object_deletion_tasks_pkey PRIMARY KEY (id),
+    CONSTRAINT object_deletion_tasks_storage_key_key UNIQUE (storage_key)
+);
+
 CREATE TABLE public.password_reset_tokens (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid NOT NULL,
@@ -3123,9 +3211,10 @@ CREATE TABLE public.payments (
     tx_hash text,
     wallet_address text,
     expected_token_amount numeric(38,0),
-    CONSTRAINT payments_payment_type_check CHECK ((payment_type = ANY (ARRAY['coin_purchase'::text, 'subscription'::text, 'season_pass'::text, 'booster_pack'::text, 'room_entry'::text, 'room_subscription'::text, 'business_upgrade'::text]))),
+    sender_address text,
+    CONSTRAINT payments_payment_type_check CHECK ((payment_type = ANY (ARRAY['coin_purchase'::text, 'star_purchase'::text, 'subscription'::text, 'season_pass'::text, 'booster_pack'::text, 'room_entry'::text, 'room_subscription'::text, 'business_upgrade'::text]))),
     CONSTRAINT payments_provider_check CHECK ((provider = ANY (ARRAY['paystack'::text, 'dodopayments'::text, 'google_play'::text, 'crypto'::text, 'free'::text]))),
-    CONSTRAINT payments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'refunded'::text, 'cancelled'::text]))),
+    CONSTRAINT payments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'refunded'::text, 'cancelled'::text, 'underpaid'::text]))),
     CONSTRAINT payments_idempotency_key_key UNIQUE (idempotency_key),
     CONSTRAINT payments_pkey PRIMARY KEY (id),
     CONSTRAINT payments_provider_reference_key UNIQUE (provider_reference)
@@ -3156,6 +3245,8 @@ CREATE TABLE public.phone_verification_codes (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT phone_verification_codes_pkey PRIMARY KEY (user_id)
 );
+
+ALTER TABLE ONLY public.phone_verification_codes FORCE ROW LEVEL SECURITY;
 
 CREATE TABLE public.platform_council_ideas (
     id uuid DEFAULT uuid_generate_v4() NOT NULL,
@@ -3332,6 +3423,7 @@ CREATE TABLE public.push_tickets (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     checked_at timestamp with time zone,
     resolved_at timestamp with time zone,
+    token text,
     CONSTRAINT push_tickets_pkey PRIMARY KEY (id),
     CONSTRAINT push_tickets_ticket_id_key UNIQUE (ticket_id)
 );
@@ -3487,7 +3579,7 @@ CREATE TABLE public.referral_commissions (
     status text DEFAULT 'pending'::text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     credited_at timestamp with time zone,
-    tier text DEFAULT '1'::text NOT NULL,
+    tier integer DEFAULT 1 NOT NULL,
     source_type text DEFAULT 'coin_purchase'::text NOT NULL,
     reference_order_id uuid,
     CONSTRAINT referral_commissions_pkey PRIMARY KEY (id),
@@ -3561,6 +3653,16 @@ CREATE TABLE public.reports (
     CONSTRAINT reports_report_type_check CHECK ((report_type = ANY (ARRAY['harassment'::text, 'spam'::text, 'fraud'::text, 'sexual_content'::text, 'impersonation'::text, 'hate_speech'::text, 'other'::text]))),
     CONSTRAINT reports_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'under_review'::text, 'resolved_action'::text, 'resolved_dismissed'::text, 'escalated'::text]))),
     CONSTRAINT reports_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE public.restore_email_tasks (
+    user_id uuid NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    available_at timestamp with time zone DEFAULT now() NOT NULL,
+    lease_token uuid,
+    delivered_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT restore_email_tasks_pkey PRIMARY KEY (user_id)
 );
 
 CREATE TABLE public.room_member_highlights (
@@ -3804,6 +3906,7 @@ CREATE TABLE public.seasons (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone,
     rankings_reset_at timestamp with time zone,
+    status text DEFAULT 'active'::text NOT NULL,
     CONSTRAINT seasons_pkey PRIMARY KEY (id)
 );
 
@@ -3924,6 +4027,7 @@ CREATE TABLE public.sponsored_quests (
     completions_count bigint DEFAULT 0 NOT NULL,
     funded_by_user_id uuid,
     is_daily_quest_eligible boolean DEFAULT false NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sponsored_quests_budget_check CHECK (((total_budget_credits >= (0)::numeric) AND (spent_credits >= (0)::numeric))),
     CONSTRAINT sponsored_quests_flag_category_check CHECK (((flag_category IS NULL) OR (flag_category = ANY (ARRAY['spam'::text, 'scam'::text, 'other'::text])))),
     CONSTRAINT sponsored_quests_flag_status_check CHECK ((flag_status = ANY (ARRAY['none'::text, 'flagged'::text]))),
@@ -4025,6 +4129,7 @@ CREATE TABLE public.store_items (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     iap_product_id text,
+    slug text,
     CONSTRAINT store_items_item_type_check CHECK ((item_type = ANY (ARRAY['coin_pack'::text, 'star_pack'::text, 'booster'::text, 'cosmetic'::text]))),
     CONSTRAINT store_items_name_key UNIQUE (name),
     CONSTRAINT store_items_pkey PRIMARY KEY (id)
@@ -4309,6 +4414,7 @@ CREATE TABLE public.telegram_login_states (
     user_payload text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone DEFAULT (now() + '00:05:00'::interval) NOT NULL,
     CONSTRAINT telegram_login_states_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'expired'::text]))),
     CONSTRAINT telegram_login_states_pkey PRIMARY KEY (state)
 );
@@ -4787,6 +4893,9 @@ CREATE TABLE public.users (
     search_vector tsvector GENERATED ALWAYS AS (((setweight(to_tsvector('english'::regconfig, COALESCE(username, ''::text)), 'A'::"char") || setweight(to_tsvector('english'::regconfig, COALESCE(display_name, ''::text)), 'A'::"char")) || setweight(to_tsvector('english'::regconfig, COALESCE(bio, ''::text)), 'B'::"char"))) STORED,
     hide_from_leaderboards boolean DEFAULT false NOT NULL,
     account_type_slug text,
+    contact_discovery_enabled boolean DEFAULT false NOT NULL,
+    contact_discovery_consented_at timestamp with time zone,
+    purged_at timestamp with time zone,
     CONSTRAINT users_ban_type_check CHECK ((ban_type = ANY (ARRAY['temporary'::text, 'permanent'::text]))),
     CONSTRAINT users_coin_balance_max CHECK ((coin_balance <= '1000000000000'::bigint)),
     CONSTRAINT users_creator_tier_check CHECK ((creator_tier = ANY (ARRAY['rookie'::text, 'rising'::text, 'verified'::text, 'elite'::text, 'icon'::text]))),
@@ -4969,11 +5078,11 @@ CREATE TABLE public.xp_ledger (
 CREATE TABLE public.xp_ledger_archive (
     id uuid NOT NULL,
     user_id uuid NOT NULL,
-    amount integer NOT NULL,
+    amount bigint NOT NULL,
     track text DEFAULT 'main'::text NOT NULL,
     source text NOT NULL,
     reference_id text,
-    base_amount integer NOT NULL,
+    base_amount bigint NOT NULL,
     created_at timestamp with time zone,
     archived_at timestamp with time zone DEFAULT now() NOT NULL
 )
@@ -4994,8 +5103,47 @@ CREATE TABLE public.zobian_of_month (
 );
 
 
+-- Accounting history views
+
+
+CREATE VIEW public.coin_ledger_history WITH (security_invoker='true') AS
+ SELECT coin_ledger.id,
+    coin_ledger.user_id,
+    coin_ledger.amount
+   FROM public.coin_ledger
+UNION ALL
+ SELECT coin_ledger_archive.id,
+    coin_ledger_archive.user_id,
+    coin_ledger_archive.amount
+   FROM public.coin_ledger_archive;
+
+CREATE VIEW public.star_ledger_history WITH (security_invoker='true') AS
+ SELECT star_ledger.id,
+    star_ledger.user_id,
+    star_ledger.amount
+   FROM public.star_ledger
+UNION ALL
+ SELECT star_ledger_archive.id,
+    star_ledger_archive.user_id,
+    star_ledger_archive.amount
+   FROM public.star_ledger_archive;
+
+CREATE VIEW public.xp_ledger_history WITH (security_invoker='true') AS
+ SELECT xp_ledger.id,
+    xp_ledger.user_id,
+    xp_ledger.amount
+   FROM public.xp_ledger
+UNION ALL
+ SELECT xp_ledger_archive.id,
+    xp_ledger_archive.user_id,
+    xp_ledger_archive.amount
+   FROM public.xp_ledger_archive;
+
+
 -- Object comments
 
+
+COMMENT ON SCHEMA public IS 'standard public schema';
 
 COMMENT ON COLUMN public.group_chat_members.credited_message_count IS 'Messages counted toward business_message_credit_threshold for this member in this group. Stops incrementing once the threshold is reached (one-time credit).';
 
@@ -6888,6 +7036,9 @@ ALTER TABLE ONLY public.account_appeals
 ALTER TABLE ONLY public.account_appeals
     ADD CONSTRAINT account_appeals_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY public.account_restore_uses
+    ADD CONSTRAINT account_restore_uses_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY public.account_type_play_products
     ADD CONSTRAINT account_type_play_products_account_type_slug_fkey FOREIGN KEY (account_type_slug) REFERENCES public.account_types(slug);
 
@@ -7425,11 +7576,17 @@ ALTER TABLE ONLY public.creator_spotlights
 ALTER TABLE ONLY public.creator_wallet_addresses
     ADD CONSTRAINT creator_wallet_addresses_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY public.cron_job_steps
+    ADD CONSTRAINT cron_job_steps_job_key_run_date_fkey FOREIGN KEY (job_key, run_date) REFERENCES public.cron_job_runs(job_key, run_date) ON DELETE CASCADE;
+
 ALTER TABLE ONLY public.crypto_balance_ledger
     ADD CONSTRAINT crypto_balance_ledger_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.crypto_exchange_rate_overrides
     ADD CONSTRAINT crypto_exchange_rate_overrides_set_by_admin_id_fkey FOREIGN KEY (set_by_admin_id) REFERENCES public.users(id) ON DELETE SET NULL;
+
+ALTER TABLE ONLY public.crypto_transfer_claims
+    ADD CONSTRAINT crypto_transfer_claims_payment_id_fkey FOREIGN KEY (payment_id) REFERENCES public.payments(id);
 
 ALTER TABLE ONLY public.data_export_requests
     ADD CONSTRAINT data_export_requests_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
@@ -7572,6 +7729,9 @@ ALTER TABLE ONLY public.game_plays
 ALTER TABLE ONLY public.game_plays
     ADD CONSTRAINT game_plays_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
+ALTER TABLE ONLY public.game_progress_tasks
+    ADD CONSTRAINT game_progress_tasks_play_id_fkey FOREIGN KEY (play_id) REFERENCES public.game_plays(id) ON DELETE CASCADE;
+
 ALTER TABLE ONLY public.game_ratings
     ADD CONSTRAINT game_ratings_game_id_fkey FOREIGN KEY (game_id) REFERENCES public.games(id) ON DELETE CASCADE;
 
@@ -7583,6 +7743,9 @@ ALTER TABLE ONLY public.game_saves
 
 ALTER TABLE ONLY public.game_saves
     ADD CONSTRAINT game_saves_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.game_score_attestations
+    ADD CONSTRAINT game_score_attestations_play_id_fkey FOREIGN KEY (play_id) REFERENCES public.game_plays(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.games
     ADD CONSTRAINT games_creator_id_fkey FOREIGN KEY (creator_id) REFERENCES public.users(id) ON DELETE SET NULL;
@@ -8126,6 +8289,9 @@ ALTER TABLE ONLY public.reports
 
 ALTER TABLE ONLY public.reports
     ADD CONSTRAINT reports_reporter_id_fkey FOREIGN KEY (reporter_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+ALTER TABLE ONLY public.restore_email_tasks
+    ADD CONSTRAINT restore_email_tasks_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 ALTER TABLE ONLY public.room_member_highlights
     ADD CONSTRAINT room_member_highlights_highlighted_by_fkey FOREIGN KEY (highlighted_by) REFERENCES public.users(id) ON DELETE CASCADE;
@@ -8686,6 +8852,8 @@ CREATE UNIQUE INDEX content_treasuries_type_content_idx ON public.content_treasu
 CREATE UNIQUE INDEX content_treasury_claims_treasury_user_idx ON public.content_treasury_claims USING btree (treasury_id, user_id, generation);
 
 CREATE UNIQUE INDEX creator_earnings_reference_id_idx ON public.creator_earnings USING btree (creator_id, reference_id) WHERE (reference_id IS NOT NULL);
+
+CREATE INDEX failed_webhooks_due_idx ON public.failed_webhooks USING btree (next_retry_at, created_at) WHERE (resolved_at IS NULL);
 
 CREATE UNIQUE INDEX forum_categories_slug_unique_idx ON public.forum_categories USING btree (slug);
 
@@ -9525,6 +9693,8 @@ CREATE INDEX new_member_quests_user_id_idx ON public.new_member_quests USING btr
 
 CREATE UNIQUE INDEX notifications_type_null_ref_unique ON public.notifications USING btree (user_id, type) WHERE (reference_id IS NULL);
 
+CREATE INDEX object_deletion_due ON public.object_deletion_tasks USING btree (available_at) WHERE (attempts < 10);
+
 CREATE INDEX play_purchase_receipts_user ON public.play_purchase_receipts USING btree (user_id);
 
 CREATE INDEX poll_options_poll_idx ON public.poll_options USING btree (poll_id, "position");
@@ -9687,6 +9857,8 @@ CREATE TRIGGER users_bookmark_entitlement AFTER INSERT OR UPDATE OF plan ON publ
 -- Row-level security
 
 
+ALTER TABLE public.account_restore_uses ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.account_type_play_products ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.account_types ENABLE ROW LEVEL SECURITY;
@@ -9725,6 +9897,12 @@ ALTER TABLE public.creator_kyc ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.creator_payouts ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.cron_job_runs ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.cron_job_steps ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.crypto_transfer_claims ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.dm_conversations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.failed_xp_awards ENABLE ROW LEVEL SECURITY;
@@ -9733,7 +9911,11 @@ ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.game_progress_tasks ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.game_saves ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.game_score_attestations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.gift_items ENABLE ROW LEVEL SECURITY;
 
@@ -9765,7 +9947,11 @@ ALTER TABLE public.nemesis_assignments ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 
+ALTER TABLE public.object_deletion_tasks ENABLE ROW LEVEL SECURITY;
+
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.phone_verification_codes ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.play_purchase_receipts ENABLE ROW LEVEL SECURITY;
 
@@ -9782,6 +9968,8 @@ ALTER TABLE public.referral_commissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.referrals ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.reports ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.restore_email_tasks ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.room_members ENABLE ROW LEVEL SECURITY;
 
@@ -9857,9 +10045,153 @@ CREATE POLICY admin_msg_receipts_own ON public.admin_message_receipts FOR SELECT
 
 CREATE POLICY admin_msg_receipts_update_own ON public.admin_message_receipts FOR UPDATE USING (((user_id)::text = current_setting('app.current_user_id'::text, true)));
 
+CREATE POLICY app_server_access ON public.account_restore_uses USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.account_type_play_products USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.account_types USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.admin_message_receipts USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.admin_messages USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.announcement_banners USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.announcement_modals USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.audit_discrepancies_archive USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.automation_accounts USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.automation_generations USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.automation_jobs USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.blog_post_bundle_purchases USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.bookmark_entitlements USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.bookmark_folders USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.bookmarks USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.coin_ledger USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.content_hashtags USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.creator_earnings USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.creator_kyc USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.creator_payouts USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.crypto_transfer_claims USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.dm_conversations USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.failed_xp_awards USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.follows USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.friendships USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.game_saves USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.gift_items USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.gifts USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.group_chat_members USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.group_chats USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.guild_members USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.guild_wars USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.guilds USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.hashtags USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.help_ai_requests USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.kyc_documents USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.kyc_submissions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.message_reactions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.messages USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.nemesis_assignments USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.notifications USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.payments USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.phone_verification_codes USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.play_purchase_receipts USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.portal_follows USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.portal_stats_daily USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.portals USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.rank_up_events_archive USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.referral_commissions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.referrals USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.reports USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.room_members USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.room_messages USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.room_visits USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.rooms USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.seasons USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.star_ledger USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.subscriptions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_account_restrictions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_appeals USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_author_subscriptions USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_chapters USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_comments USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_moderation_log USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_unlocks USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tale_votes USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.tales USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.telegram_login_states USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.user_modal_views USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.users USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.x_manifest USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY app_server_access ON public.xp_ledger USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
 CREATE POLICY banners_select ON public.announcement_banners FOR SELECT USING (true);
 
-CREATE POLICY classroom_chat_enrolment ON public.room_messages AS RESTRICTIVE FOR SELECT USING (((NOT (EXISTS ( SELECT 1
+CREATE POLICY classroom_chat_enrolment ON public.room_messages AS RESTRICTIVE FOR SELECT USING (((current_setting('app.is_system'::text, true) = 'true'::text) OR ((NOT (EXISTS ( SELECT 1
    FROM public.rooms r
   WHERE ((r.id = room_messages.room_id) AND (r.type = 'classroom'::text))))) OR (EXISTS ( SELECT 1
    FROM public.classroom_enrolments ce
@@ -9869,7 +10201,7 @@ CREATE POLICY classroom_chat_enrolment ON public.room_messages AS RESTRICTIVE FO
    FROM public.users u
   WHERE (((u.id)::text = current_setting('app.current_user_id'::text, true)) AND (u.is_admin OR u.is_moderator)))) OR (EXISTS ( SELECT 1
    FROM public.classroom_moderators cm
-  WHERE ((cm.room_id = room_messages.room_id) AND ((cm.user_id)::text = current_setting('app.current_user_id'::text, true)) AND (cm.status = 'active'::text) AND cm.is_moderator)))));
+  WHERE ((cm.room_id = room_messages.room_id) AND ((cm.user_id)::text = current_setting('app.current_user_id'::text, true)) AND (cm.status = 'active'::text) AND cm.is_moderator))))));
 
 CREATE POLICY coin_ledger_insert_service ON public.coin_ledger FOR INSERT WITH CHECK (true);
 
@@ -9895,6 +10227,12 @@ CREATE POLICY creator_payouts_isolation ON public.creator_payouts USING (((curre
 
 CREATE POLICY creator_payouts_self_or_admin ON public.creator_payouts USING (((creator_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid) OR (current_setting('app.is_admin'::text, true) = 'true'::text) OR (current_setting('app.is_system'::text, true) = 'true'::text)));
 
+CREATE POLICY cron_run_server ON public.cron_job_runs USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY cron_step_server ON public.cron_job_steps USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY crypto_claims_system ON public.crypto_transfer_claims USING ((current_setting('app.is_system'::text, true) = 'true'::text));
+
 CREATE POLICY dm_conversations_isolation ON public.dm_conversations USING (((current_setting('app.current_user_id'::text, true) = ''::text) OR ((user_id_1)::text = current_setting('app.current_user_id'::text, true)) OR ((user_id_2)::text = current_setting('app.current_user_id'::text, true))));
 
 CREATE POLICY earnings_insert_service ON public.creator_earnings FOR INSERT WITH CHECK (true);
@@ -9915,6 +10253,10 @@ CREATE POLICY friendships_own ON public.friendships FOR SELECT USING ((((request
 
 CREATE POLICY friendships_update_own ON public.friendships FOR UPDATE USING ((((requester_id)::text = current_setting('app.current_user_id'::text, true)) OR ((addressee_id)::text = current_setting('app.current_user_id'::text, true))));
 
+CREATE POLICY game_attestation_server ON public.game_score_attestations USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY game_progress_server ON public.game_progress_tasks USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
 CREATE POLICY game_saves_isolation ON public.game_saves USING (((current_setting('app.current_user_id'::text, true) = ''::text) OR ((user_id)::text = current_setting('app.current_user_id'::text, true))));
 
 CREATE POLICY gift_items_select ON public.gift_items FOR SELECT USING (true);
@@ -9927,9 +10269,7 @@ CREATE POLICY gifts_self_or_admin ON public.gifts USING (((sender_id = (NULLIF(c
 
 CREATE POLICY group_chat_members_insert_service ON public.group_chat_members FOR INSERT WITH CHECK (true);
 
-CREATE POLICY group_chat_members_select ON public.group_chat_members FOR SELECT USING ((group_chat_id IN ( SELECT group_chat_members_1.group_chat_id
-   FROM public.group_chat_members group_chat_members_1
-  WHERE ((group_chat_members_1.user_id)::text = current_setting('app.current_user_id'::text, true)))));
+CREATE POLICY group_chat_members_select ON public.group_chat_members FOR SELECT USING (public.app_group_member(group_chat_id));
 
 CREATE POLICY group_chats_insert ON public.group_chats FOR INSERT WITH CHECK (((creator_id)::text = current_setting('app.current_user_id'::text, true)));
 
@@ -9945,9 +10285,7 @@ CREATE POLICY guild_members_isolation ON public.guild_members USING (((current_s
 
 CREATE POLICY guild_members_read_public ON public.guild_members FOR SELECT USING (((current_setting('app.current_user_id'::text, true) = ''::text) AND (left_at IS NULL)));
 
-CREATE POLICY guild_members_select ON public.guild_members FOR SELECT USING ((((user_id)::text = current_setting('app.current_user_id'::text, true)) OR (guild_id IN ( SELECT guild_members_1.guild_id
-   FROM public.guild_members guild_members_1
-  WHERE ((guild_members_1.user_id)::text = current_setting('app.current_user_id'::text, true))))));
+CREATE POLICY guild_members_select ON public.guild_members FOR SELECT USING ((((user_id)::text = current_setting('app.current_user_id'::text, true)) OR public.app_guild_member(guild_id)));
 
 CREATE POLICY guild_members_update_service ON public.guild_members FOR UPDATE USING (true);
 
@@ -9973,9 +10311,9 @@ BEGIN
 END
 $policy$;
 
-CREATE POLICY kyc_documents_self_or_admin ON public.kyc_documents USING (((user_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid) OR (current_setting('app.is_admin'::text, true) = 'true'::text) OR (current_setting('app.is_system'::text, true) = 'true'::text)));
+CREATE POLICY kyc_documents_self_or_admin ON public.kyc_documents USING ((((user_id)::text = COALESCE(NULLIF(current_setting('app.user_id'::text, true), ''::text), NULLIF(current_setting('app.current_user_id'::text, true), ''::text))) OR (current_setting('app.is_admin'::text, true) = 'true'::text) OR (current_setting('app.is_system'::text, true) = 'true'::text)));
 
-CREATE POLICY kyc_submissions_self_or_admin ON public.kyc_submissions USING (((user_id = (NULLIF(current_setting('app.user_id'::text, true), ''::text))::uuid) OR (current_setting('app.is_admin'::text, true) = 'true'::text) OR (current_setting('app.is_system'::text, true) = 'true'::text)));
+CREATE POLICY kyc_submissions_self_or_admin ON public.kyc_submissions USING ((((user_id)::text = COALESCE(NULLIF(current_setting('app.user_id'::text, true), ''::text), NULLIF(current_setting('app.current_user_id'::text, true), ''::text))) OR (current_setting('app.is_admin'::text, true) = 'true'::text) OR (current_setting('app.is_system'::text, true) = 'true'::text)));
 
 CREATE POLICY manifest_select ON public.x_manifest FOR SELECT USING (true);
 
@@ -10001,6 +10339,8 @@ CREATE POLICY nemesis_own ON public.nemesis_assignments FOR SELECT USING (((user
 
 CREATE POLICY notifications_isolation ON public.notifications USING (((current_setting('app.current_user_id'::text, true) = ''::text) OR ((user_id)::text = current_setting('app.current_user_id'::text, true))));
 
+CREATE POLICY object_deletion_server ON public.object_deletion_tasks USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
 CREATE POLICY payments_insert_service ON public.payments FOR INSERT WITH CHECK (true);
 
 CREATE POLICY payments_own ON public.payments FOR SELECT USING (((user_id)::text = current_setting('app.current_user_id'::text, true)));
@@ -10012,6 +10352,8 @@ CREATE POLICY payments_update_service ON public.payments FOR UPDATE USING (true)
 CREATE POLICY payouts_insert_own ON public.creator_payouts FOR INSERT WITH CHECK (((creator_id)::text = current_setting('app.current_user_id'::text, true)));
 
 CREATE POLICY payouts_own ON public.creator_payouts FOR SELECT USING (((creator_id)::text = current_setting('app.current_user_id'::text, true)));
+
+CREATE POLICY phone_codes_system ON public.phone_verification_codes USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
 
 DO $policy$
 DECLARE existing_roles text;
@@ -10044,6 +10386,10 @@ CREATE POLICY referrals_update_service ON public.referrals FOR UPDATE USING (tru
 CREATE POLICY reports_insert ON public.reports FOR INSERT WITH CHECK (((reporter_id)::text = current_setting('app.current_user_id'::text, true)));
 
 CREATE POLICY reports_select_own ON public.reports FOR SELECT USING (((reporter_id)::text = current_setting('app.current_user_id'::text, true)));
+
+CREATE POLICY restore_mail_server ON public.restore_email_tasks USING ((current_setting('app.is_system'::text, true) = 'true'::text)) WITH CHECK ((current_setting('app.is_system'::text, true) = 'true'::text));
+
+CREATE POLICY restore_uses_system ON public.account_restore_uses USING ((current_setting('app.is_system'::text, true) = 'true'::text));
 
 CREATE POLICY room_members_insert_service ON public.room_members FOR INSERT WITH CHECK (true);
 
@@ -10107,6 +10453,7 @@ CREATE POLICY xp_ledger_select_own ON public.xp_ledger FOR SELECT USING (((user_
 
 REVOKE ALL ON TABLE
   public.account_appeals,
+  public.account_restore_uses,
   public.account_type_play_products,
   public.account_types,
   public.ad_ai_escalations,
@@ -10205,10 +10552,13 @@ REVOKE ALL ON TABLE
   public.creator_payouts,
   public.creator_spotlights,
   public.creator_wallet_addresses,
+  public.cron_job_runs,
+  public.cron_job_steps,
   public.cron_state,
   public.crypto_balance_ledger,
   public.crypto_exchange_rate_overrides,
   public.crypto_price_cache,
+  public.crypto_transfer_claims,
   public.data_export_requests,
   public.dm_conversation_score_milestones,
   public.dm_conversation_unlocks,
@@ -10238,8 +10588,10 @@ REVOKE ALL ON TABLE
   public.game_milestone_claims,
   public.game_play_milestones,
   public.game_plays,
+  public.game_progress_tasks,
   public.game_ratings,
   public.game_saves,
+  public.game_score_attestations,
   public.games,
   public.gift_items,
   public.gift_reward_grants,
@@ -10294,6 +10646,7 @@ REVOKE ALL ON TABLE
   public.new_member_quests,
   public.notices,
   public.notifications,
+  public.object_deletion_tasks,
   public.password_reset_tokens,
   public.payment_context_settings,
   public.payments,
@@ -10327,6 +10680,7 @@ REVOKE ALL ON TABLE
   public.referrals,
   public.refunds,
   public.reports,
+  public.restore_email_tasks,
   public.room_member_highlights,
   public.room_members,
   public.room_message_reactions,
@@ -10414,12 +10768,16 @@ REVOKE ALL ON TABLE
   public.xp_events_archive,
   public.xp_ledger,
   public.xp_ledger_archive,
-  public.zobian_of_month
+  public.zobian_of_month,
+  public.coin_ledger_history,
+  public.star_ledger_history,
+  public.xp_ledger_history
 FROM PUBLIC;
 
 DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
  REVOKE ALL ON TABLE
   public.account_appeals,
+  public.account_restore_uses,
   public.account_type_play_products,
   public.account_types,
   public.ad_ai_escalations,
@@ -10518,10 +10876,13 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
   public.creator_payouts,
   public.creator_spotlights,
   public.creator_wallet_addresses,
+  public.cron_job_runs,
+  public.cron_job_steps,
   public.cron_state,
   public.crypto_balance_ledger,
   public.crypto_exchange_rate_overrides,
   public.crypto_price_cache,
+  public.crypto_transfer_claims,
   public.data_export_requests,
   public.dm_conversation_score_milestones,
   public.dm_conversation_unlocks,
@@ -10551,8 +10912,10 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
   public.game_milestone_claims,
   public.game_play_milestones,
   public.game_plays,
+  public.game_progress_tasks,
   public.game_ratings,
   public.game_saves,
+  public.game_score_attestations,
   public.games,
   public.gift_items,
   public.gift_reward_grants,
@@ -10607,6 +10970,7 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
   public.new_member_quests,
   public.notices,
   public.notifications,
+  public.object_deletion_tasks,
   public.password_reset_tokens,
   public.payment_context_settings,
   public.payments,
@@ -10640,6 +11004,7 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
   public.referrals,
   public.refunds,
   public.reports,
+  public.restore_email_tasks,
   public.room_member_highlights,
   public.room_members,
   public.room_message_reactions,
@@ -10727,13 +11092,17 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
   public.xp_events_archive,
   public.xp_ledger,
   public.xp_ledger_archive,
-  public.zobian_of_month
+  public.zobian_of_month,
+  public.coin_ledger_history,
+  public.star_ledger_history,
+  public.xp_ledger_history
  FROM anon;
 END IF; END $private$;
 
 DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
  REVOKE ALL ON TABLE
   public.account_appeals,
+  public.account_restore_uses,
   public.account_type_play_products,
   public.account_types,
   public.ad_ai_escalations,
@@ -10832,10 +11201,13 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated
   public.creator_payouts,
   public.creator_spotlights,
   public.creator_wallet_addresses,
+  public.cron_job_runs,
+  public.cron_job_steps,
   public.cron_state,
   public.crypto_balance_ledger,
   public.crypto_exchange_rate_overrides,
   public.crypto_price_cache,
+  public.crypto_transfer_claims,
   public.data_export_requests,
   public.dm_conversation_score_milestones,
   public.dm_conversation_unlocks,
@@ -10865,8 +11237,10 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated
   public.game_milestone_claims,
   public.game_play_milestones,
   public.game_plays,
+  public.game_progress_tasks,
   public.game_ratings,
   public.game_saves,
+  public.game_score_attestations,
   public.games,
   public.gift_items,
   public.gift_reward_grants,
@@ -10921,6 +11295,7 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated
   public.new_member_quests,
   public.notices,
   public.notifications,
+  public.object_deletion_tasks,
   public.password_reset_tokens,
   public.payment_context_settings,
   public.payments,
@@ -10954,6 +11329,7 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated
   public.referrals,
   public.refunds,
   public.reports,
+  public.restore_email_tasks,
   public.room_member_highlights,
   public.room_members,
   public.room_message_reactions,
@@ -11041,13 +11417,28 @@ DO $private$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated
   public.xp_events_archive,
   public.xp_ledger,
   public.xp_ledger_archive,
-  public.zobian_of_month
+  public.zobian_of_month,
+  public.coin_ledger_history,
+  public.star_ledger_history,
+  public.xp_ledger_history
  FROM authenticated;
 END IF; END $private$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT USAGE ON SCHEMA public TO service_role;
+END IF; END $grant$;
 
 REVOKE ALL ON FUNCTION public.automation_official_name() FROM PUBLIC;
 
 REVOKE ALL ON FUNCTION public.retain_bookmark_entitlement() FROM PUBLIC;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_appeals TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_restore_uses TO service_role;
+END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.account_type_play_products TO service_role;
@@ -11058,7 +11449,103 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_ai_escalations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_campaign_daily_stats TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_campaigns TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_coupon_redemptions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_coupons TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_creatives TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_placements TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ad_wallet_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_actions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_audit_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_data_import_jobs TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_message_receipts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.admin_roles TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.ai_call_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.alert_notification_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.alliance_wars TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.announcement_banners TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.announcement_modals TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.app_settings TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_discrepancies TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_discrepancies_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.audit_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.automated_actions_log TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
@@ -11074,7 +11561,95 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bb_boards TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bb_post_reactions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bb_posts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bb_pot_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bb_threads TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_categories TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_contact_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_gift_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_gift_purchases TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_gift_tiers TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_moderation_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_bundle_purchases TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_comments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_daily_stats TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_likes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_shares TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_treasuries TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_treasury_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_post_unlocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_posts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_subscriptions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blog_themes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.blogs TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
@@ -11089,6 +11664,122 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.bookmarks TO service_role;
 END IF; END $grant$;
 
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.boost_types TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.branded_rooms TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.business_accounts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.business_page_daily_stats TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.business_page_posts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.business_pages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_daily_stats TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_enrolments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_lesson_completions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_likes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_member_badges TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_member_points TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_moderators TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_points_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_post_comments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_posts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_quiz_attempts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_quiz_questions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_quizzes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_reports TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_shares TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.classroom_slug_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.coin_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.coin_ledger_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT ON TABLE public.coin_ledger_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.community_note_votes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.community_notes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.content_engagement_signals TO service_role;
+END IF; END $grant$;
+
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
  GRANT SELECT ON TABLE public.content_hashtags TO anon;
 END IF; END $grant$;
@@ -11099,6 +11790,318 @@ END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.content_hashtags TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.content_shares TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.content_treasuries TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.content_treasury_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.conversation_scores TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.council_invitations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_bank_accounts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_broadcasts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_crypto_balances TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_earnings TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_kyc TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_payouts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_spotlights TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.creator_wallet_addresses TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cron_job_runs TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cron_job_steps TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.cron_state TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.crypto_balance_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.crypto_exchange_rate_overrides TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.crypto_price_cache TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.crypto_transfer_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.data_export_requests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.dm_conversation_score_milestones TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.dm_conversation_unlocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.dm_conversations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.dm_score_sticker_unlocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.drop_room_replays TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.elder_mentorships TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.elder_requests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.failed_commissions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.failed_webhooks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.failed_xp_awards TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.feature_flags TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.flash_xp_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.follows TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.footer_scripts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_answers TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_categories TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_favorites TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_moderation_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_questions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.forum_votes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.friendships TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_best_scores TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_challenge_rounds TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_challenges TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_favorites TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_milestone_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_play_milestones TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_plays TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_progress_tasks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_ratings TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_saves TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.game_score_attestations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.games TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gift_items TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gift_reward_grants TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gift_types TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.gifts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.group_chat_blocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.group_chat_members TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.group_chat_reactivation_choices TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.group_chats TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_alliance_members TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_alliances TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_applications TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_contribution_alerts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_invites TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_members TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_quest_contributions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_quests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_rooms TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_tier_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_treasury_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_war_rematch_tokens TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guild_wars TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.guilds TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.hall_of_fame TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
@@ -11117,12 +12120,132 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.help_ai_requests TO service_role;
 END IF; END $grant$;
 
-DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
- GRANT SELECT ON TABLE public.phone_verification_codes TO anon;
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.help_categories TO service_role;
 END IF; END $grant$;
 
-DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN
- GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.phone_verification_codes TO authenticated;
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.help_docs TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kyc_documents TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.kyc_submissions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.leaderboard_rank_snapshots TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.leaderboard_snapshots TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.learning_certificates TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.merch_orders TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.merch_product_reviews TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.merch_products TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.merch_stores TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.message_reactions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moderation_actions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moderation_ai_escalations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moderation_report_reporters TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moderation_reports TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moment_reactions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moment_views TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.moments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.monthly_gift_drops TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.nemesis_assignments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.nemesis_challenges TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.new_member_quest_dismissals TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.new_member_quests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notices TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.notifications TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.object_deletion_tasks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.password_reset_tokens TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.payment_context_settings TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.payments TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.payout_dead_letter_queue TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
@@ -11130,7 +12253,31 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.platform_council_ideas TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.platform_council_members TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.platform_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.play_purchase_receipts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.poll_options TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.poll_votes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.polls TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN
@@ -11170,7 +12317,215 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.profile_themes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.push_tickets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quest_feature_boosts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quest_templates TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quiz_attempt_answers TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quiz_attempts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quiz_question_options TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quiz_questions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.quizzes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.rank_up_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.rank_up_events_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reaction_set_items TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reaction_sets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.referral_commissions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.referral_visits TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.referrals TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.refunds TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.reports TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.restore_email_tasks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_member_highlights TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_members TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_message_reactions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_moderation_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_monthly_active_users TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_pins TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_promotions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_subscriptions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.room_visits TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.rooms TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.season_pass_milestones TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.season_rank_archives TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.seasons TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.site_contact_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.slug_redirects TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sponsored_leaderboard_banners TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sponsored_quest_applications TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sponsored_quest_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sponsored_quests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.staff_alert_contacts TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.star_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.star_ledger_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT ON TABLE public.star_ledger_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.sticker_packs TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.stickers TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.store_items TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.subscription_cancellation_feedback TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.subscription_plans TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.subscriptions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.support_ticket_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.support_ticket_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.support_tickets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.system_alerts TO service_role;
 END IF; END $grant$;
 
 DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
@@ -11209,12 +12564,201 @@ DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') 
  GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tales TO service_role;
 END IF; END $grant$;
 
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.telegram_delivery_queue TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.telegram_login_states TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.track_milestone_unlocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tweet_likes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tweet_mentions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tweet_retweets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.tweets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_announcement_rotation TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_badges TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_banner_views TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_blocks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_cosmetics TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_crypto_wallets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_daily_logins TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_email_preferences TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_inactivity_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_interests TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_messages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_modal_views TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_pins TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_push_tokens TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_quest_decks TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_quest_progress TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_reaction_sets TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_season_milestone_claims TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_season_passes TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_sticker_packs TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_subscriptions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_titles TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.user_xp_boosters TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.username_change_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.username_reservations TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.users TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.war_contributions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wiki_collaborators TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wiki_invites TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wiki_moderation_log TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wiki_page_revisions TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wiki_pages TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.wikis TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.x_manifest TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.xp_events TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.xp_events_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.xp_ledger TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.xp_ledger_archive TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT ON TABLE public.xp_ledger_history TO service_role;
+END IF; END $grant$;
+
+DO $grant$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
+ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE public.zobian_of_month TO service_role;
+END IF; END $grant$;
+
 DO $server_grants$
 BEGIN
  IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN
   GRANT USAGE ON SCHEMA public TO service_role;
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public.account_appeals,
+  public.account_restore_uses,
   public.account_type_play_products,
   public.account_types,
   public.ad_ai_escalations,
@@ -11313,10 +12857,13 @@ BEGIN
   public.creator_payouts,
   public.creator_spotlights,
   public.creator_wallet_addresses,
+  public.cron_job_runs,
+  public.cron_job_steps,
   public.cron_state,
   public.crypto_balance_ledger,
   public.crypto_exchange_rate_overrides,
   public.crypto_price_cache,
+  public.crypto_transfer_claims,
   public.data_export_requests,
   public.dm_conversation_score_milestones,
   public.dm_conversation_unlocks,
@@ -11346,8 +12893,10 @@ BEGIN
   public.game_milestone_claims,
   public.game_play_milestones,
   public.game_plays,
+  public.game_progress_tasks,
   public.game_ratings,
   public.game_saves,
+  public.game_score_attestations,
   public.games,
   public.gift_items,
   public.gift_reward_grants,
@@ -11402,6 +12951,7 @@ BEGIN
   public.new_member_quests,
   public.notices,
   public.notifications,
+  public.object_deletion_tasks,
   public.password_reset_tokens,
   public.payment_context_settings,
   public.payments,
@@ -11435,6 +12985,7 @@ BEGIN
   public.referrals,
   public.refunds,
   public.reports,
+  public.restore_email_tasks,
   public.room_member_highlights,
   public.room_members,
   public.room_message_reactions,
@@ -11522,7 +13073,10 @@ BEGIN
   public.xp_events_archive,
   public.xp_ledger,
   public.xp_ledger_archive,
-  public.zobian_of_month
+  public.zobian_of_month,
+  public.coin_ledger_history,
+  public.star_ledger_history,
+  public.xp_ledger_history
   TO service_role;
  END IF;
 END

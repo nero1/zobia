@@ -242,7 +242,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       : null;
 
     // BUG-45: audit read-path admin access to user profiles
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "user_profile_read",
       metadata: { query: q ?? null, cursor: cursor ?? null, limit, gender: gender.length > 0 ? gender : null },

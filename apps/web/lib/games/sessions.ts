@@ -48,8 +48,9 @@ export async function startPlaySession(
 ): Promise<StartedSession> {
   const nonce = randomUUID();
   const isChallenge = !!challengeRoundId;
-  const costCredits = isChallenge ? 0 : game.play_cost_credits;
-  const costStars = isChallenge ? 0 : game.play_cost_stars;
+  const financial=game.score_verification==='server' && !!process.env.GAME_RESULT_WEBHOOK_SECRET;
+  const costCredits = isChallenge || !financial ? 0 : game.play_cost_credits;
+  const costStars = isChallenge || !financial ? 0 : game.play_cost_stars;
 
   const orm = await getDb();
   return orm.transaction(async (tx) => {
@@ -163,6 +164,7 @@ export async function finalizeScore(
 
   let isNewBest = false;
   let isWin = false;
+  const financial=game.score_verification==='server' && !!process.env.GAME_RESULT_WEBHOOK_SECRET;
   let reward: RewardBundle = { credits: 0, xp: 0, stars: 0 };
 
   // Load reward config before the transaction so we don't hold the row lock
@@ -172,6 +174,11 @@ export async function finalizeScore(
 
   const orm = await getDb();
   await orm.transaction(async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`game-best:${game.id}:${userId}`}, 0))`);
+    if(financial){
+      const proof=await tx.execute<{score:number}>(sql`SELECT score FROM game_score_attestations WHERE play_id=${play.id} FOR UPDATE`);
+      if(!proof.rows.length || Number(proof.rows[0].score)!==score)throw badRequest("Waiting for the trusted game server to verify this score.","SCORE_NOT_VERIFIED");
+    }
     // Mark the play counted (consumes the nonce). Guarded so a concurrent
     // double-submit can't both succeed.
     const updated = await tx.execute<{ id: string }>(sql`
@@ -190,7 +197,11 @@ export async function finalizeScore(
     const bestResult = await tx.execute<{ best_score: number }>(sql`
       SELECT best_score FROM game_best_scores WHERE game_id = ${game.id} AND user_id = ${userId} LIMIT 1 FOR UPDATE
     `);
-    const previousBest = bestResult.rows[0]?.best_score ?? -1;
+    let previousBest = bestResult.rows[0]?.best_score ?? -1;
+    if(financial){
+      const verified=await tx.execute<{best_score:string|null}>(sql`SELECT MAX(p.score)::text best_score FROM game_plays p JOIN game_score_attestations a ON a.play_id=p.id WHERE p.game_id=${game.id} AND p.user_id=${userId} AND p.counted AND p.id<>${play.id}`);
+      previousBest=verified.rows[0]?.best_score===null?-1:Number(verified.rows[0]?.best_score??-1);
+    }
     isNewBest = score > previousBest;
 
     // A non-challenge "win" = a new personal best with a positive score.
@@ -204,9 +215,9 @@ export async function finalizeScore(
 
     // Standard per-win reward is granted inside the transaction so a failure
     // rolls back the counted flag and reward atomically (no partial-credit risk).
-    if (isWin && cfg) {
-      const credits = game.reward_credits_per_win || cfg.defaultRewardCredits;
-      const xp = game.reward_xp_per_win || cfg.defaultRewardXp;
+    if (isWin && cfg && financial) {
+      const credits = game.reward_credits_per_win ?? cfg.defaultRewardCredits;
+      const xp = game.reward_xp_per_win ?? cfg.defaultRewardXp;
       const stars = game.reward_stars_per_win;
       reward = await grantGamingReward(
         userId,
@@ -217,20 +228,12 @@ export async function finalizeScore(
         game.name
       );
     }
+    await tx.execute(sql`INSERT INTO game_progress_tasks(play_id) VALUES (${play.id}) ON CONFLICT DO NOTHING`);
   });
 
-  // Every counted play contributes to games-played milestones. BUG-GAMES-01:
-  // milestone failures must never roll back a successfully-scored play.
-  await checkPlayMilestones(userId).catch(
-    (err) => logger.error({ err, userId }, '[games] checkPlayMilestones failed')
-  );
-
-  // Advance the challenge round (settles the series + wager when both played).
-  if (isChallenge && play.challenge_round_id) {
-    await recordChallengeRoundPlay(play.challenge_round_id, userId, play.id, score).catch(
-      (err) => logger.error({ err, userId, challengeRoundId: play.challenge_round_id }, '[games] recordChallengeRoundPlay failed')
-    );
-  }
+  // Progress is committed with the score and retried until every step settles.
+  const {processGameProgress}=await import('@/lib/games/progress');
+  await processGameProgress(play.id).catch(error=>logger.error({error,playId:play.id},'[games] Progress queued for retry'));
 
   return {
     counted: true,

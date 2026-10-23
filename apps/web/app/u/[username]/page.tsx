@@ -12,13 +12,15 @@
 import type { Metadata, ResolvingMetadata } from "next";
 import Image from "next/image";
 import { notFound, permanentRedirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { cache } from "react";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and,eq,isNull } from "drizzle-orm";
 import { serializeJsonLd } from "@/lib/seo/metadata";
 import { resolveOldUsername } from "@/lib/username/availability";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
-const SUPPORTED_LOCALES = ["en", "fr", "ar", "sw", "ha", "pt", "am", "zu"] as const;
+
 
 // ---------------------------------------------------------------------------
 // DB row type
@@ -39,16 +41,14 @@ interface PublicProfile {
 // Data fetching
 // ---------------------------------------------------------------------------
 
-async function getPublicProfile(username: string): Promise<PublicProfile | null> {
-  const { rows } = await db.query<PublicProfile>(
-    `SELECT id, username, display_name, bio, avatar_url, is_creator, created_at, xp_total
-     FROM users
-     WHERE username = $1 AND deleted_at IS NULL AND is_banned = FALSE
-     LIMIT 1`,
-    [username]
-  );
-  return rows[0] ?? null;
-}
+const getPublicProfile = cache(async (username:string):Promise<PublicProfile|null>=>{
+  const db=await getDb();
+  const rows=await db.select({id:schema.users.id,username:schema.users.username,display_name:schema.users.displayName,
+    bio:schema.users.bio,avatar_url:schema.users.avatarUrl,is_creator:schema.users.isCreator,
+    created_at:schema.users.createdAt,xp_total:schema.users.xpTotal}).from(schema.users)
+    .where(and(eq(schema.users.username,username),isNull(schema.users.deletedAt),eq(schema.users.isBanned,false),eq(schema.users.profilePrivate,false))).limit(1);
+  const row=rows[0];return row?{...row,created_at:row.created_at?.toISOString()??"",xp_total:Number(row.xp_total)}:null;
+});
 
 // ---------------------------------------------------------------------------
 // generateMetadata
@@ -84,15 +84,8 @@ export async function generateMetadata(
     ? `${profile.bio.slice(0, 155)}`
     : `Check out @${profile.username}'s profile on Zobia Social.`;
 
-  // TASK-28: hreflang alternates for all 8 supported locales
-  const hreflangLanguages: Record<string, string> = {
-    "x-default": `${APP_URL}/u/${username}`,
-  };
-  for (const locale of SUPPORTED_LOCALES) {
-    hreflangLanguages[locale] = locale === "en"
-      ? `${APP_URL}/u/${username}`
-      : `${APP_URL}/${locale}/u/${username}`;
-  }
+  // Locale is a user preference; no locale-prefixed profile routes exist.
+  const hreflangLanguages = { "x-default": `${APP_URL}/u/${username}` };
 
   return {
     title: { absolute: title },

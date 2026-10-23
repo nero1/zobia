@@ -13,6 +13,7 @@ const MAX_BATCH = 20;
 const FLUSH_DEBOUNCE_MS = 2500;
 
 export interface QueuedAdEvent {
+  receipt: string;
   creativeId: string;
   placementKey: string;
   type: "impression" | "click";
@@ -36,6 +37,7 @@ function writeQueue(events: QueuedAdEvent[]): void {
   }
 }
 
+let flushing = false;
 let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function enqueueAdEvent(event: Omit<QueuedAdEvent, "clientEventId">): void {
@@ -50,36 +52,28 @@ export function enqueueAdEvent(event: Omit<QueuedAdEvent, "clientEventId">): voi
 }
 
 export async function flushAdEventQueue(useBeacon = false): Promise<void> {
-  if (typeof window === "undefined") return;
-  const queue = readQueue();
-  if (queue.length === 0) return;
-
-  const batch = queue.slice(0, MAX_BATCH);
-  const rest = queue.slice(MAX_BATCH);
-
-  try {
-    if (useBeacon && navigator.sendBeacon) {
-      const blob = new Blob([JSON.stringify({ events: batch })], { type: "application/json" });
-      navigator.sendBeacon("/api/ads/events", blob);
-      writeQueue(rest);
-      return;
-    }
-    const res = await fetch("/api/ads/events", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ events: batch }),
-    });
-    if (res.ok) {
-      writeQueue(rest);
-      if (rest.length > 0) {
-        flushTimer = setTimeout(() => void flushAdEventQueue(), FLUSH_DEBOUNCE_MS);
-      }
-    }
-    // Non-OK (e.g. offline, 401) — leave the queue intact for the next flush attempt.
-  } catch {
-    // Offline or network error — events stay queued in localStorage for the next trigger.
+  if (typeof window === "undefined" || flushing) return;
+  const batch = readQueue().filter(event=>typeof event.receipt==='string').slice(0,MAX_BATCH);
+  if (!batch.length) { writeQueue([]);return; }
+  if (useBeacon && navigator.sendBeacon) {
+    // A beacon has no delivery acknowledgment. Keep stable IDs for a later retry.
+    navigator.sendBeacon("/api/ads/events",new Blob([JSON.stringify({events:batch})],{type:"application/json"}));
+    return;
   }
+  flushing=true;
+  try {
+    const res=await fetch("/api/ads/events",{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({events:batch})});
+    if(res.ok) {
+      const json=await res.json();
+      const outcomes=json.data?.outcomes as Array<{clientEventId:string;status:string}>|undefined;
+      if(!Array.isArray(outcomes)) return;
+      const acknowledged=new Set(outcomes.filter(o=>["committed","duplicate","rejected"].includes(o.status)).map(o=>o.clientEventId));
+      // Re-read so enqueues during the request are preserved.
+      writeQueue(readQueue().filter(e=>!acknowledged.has(e.clientEventId)));
+      if(readQueue().length) flushTimer=setTimeout(()=>void flushAdEventQueue(),FLUSH_DEBOUNCE_MS);
+    }
+  } catch { /* Keep unacknowledged events for retry. */ }
+  finally {flushing=false;}
 }
 
 if (typeof window !== "undefined") {

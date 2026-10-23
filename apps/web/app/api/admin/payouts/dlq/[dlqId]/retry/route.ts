@@ -65,6 +65,9 @@ export const POST = withAdminAuth<DlqParams>(async (req: NextRequest, { params, 
           id: schema.creatorPayouts.id,
           status: schema.creatorPayouts.status,
           gross_kobo: schema.creatorPayouts.grossKobo,
+          net_kobo:schema.creatorPayouts.netKobo,
+          earnings_restored:schema.creatorPayouts.earningsRestored,
+          provider_status:schema.creatorPayouts.providerStatus,
           creator_id: schema.creatorPayouts.creatorId,
         })
         .from(schema.creatorPayouts)
@@ -72,7 +75,9 @@ export const POST = withAdminAuth<DlqParams>(async (req: NextRequest, { params, 
         .for("update");
 
       if (!payout) throw notFound("Originating payout not found");
-      const grossKobo = payout.gross_kobo ?? BigInt(0);
+      if(payout.provider_status==='ambiguous_success_after_restore' || payout.status==='completed' || payout.status==='reversed')throw badRequest("Reconcile the terminal provider result before retrying this payout");
+      if(payout.net_kobo===null)throw badRequest("Payout reserved amount is unavailable");
+      const grossKobo = payout.earnings_restored?payout.net_kobo:0n;
 
       // 3. Debit creator's available_earnings_kobo (restored when item was DLQ'd)
       //    before re-queuing — otherwise the creator would have free earnings.
@@ -100,7 +105,7 @@ export const POST = withAdminAuth<DlqParams>(async (req: NextRequest, { params, 
       // 4. Reset the payout back to 'pending' with a fresh retry counter
       await tx
         .update(schema.creatorPayouts)
-        .set({ status: "pending", retryCount: 0, nextRetryAt: null, updatedAt: new Date() })
+        .set({ status: "pending", earningsRestored:false,requiresManualApproval:false,retryCount: 0, nextRetryAt: null, updatedAt: new Date() })
         .where(eq(schema.creatorPayouts.id, payout.id));
 
       // 5. Mark the DLQ item as resolved

@@ -30,7 +30,7 @@ import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
 import { SessionExpiryCountdown } from "@/components/auth/SessionExpiryCountdown";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { loadManifest } from "@/lib/manifest";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { env } from "@/lib/env";
 import { getDir } from "@/lib/i18n/rtl";
 import { SUPPORTED_LOCALES, DEFAULT_LOCALE } from "@/lib/i18n/locales";
@@ -130,7 +130,7 @@ interface RootLayoutProps {
 async function getFooterScripts(): Promise<Array<{ id: string; content: string }>> {
   if (!env.DATABASE_PROVIDER) return [];
   try {
-    const { rows } = await db.query<{ id: string; content: string }>(
+    const { rows } = await executeSql<{ id: string; content: string }>(
       `SELECT id, content FROM footer_scripts
        WHERE is_active = TRUE
        ORDER BY position ASC, created_at ASC`

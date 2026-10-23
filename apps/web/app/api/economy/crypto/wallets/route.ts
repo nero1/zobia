@@ -94,7 +94,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         },
       });
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "user_crypto_wallet_saved",
       targetType: "user_crypto_wallet",
@@ -127,7 +127,7 @@ export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
       .returning({ id: schema.userCryptoWallets.id });
     if (deleted.length === 0) throw notFound("No saved wallet for this chain");
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "user_crypto_wallet_deleted",
       targetType: "user_crypto_wallet",

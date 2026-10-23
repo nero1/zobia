@@ -26,6 +26,13 @@ export interface WebPushMessage {
   badge?: number;
 }
 
+export function isValidPushSubscription(raw: string): boolean {
+  try {
+    const sub = JSON.parse(raw); const url = new URL(sub.endpoint);
+    const hosts = ["fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"];
+    return url.protocol === "https:" && !url.port && !url.username && !url.password && hosts.includes(url.hostname) && typeof sub.keys?.auth === "string" && /^[A-Za-z0-9_-]{20,32}$/.test(sub.keys.auth) && typeof sub.keys?.p256dh === "string" && /^[A-Za-z0-9_-]{80,100}$/.test(sub.keys.p256dh);
+  } catch { return false; }
+}
 export type WebPushSendResult = "ok" | "unregistered" | "error";
 
 let vapidConfigured = false;
@@ -49,6 +56,7 @@ function ensureVapidConfigured(): boolean {
  * lib/notifications/push.ts can fan out to all three providers uniformly.
  */
 export async function sendWebPushMessage(msg: WebPushMessage): Promise<WebPushSendResult> {
+  if (!isValidPushSubscription(msg.subscriptionJson)) return "unregistered";
   if (!ensureVapidConfigured()) {
     if (process.env.NODE_ENV === "production") {
       logger.warn("[webpush] VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not configured — skipping PWA push send");
@@ -74,7 +82,8 @@ export async function sendWebPushMessage(msg: WebPushMessage): Promise<WebPushSe
         body: msg.body,
         data: msg.data ?? {},
         badge: msg.badge,
-      })
+      }),
+      { timeout: 5000, TTL: 3600 }
     );
     return "ok";
   } catch (err) {

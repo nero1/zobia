@@ -10,7 +10,7 @@ export interface AccountProduct {
   isActive: boolean; builtIn?: boolean; revision?: number;
 }
 interface Setting { key: string; value: string; description: string | null }
-const field = "w-full rounded-lg border border-neutral-300 bg-white p-2 text-neutral-900 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100";
+const field = "w-full rounded-lg border border-input bg-background p-2 text-foreground";
 const button = "rounded-full border border-neutral-300 px-4 py-2 text-sm disabled:opacity-50";
 const panel = "rounded-xl border border-neutral-200 p-4 dark:border-neutral-700";
 const empty: AccountProduct = { slug: "", name: "", description: "", kind: "personal", basePlan: "free", monthlyPriceKobo: 0, annualPriceKobo: 0, playMonthlyProductId: null, playAnnualProductId: null, isActive: false };

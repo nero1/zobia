@@ -39,7 +39,7 @@ import {
   type ResolvedBanner,
   type ResolvedModal,
 } from "@/lib/announcements/engine";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { getDb } from "@/lib/db/drizzle";
 
 interface AppLayoutProps {
@@ -89,7 +89,7 @@ async function resolveAnnouncements(checkCouncilMembership: boolean): Promise<{
       // Only queried when the current route is actually gated by council
       // membership (see FEATURE_ROUTES below) — keeps this off every other page.
       checkCouncilMembership
-        ? db.query<{ is_member: boolean }>(
+        ? executeSql<{ is_member: boolean }>(
             `SELECT EXISTS(SELECT 1 FROM platform_council_members WHERE user_id = $1 AND left_at IS NULL) AS is_member`,
             [userId]
           ).catch(() => ({ rows: [{ is_member: false }] }))

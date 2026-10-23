@@ -74,7 +74,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     // BUG-45-style read-path auditing: viewing the audit trail is itself a
     // sensitive read (IP addresses, KYC/financial before/after diffs).
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "financial_read",
       metadata: { view: "audit_logs", source: query.source, filters: { action: query.action ?? null, targetType: query.targetType ?? null } },

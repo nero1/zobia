@@ -364,6 +364,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Return the result directly from the transaction so TypeScript can infer the type.
     const orm = await getDb();
     const payoutResult = await orm.transaction(async (tx) => {
+      const held=await tx.execute(sql`SELECT id FROM creator_payouts WHERE creator_id=${userId} AND provider_status='ambiguous_success_after_restore' LIMIT 1`);
+      if(held.rows.length)throw badRequest("A previous payout has a conflicting provider result. Contact support before requesting another payout.","PAYOUT_RECONCILIATION_REQUIRED");
       // Lock the user row for the duration of this transaction
       const [profileRow] = await tx
         .select({

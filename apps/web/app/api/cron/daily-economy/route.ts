@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -19,7 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 
 export const GET = async (req: NextRequest) => {
@@ -28,8 +29,8 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_economy_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_economy_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
@@ -72,6 +73,9 @@ export const GET = async (req: NextRequest) => {
 
   // 2. Monthly plan coin bonus (1st only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("monthlyPlanBonus",async()=>{
+
     if (utcDay === 1) {
       const monthKey = nowDate.toISOString().slice(0, 7);
       const PLAN_MONTHLY_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
@@ -150,12 +154,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.monthlyPlanBonus = { ran: false, reason: "Not the 1st of the month" };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`monthlyPlanBonus: ${String(err)}`);
   }
 
   // 3. Ad revenue share auto-enrolment (1st only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("adRevenueEnrolment",async()=>{
+
     if (utcDay === 1) {
       const lastMonthStart = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - 1, 1));
       const lastMonthEnd   = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1));
@@ -210,12 +219,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.adRevenueEnrolment = { ran: false, reason: 'Not the 1st of the month' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`adRevenueEnrolment: ${String(err)}`);
   }
 
   // 4. Weekly automated payouts (Fridays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("weeklyAutomatedPayouts",async()=>{
+
     if (dayOfWeek === 5) {
       const MIN_PAYOUT_KOBO = 100_000;
       const { rows: payoutCandidates } = await orm.execute<{
@@ -263,12 +277,17 @@ export const GET = async (req: NextRequest) => {
       }
       results.weeklyAutomatedPayouts = { initiated: payoutsInitiated };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`weeklyAutomatedPayouts: ${String(err)}`);
   }
 
   // 5. Referral 7-day streak qualifying
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("referralStreakQualifying",async()=>{
+
     const { getManifestValue } = await import("@/lib/manifest");
     const { creditCoins } = await import("@/lib/economy/coins");
 
@@ -317,22 +336,34 @@ export const GET = async (req: NextRequest) => {
       }
       results.referralStreakQualifying = { qualified: streakQualified };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`referralStreakQualifying: ${String(err)}`);
   }
 
   // 6. Subscription expiry -> grace period -> purge sweep
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("subscriptionSweep",async()=>{
+
     const { sweepSubscriptions } = await import("@/lib/plans/subscriptionSweep");
     results.subscriptionSweep = await sweepSubscriptions();
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`subscriptionSweep: ${String(err)}`);
   }
 
   // 7. Business account self-service tier downgrades due (grace period elapsed)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("businessDowngradeSweep",async()=>{
+
     const { sweepBusinessDowngrades } = await import("@/lib/business/downgradeSweep");
     results.businessDowngradeSweep = await sweepBusinessDowngrades();
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`businessDowngradeSweep: ${String(err)}`);
   }
@@ -340,10 +371,15 @@ export const GET = async (req: NextRequest) => {
   // 8. Ad advertiser grace period: stamp a deadline on ads whose business
   // account/page just lapsed, then stop any whose deadline has now passed.
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("adAdvertiserGraceSweep",async()=>{
+
     const { stampLapsedAdvertiserGrace, stopExpiredGraceCampaigns } = await import("@/lib/ads/repo");
     const stamped = await stampLapsedAdvertiserGrace();
     const stopped = await stopExpiredGraceCampaigns();
     results.adAdvertiserGraceSweep = { stamped, stopped };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`adAdvertiserGraceSweep: ${String(err)}`);
   }
@@ -351,12 +387,18 @@ export const GET = async (req: NextRequest) => {
   // 9. Forum reply-pot expiry: refund unclaimed treasury balances on threads
   // that have gone quiet for x_manifest.bbforum_pot_expiry_days (default 14).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("bbforumPotExpirySweep",async()=>{
+
     const { sweepExpiredPots } = await import("@/lib/bbforum/service");
     results.bbforumPotExpirySweep = await sweepExpiredPots();
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`bbforumPotExpirySweep: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

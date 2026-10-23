@@ -1280,7 +1280,7 @@ When a user receives any positive currency award, a floating pill animation rise
 
 **Trigger scenarios (additions only — never for deductions/spends):**
 - Any XP award (quest rewards, daily login, gifts, etc.)
-- Any Credits (coins) addition  
+- Any Credits (coins) addition
 - Any Stars addition
 - New user completing onboarding via the user's referral link → "+1 Referral"
 - Daily quest deck completion → confetti + "Daily Quests Complete! 🎉" + individual reward notifications
@@ -5295,11 +5295,21 @@ Support PostgreSQL 16+ on Supabase, Railway, DigitalOcean and other PostgreSQL h
 
 The SQL is an atomic fresh-database baseline, not an in-place rebuild. The runner serializes installs, commits history with schema/data, detects file changes and verifies a complete predecessor schema before adopting its history. Adoption synchronizes the baseline access allowlist while preserving existing data/settings. Refuse partial/mismatching histories, and allow verified registration after manual SQL execution. Future migrations use new files rather than rewriting an applied baseline.
 
-## Current concise changelog — v2.44 (development)
 
-- Consolidated former 0001–0039 into one final-state SQL file: 309 tables and 809 reference/configuration rows, with final constraints, indexes, functions, triggers, RLS and grants.
-- Made platform permissions conditional and explicit, preserving client access while blocking inherited private-table grants. The same SQL installs on ordinary PostgreSQL under a non-superuser owner.
-- Reworked migration history adoption, read-only status, deployment serialization and atomic schema/history recording. Existing data/settings are preserved; partial schemas and file drift are rejected.
-- Verified schema/reference equivalence, provider-role permissions, seven runner scenarios and optional demo seeding. Updated setup/maintainer instructions; no live database was modified.
+## Forensic hardening update — 2026-10-23
 
-Future changelogs must be concise, use short subheads or lists, and state the change, reason, important patterns/decisions, validation boundaries and maintainer lessons. Move durable requirements into the relevant specification section. Keep only the latest release changelog in this PRD after historical requirements have been reconciled; Git history retains earlier release notes.
+- Fresh installations use the single final-state migration with **317 tables** and three complete-ledger history views. Explicit service grants and private-table revocations are conditional on role existence, so ordinary PostgreSQL does not require Supabase. Existing verified installations use the runner's atomic upgrade; never apply the fresh baseline over existing data.
+- Protected requests check live sessions and account standing. Restore tokens are single-use and transactional; two-factor users complete normal second-factor authentication, and staff return through the admin login gate. Telegram uses the signed widget callback.
+- Crypto purchases bind an immutable quote, payer ownership signature, recipient, asset, time window and globally unique finalized chain transfer. Webhooks persist verified events before acknowledgment; retry queues retain failures and expose exhausted depth.
+- Games default to **practice mode**. Browser-reported scores cannot authorize money, wagers or rewarded milestones. Financial games require a trusted backend using the server-only `GAME_RESULT_WEBHOOK_SECRET` and `/api/games/results`; never embed that secret in a game client.
+- Identity documents require a separate private storage bucket. Set `SUPABASE_PRIVATE_STORAGE_BUCKET` (default `zobia-private`), `R2_PRIVATE_BUCKET_NAME`, or `S3_PRIVATE_BUCKET_NAME` for the selected provider. Supabase storage uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Existing identity files must be moved out of public buckets, verified at their new location and removed from the old public location before rollout; changing bucket configuration does not migrate objects.
+- Personal exports are pull-driven NDJSON downloads with short-lived signed links and a final completion record. Exports omit credentials and internal security material; attachment references do not constitute an object-storage backup. Deleted accounts lose verification/discovery and private files through recoverable cleanup, then retained profile identifiers are anonymized after the restore window.
+- Feed delivery rechecks cached visibility, uses precise keyset cursors for chronological feeds and shared fill leases for expensive caches. Web/PWA/Capacitor features reuse semantic theme tokens and shared accessible dialogs. Private navigation and API content are excluded from service-worker runtime caches.
+- Database integration, restricted-role portability, unit and API security checks accompany the changes. Production provider credentials, a representative concurrency load and a complete production backup restore still require deployment-specific exercises. Cron frequency is unchanged.
+
+## Current concise changelog — v2.45 (development)
+
+- Remediated the forensic findings across authentication, payment proofs, accounting, privacy, uploads, exports, caching, games, accessibility and SEO. `custom-bugs-report.md` tracks fixed findings with ✅; release checks remain explicit.
+- Preserved a single portable final-state migration, with a verified separate upgrade path for existing databases. Added blocking schema and negative-access checks.
+- Reused shared theme tokens and accessible dialogs across web and Capacitor; the discontinued Expo app is unchanged.
+- Operator setup: configure separate private storage and a trusted game result provider before enabling financial game rewards. No live database or external payment was used during local validation.

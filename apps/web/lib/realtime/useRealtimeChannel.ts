@@ -21,19 +21,21 @@
  */
 
 import { isProtectedRealtimeChannel } from "@zobia/shared/utils";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { toPusherChannelName } from "./pusherChannelName";
 import { invalidateReadCache } from "@/lib/cache/readCache";
 
 // Module-level Pusher singleton — one WebSocket connection shared across all
 // hook instances. Created lazily on first use; never disconnected until the
 // app unmounts (call disconnectPusher() at the top-level teardown if needed).
+const pusherReferences = new Map<string, number>();
 let pusherSingleton: InstanceType<typeof import("pusher-js").default> | null = null;
 
 /** Call at app unmount to cleanly close the shared Pusher connection. */
 export function disconnectPusher(): void {
   pusherSingleton?.disconnect();
   pusherSingleton = null;
+  pusherReferences.clear();
 }
 
 export function useRealtimeChannel(
@@ -41,6 +43,8 @@ export function useRealtimeChannel(
   onEvent: (event: string, data: unknown) => void
 ): boolean {
   const [connected, setConnected] = useState(false);
+  const eventRef = useRef(onEvent);
+  eventRef.current = onEvent;
 
   useEffect(() => {
     if (!channel) {
@@ -59,7 +63,7 @@ export function useRealtimeChannel(
     // change what the short-lived client read cache holds, so drop it first.
     const deliver = (event: string, data: unknown) => {
       if (channel.startsWith("user:")) invalidateReadCache();
-      onEvent(event, data);
+      if (!cancelled) eventRef.current(event, data);
     };
     // Guarded setter — never touch state after the effect has been torn down.
     const markConnected = (v: boolean) => {
@@ -159,30 +163,31 @@ export function useRealtimeChannel(
         }
         const pusher = pusherSingleton!;
 
-        pusher.connection.bind("state_change", (states: { current: string }) => {
-          markConnected(states.current === "connected");
-        });
-        // Reflect current connection state immediately
-        markConnected(pusher.connection.state === "connected");
-
         const sub = pusher.subscribe(pusherChannel);
-        // Pusher delivers named events — bind to all with a catch-all
-        sub.bind_global((eventName: string, data: unknown) => {
-          if (!eventName.startsWith("pusher:")) {
-            deliver(eventName, data);
-          }
-        });
-
-        if (cancelled) {
-          sub.unbind_all();
-          pusher.unsubscribe(pusherChannel);
-          return;
-        }
-        cleanup = () => {
-          sub.unbind_all();
-          pusher.unsubscribe(pusherChannel);
-          // Do NOT call pusher.disconnect() — the singleton is shared with other hook instances
+        pusherReferences.set(pusherChannel, (pusherReferences.get(pusherChannel) ?? 0) + 1);
+        const onState = (states: { current: string }) => {
+          markConnected(states.current === "connected" && sub.subscribed);
         };
+        const onSubscribed = () => markConnected(true);
+        const onError = () => markConnected(false);
+        const listener = (eventName: string, data: unknown) => {
+          if (!eventName.startsWith("pusher:")) deliver(eventName, data);
+        };
+        pusher.connection.bind("state_change", onState);
+        sub.bind("pusher:subscription_succeeded", onSubscribed);
+        sub.bind("pusher:subscription_error", onError);
+        sub.bind_global(listener);
+        markConnected(pusher.connection.state === "connected" && sub.subscribed);
+        cleanup = () => {
+          pusher.connection.unbind("state_change", onState);
+          sub.unbind("pusher:subscription_succeeded", onSubscribed);
+          sub.unbind("pusher:subscription_error", onError);
+          sub.unbind_global(listener);
+          const count = (pusherReferences.get(pusherChannel) ?? 1) - 1;
+          if (count <= 0) { pusherReferences.delete(pusherChannel); pusher.unsubscribe(pusherChannel); }
+          else pusherReferences.set(pusherChannel, count);
+        };
+        if (cancelled) cleanup();
       })();
     }
     // If no provider is configured, this is a no-op — `connected` stays false
@@ -193,8 +198,7 @@ export function useRealtimeChannel(
       setConnected(false);
       cleanup?.();
     };
-  // onEvent is intentionally excluded from deps to avoid reconnecting on every
-  // render — callers should wrap it in useCallback if they need it to change.
+  // The ref delivers fresh callbacks without resubscribing on each render.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [channel]);
 

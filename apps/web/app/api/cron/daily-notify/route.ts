@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -18,7 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 
 const CONCURRENCY = 5;
@@ -44,16 +45,21 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_notify_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_notify_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
   const results: Record<string, unknown> = {};
+  const {retryRestoreEmails}=await import("@/lib/notifications/restoreQueue");
+  results.restoreEmailRecovery=await retryRestoreEmails();
   const errors: string[] = [];
 
   // 1. Re-engagement notification dispatch
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("reengagementDispatch",async()=>{
+
     const { rows: inactiveUsers } = await orm.execute<{
       user_id: string;
       days_inactive: number;
@@ -169,12 +175,17 @@ export const GET = async (req: NextRequest) => {
     }
 
     results.reengagementDispatched = { dispatched };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`reengagementDispatch: ${String(err)}`);
   }
 
   // 2. Telegram re-engagement — concurrent delivery
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("telegramReengagement",async()=>{
+
     const { rows: telegramUsers } = await orm.execute<{
       user_id: string;
       telegram_id: string;
@@ -212,12 +223,17 @@ export const GET = async (req: NextRequest) => {
       `).catch(() => {});
     }
     results.telegramReengagement = { sent: successIds.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`telegramReengagement: ${String(err)}`);
   }
 
   // 3. Council invitations (last 7 days of month) — single INSERT...SELECT + batch push
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("councilInvitations",async()=>{
+
     const now = new Date();
     const lastDayOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
     if (now.getUTCDate() >= lastDayOfMonth - 6) {
@@ -263,6 +279,8 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.councilInvitations = { skipped: true, reason: 'Not last week of month' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`councilInvitations: ${String(err)}`);
   }
@@ -272,6 +290,9 @@ export const GET = async (req: NextRequest) => {
   // the top-50 cutoff the invitation step above uses to invite new members.
   // Notifies each dropped member so they know their seat ended (PRD §15).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("councilReconciliation",async()=>{
+
     const now = new Date();
     if (now.getUTCDate() === 1) {
       const cycleMonth = now.toISOString().slice(0, 7);
@@ -320,10 +341,13 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.councilReconciliation = { skipped: true, reason: 'Not 1st of month' };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`councilReconciliation: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

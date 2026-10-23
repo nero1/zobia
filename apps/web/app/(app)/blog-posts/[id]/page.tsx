@@ -14,12 +14,12 @@
  */
 
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 
 export default async function BlogPostRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { rows } = await db.query<{ blog_slug: string; post_slug: string }>(
+  const { rows } = await executeSql<{ blog_slug: string; post_slug: string }>(
     `SELECT b.slug AS blog_slug, p.slug AS post_slug
      FROM blog_posts p
      JOIN blogs b ON b.id = p.blog_id

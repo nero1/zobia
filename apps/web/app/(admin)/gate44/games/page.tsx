@@ -15,6 +15,7 @@
  * Mirrors the existing admin CRUD pattern (e.g. branded-rooms). Admin only.
  */
 
+import {useTranslation} from "react-i18next";
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 
@@ -67,6 +68,7 @@ interface GameRow {
   name: string;
   category: string | null;
   engine_key: string | null;
+  score_verification?:"practice"|"server";
   cover_emoji: string;
   cover_image_url: string | null;
   tagline: string | null;
@@ -110,6 +112,7 @@ const EMPTY: FormState = {
 type AdminViewMode = "list" | "card";
 
 export default function AdminGamesPage() {
+  const {t}=useTranslation();
   const [games, setGames] = useState<GameRow[]>([]);
   const [editing, setEditing] = useState<FormState | null>(null);
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -142,6 +145,7 @@ export default function AdminGamesPage() {
       slug: editing.slug || undefined,
       category: editing.category,
       engineKey: editing.engine_key,
+      scoreVerification:editing.score_verification??"practice",
       tagline: editing.tagline ?? null,
       description: editing.description ?? null,
       longDescription: editing.longDescription ?? null,
@@ -329,7 +333,8 @@ export default function AdminGamesPage() {
 
       {editing && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
-          <form onSubmit={save} className="mt-8 w-full max-w-lg space-y-3 rounded-xl bg-white p-6 shadow-xl">
+          <form onSubmit={save} className="mt-8 w-full max-w-lg space-y-3 rounded-xl bg-card p-6 shadow-xl">
+            <label className="block text-sm">{t('games.resultVerification','Result verification')}<select aria-label={t('games.resultVerification','Result verification')} className="mt-1 w-full rounded-lg border border-input bg-background p-2" value={editing.score_verification??'practice'} onChange={e=>setEditing({...editing,score_verification:e.target.value as 'practice'|'server'})}><option value="practice">{t('games.practiceMode','Practice (no financial rewards)')}</option><option value="server">{t('games.verifiedMode','Trusted game backend')}</option></select></label>
             <h2 className="text-lg font-bold">{editing.id ? "Edit game" : "New game"}</h2>
             <Field label="Name"><input className="inp" value={editing.name ?? ""} onChange={(e) => setEditing({ ...editing, name: e.target.value })} required /></Field>
             <Field label="Slug (optional)"><input className="inp" value={editing.slug ?? ""} onChange={(e) => setEditing({ ...editing, slug: e.target.value })} placeholder="auto from name" /></Field>

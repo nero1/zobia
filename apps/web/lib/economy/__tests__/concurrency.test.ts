@@ -143,7 +143,7 @@ function installSingleLedgerMock(ledger: SequentialLedger) {
       return { rows: [[String(ledger.balance)]], rowCount: 1 };
     }
 
-    if (text.startsWith("select") && text.includes('from "coin_ledger"')) {
+    if (text.startsWith("select") && (text.includes('from "coin_ledger"') || text.includes('from "coin_ledger_archive"'))) {
       // findExistingLedgerEntry dedup lookup — no existing row.
       return { rows: [], rowCount: 0 };
     }
@@ -309,7 +309,7 @@ describe("Concurrency — Transfer Fee Math", () => {
         const userId = params[0] as string;
         return { rows: [[String(balances[userId] ?? 0)]], rowCount: 1 };
       }
-      if (text.startsWith("select") && text.includes('from "coin_ledger"')) {
+      if (text.startsWith("select") && (text.includes('from "coin_ledger"') || text.includes('from "coin_ledger_archive"'))) {
         return { rows: [], rowCount: 0 };
       }
       if (text.startsWith('update "users"') && text.includes('"coin_balance"')) {

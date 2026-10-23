@@ -7,7 +7,7 @@
  */
 
 import Decimal from "decimal.js";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditAdWallet } from "@/lib/economy/adWallet";
@@ -127,7 +127,8 @@ export type PaystackEvent =
 export async function processChargeSuccess(
   data: PaystackChargeEvent["data"]
 ): Promise<void> {
-  const { reference, metadata, amount } = data;
+  const { reference, amount } = data;
+  let metadata = data.metadata;
 
   // Capture referral commission params from within the transaction so we can
   // fire awardReferralCommissions after the transaction commits (B12).
@@ -151,6 +152,10 @@ export async function processChargeSuccess(
         chain: schema.payments.chain,
         tokenSymbol: schema.payments.tokenSymbol,
         expectedTokenAmount: schema.payments.expectedTokenAmount,
+        metadata: schema.payments.metadata,
+        userId: schema.payments.userId,
+        amountKobo: schema.payments.amountKobo,
+        currency: schema.payments.currency,
       })
       .from(schema.payments)
       .where(eq(schema.payments.providerReference, reference))
@@ -158,7 +163,7 @@ export async function processChargeSuccess(
 
     if (!existing[0]) {
       logger.error({ reference }, "[webhook/paystack] No payment record for reference");
-      return;
+      throw new Error("Payment intent has not been recorded yet");
     }
 
     if (existing[0].status === "completed") {
@@ -166,6 +171,16 @@ export async function processChargeSuccess(
       return;
     }
 
+    const intent = existing[0];
+    if (["refunded","cancelled"].includes(intent.status)) throw new Error("Payment is not fulfillable");
+    if (!Number.isSafeInteger(amount) || amount < 0 || data.currency.toUpperCase() !== intent.currency.toUpperCase()) throw new Error("Provider amount or currency is invalid");
+    metadata = intent.metadata as PaystackChargeEvent["data"]["metadata"];
+    if (!metadata || metadata.userId !== intent.userId) throw new Error("Payment intent metadata is invalid");
+    if (intent.provider !== "free" && BigInt(amount) < intent.amountKobo) {
+      await tx.update(schema.payments).set({status:"underpaid",updatedAt:new Date()}).where(eq(schema.payments.id,intent.id));
+      await raiseAlert(tx,{type:"underpayment",category:"financial",priorityLevel:2,title:"Underpaid payment",message:"Provider payment is below the saved checkout price.",metadata:{paymentId:intent.id},dedupeKey:`underpaid:${intent.id}`});
+      return;
+    }
     // Mark payment as completed — BUG-027 FIX: include updated_at = NOW()
     await tx
       .update(schema.payments)
@@ -549,71 +564,10 @@ export async function processChargeSuccess(
       return;
     }
 
-    // Re-derive grant amounts server-side from store_items to prevent metadata tampering
-    let serverCoinsGranted = coinsGranted ?? 0;
-    let serverStarsGranted = starsGranted ?? 0;
-    if (metadata.packId) {
-      const packRows = await tx
-        .select({
-          coinsGranted: schema.storeItems.coinsGranted,
-          starsGranted: schema.storeItems.starsGranted,
-          priceKobo: schema.storeItems.priceKobo,
-          validUntil: schema.storeItems.validUntil,
-        })
-        .from(schema.storeItems)
-        .where(eq(schema.storeItems.id, metadata.packId))
-        .limit(1);
-      if (packRows[0]) {
-        // BUG-042/075: Reject if the item expired before the payment was made.
-        // Use paid_at as the purchase time (not webhook arrival) to honor payments made before expiry.
-        if (packRows[0].validUntil) {
-          const paidAt = new Date(data.paid_at);
-          const validUntil = new Date(packRows[0].validUntil);
-          if (paidAt > validUntil) {
-            logger.warn({ reference, packId: metadata.packId, paidAt, validUntil }, "[webhook/paystack] Purchase for expired store item — refunding");
-            await tx
-              .update(schema.payments)
-              .set({ status: "failed", updatedAt: sql`NOW()` })
-              .where(eq(schema.payments.providerReference, reference))
-              .catch(() => {});
-            await raiseAlert(tx, {
-              type: "purchase_expired_item",
-              category: "financial",
-              priorityLevel: 3,
-              title: "Purchase for expired store item",
-              message: `Purchase ${reference} for expired item ${metadata.packId} — requires manual refund review`,
-              metadata: { reference, packId: metadata.packId, paidAt, validUntil },
-              dedupeKey: `purchase_expired_item:${reference}`,
-            }).catch(() => {});
-            return;
-          }
-        }
-        if (packRows[0].coinsGranted != null) serverCoinsGranted = Number(packRows[0].coinsGranted);
-        if (packRows[0].starsGranted != null) serverStarsGranted = packRows[0].starsGranted;
-
-        // Bug #18: Reject underpayments — never credit if paid amount < pack price
-        if (packRows[0].priceKobo != null && amount < packRows[0].priceKobo) {
-          const priceKoboNum = Number(packRows[0].priceKobo);
-          logger.warn({ reference, paidKobo: amount, priceKobo: priceKoboNum, packId: metadata.packId }, "[webhook/paystack] Underpayment detected — flagging for manual review");
-          await tx
-            .update(schema.payments)
-            .set({ status: "underpaid", updatedAt: sql`NOW()` })
-            .where(eq(schema.payments.providerReference, reference))
-            .catch(() => {});
-          await raiseAlert(tx, {
-            type: "underpayment",
-            category: "financial",
-            priorityLevel: 2,
-            title: "Underpayment detected",
-            message: `Underpayment for reference ${reference}: paid ${amount}, expected ${priceKoboNum}`,
-            metadata: { reference, amount, priceKobo: priceKoboNum, userId, packId: metadata.packId },
-            dedupeKey: `underpayment:${reference}`,
-          }).catch(() => {});
-          return;
-        }
-      }
-    }
-
+    // Fulfill the immutable, server-recorded intent; never reload mutable catalog prices.
+    const serverCoinsGranted = Number(metadata.coinsGranted ?? 0);
+    const serverStarsGranted = Number(metadata.starsGranted ?? 0);
+    if (![serverCoinsGranted,serverStarsGranted].every(value => Number.isSafeInteger(value) && value >= 0)) throw new Error("Invalid saved grant quantity");
     // Credit coins or stars based on pack type
     if (itemType === "star_pack") {
       await creditStars(
@@ -737,10 +691,14 @@ export async function processTransferEvent(
         grossKobo: schema.creatorPayouts.grossKobo,
         netKobo: schema.creatorPayouts.netKobo,
         retryCount: schema.creatorPayouts.retryCount,
+        currentStatus: schema.creatorPayouts.status,
+        earningsRestored: schema.creatorPayouts.earningsRestored,
+        merchantReference:schema.creatorPayouts.idempotencyKey,
+        transferCode:schema.creatorPayouts.providerReference,
       })
       .from(schema.creatorPayouts)
-      .where(eq(schema.creatorPayouts.providerReference, reference))
-      .limit(1)
+      .where(or(eq(schema.creatorPayouts.idempotencyKey,reference),eq(schema.creatorPayouts.providerReference,transfer_code)))
+      .limit(2)
       .for("update");
 
     if (!rows[0]) {
@@ -748,7 +706,24 @@ export async function processTransferEvent(
       return;
     }
 
+    if(rows.length!==1)throw new Error('Ambiguous payout provider binding');
     const payout = rows[0];
+    if((payout.merchantReference && payout.merchantReference!==reference) || (payout.transferCode && payout.transferCode!==transfer_code))throw new Error('Transfer reference does not match the saved payout');
+    if(!Number.isSafeInteger(event.data.amount) || event.data.amount<0 || payout.netKobo===null || BigInt(event.data.amount)!==payout.netKobo)throw new Error('Transfer amount does not match the saved payout');
+    if (payout.currentStatus === "reversed" || (payout.currentStatus === "completed" && event.event !== "transfer.reversed")) return;
+    if(payout.currentStatus==='failed' && event.event==='transfer.failed')return;
+    if (payout.earningsRestored && event.event === "transfer.success") {
+      if(payout.netKobo===null)throw new Error('Cannot reconcile payout without its reserved amount');
+      const reclaimed=await tx.execute(sql`UPDATE users SET available_earnings_kobo=available_earnings_kobo-${payout.netKobo},updated_at=NOW() WHERE id=${payout.creatorId} AND available_earnings_kobo>=${payout.netKobo} RETURNING id`);
+      if(reclaimed.rows.length){
+        await tx.update(schema.creatorPayouts).set({status:'completed',earningsRestored:false,providerStatus:'success',completedAt:new Date(),nextRetryAt:null}).where(eq(schema.creatorPayouts.id,payout.id));
+        await tx.insert(schema.auditLog).values({action:'payout_refund_reclaimed',targetType:'payout',targetId:payout.id,metadata:{creatorId:payout.creatorId,amountKobo:payout.netKobo.toString()}});
+      }else{
+        await tx.update(schema.creatorPayouts).set({status:'completed',providerStatus:'ambiguous_success_after_restore',requiresManualApproval:true,nextRetryAt:null}).where(eq(schema.creatorPayouts.id,payout.id));
+        await raiseAlert(tx,{type:"payout_ambiguous_completion",category:"financial",priorityLevel:1,title:"Provider completed a restored payout",message:"Payouts are held for this creator until the conflicting provider result is reconciled.",metadata:{payoutId:payout.id},dedupeKey:`payout:restored:${payout.id}`});
+      }
+      return;
+    }
     payoutId = payout.id;
     creatorId = payout.creatorId;
     netKobo = payout.netKobo ?? 0n;
@@ -823,7 +798,7 @@ export async function processTransferEvent(
 
       await tx
         .update(schema.creatorPayouts)
-        .set({ status: "reversed", updatedAt: sql`NOW()` })
+        .set({ status: "reversed", providerStatus:"reversed",requiresManualApproval:false,nextRetryAt:null,updatedAt: sql`NOW()` })
         .where(eq(schema.creatorPayouts.id, payoutId as string));
 
       if (!cur[0].earningsRestored) {

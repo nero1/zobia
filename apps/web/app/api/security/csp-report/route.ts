@@ -1,110 +1,34 @@
-export const dynamic = 'force-dynamic';
-
-/**
- * POST /api/security/csp-report
- *
- * Content Security Policy violation ingest endpoint (STRUC-10).
- * Browsers send reports here when a CSP violation occurs.
- *
- * Supports both:
- *   - report-uri format (legacy): { "csp-report": { ... } }
- *   - report-to format (modern):  [{ "body": { ... }, "type": "csp-violation", ... }]
- *
- * Violations are logged to the system_alerts table for ops review.
- * High-volume/noise violations (extensions, injected scripts) are filtered
- * before persistence to keep the table usable.
- */
-
-import { NextRequest, NextResponse } from "next/server";
-import { getDb } from "@/lib/db/drizzle";
-import { raiseAlert } from "@/lib/alerts/dispatch";
-
-// Patterns that indicate extension or third-party injection — not actionable
-const NOISE_PATTERNS = [
-  "chrome-extension://",
-  "moz-extension://",
-  "safari-extension://",
-  "about:blank",
-  "about:srcdoc",
-];
-
-const RECENT_WINDOW_MS = 10 * 60_000;
-const MAX_RECENT = 200;
-const recent = new Map<string, number>();
-
-/** True if this violation was already recorded by this instance within the window. */
-function seenRecently(key: string): boolean {
-  const now = Date.now();
-  const at = recent.get(key);
-  if (at !== undefined && now - at < RECENT_WINDOW_MS) return true;
-  if (recent.size >= MAX_RECENT) recent.clear();
-  recent.set(key, now);
-  return false;
+export const dynamic='force-dynamic';
+import { NextRequest,NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
+import { getDb } from '@/lib/db/drizzle';
+import { raiseAlert } from '@/lib/alerts/dispatch';
+import { enforceRateLimit,getClientIp } from '@/lib/security/rateLimit';
+import { handleApiError } from '@/lib/api/errors';
+function origin(value:unknown):string {
+  if(typeof value!=='string')return '';
+  try {const u=new URL(value);return ['https:','http:'].includes(u.protocol)?u.origin:'';}catch{return ['inline','eval'].includes(value)?value:'';}
 }
-
-function isNoise(report: Record<string, unknown>): boolean {
-  const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
-  const sourceFile = String(report["source-file"] ?? report["sourceFile"] ?? "");
-  return NOISE_PATTERNS.some((p) => blockedUri.startsWith(p) || sourceFile.startsWith(p));
-}
-
-export async function POST(req: NextRequest): Promise<NextResponse> {
-  let body: unknown;
+export async function POST(req:NextRequest):Promise<NextResponse>{
   try {
-    const text = await req.text();
-    if (!text) return NextResponse.json({ ok: true });
-    body = JSON.parse(text);
-  } catch {
-    return NextResponse.json({ ok: true });
-  }
-
-  // Normalise both report-uri and report-to payloads
-  const reports: Record<string, unknown>[] = [];
-
-  if (Array.isArray(body)) {
-    // report-to format: array of report objects
-    for (const item of body) {
-      const reportBody = (item as Record<string, unknown>).body;
-      if (reportBody && typeof reportBody === "object") {
-        reports.push(reportBody as Record<string, unknown>);
-      }
+    await enforceRateLimit(getClientIp(req),'ip',{name:'csp:ingest',limit:10,windowMs:60_000,globalLimit:100,bypassL1:true});
+    if(Number(req.headers.get('content-length'))>16384)return new NextResponse(null,{status:413});
+    const reader=req.body?.getReader();if(!reader)return new NextResponse(null,{status:204});
+    const chunks:Uint8Array[]=[];let size=0;
+    try {while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>16384){await reader.cancel();return new NextResponse(null,{status:413});}chunks.push(part.value);}}
+    finally{reader.releaseLock();}
+    let body:unknown;try{body=JSON.parse(Buffer.concat(chunks).toString());}catch{return new NextResponse(null,{status:204});}
+    const records=Array.isArray(body)?body.slice(0,5).map(item=>item && typeof item==='object'?item.body:null):[body && typeof body==='object'?(body as Record<string,unknown>)['csp-report']:null];
+    const db=await getDb();
+    for(const record of records){
+      if(!record || typeof record!=='object')continue;
+      const documentOrigin=origin(record['document-uri']??record.documentURL),blockedOrigin=origin(record['blocked-uri']??record.blockedURL);
+      if(!documentOrigin || documentOrigin!==new URL(process.env.NEXT_PUBLIC_APP_URL??req.url).origin)continue;
+      const directive=String(record['effective-directive']??record.effectiveDirective??record['violated-directive']??'').split(' ')[0].slice(0,64);
+      if(!/^[a-z-]+$/.test(directive))continue;
+      const key=createHash('sha256').update(`${directive}:${blockedOrigin}`).digest('hex');
+      await raiseAlert(db,{type:'csp_violation',category:'security',priorityLevel:6,title:'CSP violation reported',message:`${directive} blocked ${blockedOrigin||'a resource'}`,metadata:{documentOrigin,blockedOrigin,directive},dedupeKey:`csp:${key}`});
     }
-  } else if (body && typeof body === "object") {
-    // report-uri format: single object with "csp-report" key
-    const cspReport = (body as Record<string, unknown>)["csp-report"];
-    if (cspReport && typeof cspReport === "object") {
-      reports.push(cspReport as Record<string, unknown>);
-    }
-  }
-
-  if (reports.length > 0) {
-    let orm: Awaited<ReturnType<typeof getDb>> | null = null;
-    for (const report of reports) {
-      if (isNoise(report)) continue;
-
-      const documentUri = String(report["document-uri"] ?? report["documentURL"] ?? "");
-      const violatedDirective = String(report["violated-directive"] ?? report["effectiveDirective"] ?? "");
-      const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
-
-      // A blocked resource is usually reported by every page view; once per
-      // warm instance per window is enough to raise the alert (which also
-      // dedupes in the DB). Skips the DB round-trip, saving Active CPU.
-      if (seenRecently(`${violatedDirective}:${blockedUri}`)) continue;
-      orm ??= await getDb();
-
-      // Persist to system_alerts (best-effort — never fail the response)
-      raiseAlert(orm, {
-        type: "csp_violation",
-        category: "security",
-        priorityLevel: 6,
-        title: "CSP violation reported",
-        message: `CSP violation: ${violatedDirective} blocked ${blockedUri || "(inline)"}`,
-        metadata: { documentUri, violatedDirective, blockedUri, raw: report },
-        dedupeKey: `csp_violation:${violatedDirective}:${blockedUri}`,
-      }).catch(() => {});
-    }
-  }
-
-  // Always return 204 — browsers don't need a body
-  return new NextResponse(null, { status: 204 });
+    return new NextResponse(null,{status:204});
+  }catch(error){return handleApiError(error);}
 }

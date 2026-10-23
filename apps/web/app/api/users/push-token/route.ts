@@ -26,7 +26,8 @@ import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError } from "@/lib/api/errors";
+import { isValidPushSubscription } from "@/lib/notifications/webPush";
+import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
@@ -62,8 +63,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, pushTokenSchema);
 
+    if (body.platform === "web" && !isValidPushSubscription(body.token)) throw badRequest("Invalid push subscription");
     const db = await getDb();
-    await db
+    await db.transaction(async tx => {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+      if (body.deviceId) await tx.delete(schema.userPushTokens).where(and(eq(schema.userPushTokens.userId,userId),eq(schema.userPushTokens.deviceId,body.deviceId)));
+      const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.userPushTokens).where(eq(schema.userPushTokens.userId,userId));
+      const existing=await tx.select({id:schema.userPushTokens.id}).from(schema.userPushTokens).where(and(eq(schema.userPushTokens.userId,userId),eq(schema.userPushTokens.token,body.token))).limit(1);
+      if (count.n >= 10 && !existing.length) throw badRequest("Remove an old device before registering another");
+    await tx
       .insert(schema.userPushTokens)
       .values({
         userId,
@@ -80,6 +88,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         },
       });
 
+    });
     return NextResponse.json({ success: true, data: { registered: true }, error: null });
   } catch (err) {
     return handleApiError(err);

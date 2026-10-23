@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -18,7 +19,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 
 const INACTIVITY_TRIGGERS = [3, 7, 14, 30, 90] as const;
@@ -30,16 +31,31 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_users_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_users_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
   const results: Record<string, unknown> = {};
   const errors: string[] = [];
 
+  try {
+    const stepErrors=errors.length;
+    await lease.runStep("accountErasure",async()=>{
+
+    const {purgeDeletedAccounts}=await import("@/lib/users/purgeDeleted");
+    const {drainObjectDeletions}=await import("@/lib/storage/deletionQueue");
+    results.accountPurge=await purgeDeletedAccounts();
+    results.objectErasure=await drainObjectDeletions();
+
+    },()=>errors.length===stepErrors);
+  }catch(error){errors.push(`accountErasure: ${String(error)}`);}
+
   // 1. Inactivity event detection — one query per threshold (set-based INSERT)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("inactivityEvents",async()=>{
+
     const inactivityEvents: Record<number, number> = {};
     for (const days of INACTIVITY_TRIGGERS) {
       const cutoff     = new Date(Date.now() - days       * 86_400_000).toISOString();
@@ -65,12 +81,17 @@ export const GET = async (req: NextRequest) => {
       inactivityEvents[days] = parseInt(row?.count ?? "0");
     }
     results.inactivityEvents = inactivityEvents;
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`inactivityEvents: ${String(err)}`);
   }
 
   // 2. Guild discovery prompts — single batch INSERT...SELECT (was per-user loop)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("guildDiscoveryPrompts",async()=>{
+
     const result = await orm.execute(sql`
       WITH notified AS (
         INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
@@ -95,12 +116,17 @@ export const GET = async (req: NextRequest) => {
     `);
     const row = result.rows[0] as { count: string } | undefined;
     results.guildDiscoveryPrompts = { notified: parseInt(row?.count ?? "0") };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`guildDiscoveryPrompts: ${String(err)}`);
   }
 
   // 3. Expire unclaimed comeback coin reservations (7-day window)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("comebackBonusExpiry",async()=>{
+
     // BUG-22: select cl.id so each reversal gets a unique reference_id keyed on
     // the ledger row — prevents the partial-index ON CONFLICT from deduping
     // a second reversal for the same user as if it were the first.
@@ -157,10 +183,13 @@ export const GET = async (req: NextRequest) => {
       );
     }
     results.comebackBonusExpiry = { expired: expiredBonuses };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`comebackBonusExpiry: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

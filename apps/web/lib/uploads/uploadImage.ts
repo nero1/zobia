@@ -10,7 +10,7 @@
 import crypto from "crypto";
 import { storage } from "@/lib/storage";
 import { compressImage, type CompressionProfile } from "@/lib/storage/compress";
-import { logger } from "@/lib/logger";
+import { badRequest } from "@/lib/api/errors";
 import {
   MAX_IMAGE_UPLOAD_BYTES,
   assertValidImageUpload,
@@ -48,10 +48,7 @@ export async function uploadValidatedImage(
     finalBuffer = Buffer.from(sanitizeSvg(rawBuffer.toString("utf8")), "utf8");
     finalMimeType = "image/svg+xml";
   } else {
-    const compressed = await compressImage(rawBuffer, { profile: opts.compressionProfile }).catch((err) => {
-      logger.error({ err, userId: opts.userId }, `[${opts.logContext}] image compression failed, using original`);
-      return { buffer: rawBuffer, mimeType: file.type, originalSizeBytes: rawBuffer.length, compressedSizeBytes: rawBuffer.length };
-    });
+    const compressed = await compressImage(rawBuffer, { profile: opts.compressionProfile }).catch(() => { throw badRequest("Invalid or unsupported image data"); });
     finalBuffer = compressed.buffer;
     finalMimeType = compressed.mimeType;
   }

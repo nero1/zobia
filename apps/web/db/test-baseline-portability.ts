@@ -43,10 +43,10 @@ async function main() {
     await platform.query("ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon,authenticated");
     await platform.query(sql);
     assert.equal(await catalogChecksum(platform),manifest.catalogChecksum);
-    assert.equal((await platform.query("SELECT count(*)::int n FROM pg_tables WHERE schemaname='public'")).rows[0].n,309);
+    assert.equal((await platform.query("SELECT count(*)::int n FROM pg_tables WHERE schemaname='public'")).rows[0].n,317);
     const missing = await platform.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND NOT (has_table_privilege('service_role',c.oid,'SELECT') AND has_table_privilege('service_role',c.oid,'INSERT') AND has_table_privilege('service_role',c.oid,'UPDATE') AND has_table_privilege('service_role',c.oid,'DELETE'))`);
     assert.equal(missing.rows.length,0,"Every app table needs explicit service-role grants");
-    for (const table of ['users','payments','messages','play_purchase_receipts','help_ai_requests','automation_generations','bookmark_folders']) {
+    for (const table of ['phone_verification_codes','failed_webhooks','game_progress_tasks','restore_email_tasks','object_deletion_tasks','account_restore_uses','crypto_transfer_claims','users','payments','messages','play_purchase_receipts','help_ai_requests','automation_generations','bookmark_folders']) {
       for (const role of ['anon','authenticated']) assert.equal((await platform.query("SELECT has_table_privilege($1,$2,'SELECT') allowed",[role,`public.${table}`])).rows[0].allowed,false,`${role} must not inherit private access to ${table}`);
     }
     await platform.query("SET ROLE anon");
@@ -56,7 +56,7 @@ async function main() {
     await platform.query("RESET ROLE; SET ROLE service_role");
     await platform.query("SELECT * FROM public.play_purchase_receipts LIMIT 1");
     await platform.query("RESET ROLE");
-    process.stdout.write("Supabase-style roles: public portal access passes; private tables stay denied despite broad default privileges; service-role grants cover all 309 tables.\n");
+    process.stdout.write("Supabase-style roles: public portal access passes; private tables stay denied despite broad default privileges; service-role grants cover all 317 tables.\n");
   } finally {
     await Promise.allSettled(clients.map(client=>client.end()));
     for (const name of names.reverse()) await control.query(`DROP DATABASE ${quote(name)} WITH (FORCE)`);
