@@ -5293,7 +5293,7 @@ The canonical fresh-install schema is `apps/web/db/migrations/0001_consolidated_
 
 Support PostgreSQL 16+ on Supabase, Railway, DigitalOcean and other PostgreSQL hosts using stock required extensions. Platform grants/policies are conditional on existing role names; never require or create Supabase roles or `auth` functions on another host. Revoke inherited client table grants before restoring the client allowlist, grant trusted service access explicitly, and keep private tables unavailable to public client roles. Monitoring extensions remain optional.
 
-The SQL is an atomic fresh-database baseline, not an in-place rebuild. The runner serializes installs, commits history with schema/data, detects file changes and verifies a complete predecessor schema before adopting its history. Adoption preserves existing data/settings. Refuse partial/mismatching histories, and allow verified registration after manual SQL execution. Future migrations use new files rather than rewriting an applied baseline.
+The SQL is an atomic fresh-database baseline, not an in-place rebuild. The runner serializes installs, commits history with schema/data, detects file changes and verifies a complete predecessor schema before adopting its history. Adoption synchronizes the baseline access allowlist while preserving existing data/settings. Refuse partial/mismatching histories, and allow verified registration after manual SQL execution. Future migrations use new files rather than rewriting an applied baseline.
 
 ## Current concise changelog — v2.44 (development)
 

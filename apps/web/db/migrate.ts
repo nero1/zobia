@@ -73,9 +73,18 @@ async function main() {
       if (!existingApp) throw new Error("No application schema exists to adopt; run migrate without --adopt-baseline");
       await verifyBaseline(client);
       await client.query("BEGIN");
-      try { await ensureHistory(client); await record(client,baseline,digest); await client.query("COMMIT"); }
+      try {
+        const text = contents.get(baseline)!;
+        const start = text.indexOf("\n-- Explicit Data API grants;");
+        const end = text.lastIndexOf("\nCOMMIT;");
+        if (start < 0 || end <= start) throw new Error("Baseline access section is missing");
+        // Adoption must bring permissions to the same state as a fresh install,
+        // including removal of inherited client access to private tables.
+        await client.query(text.slice(start,end));
+        await ensureHistory(client); await record(client,baseline,digest); await client.query("COMMIT");
+      }
       catch (error) { await client.query("ROLLBACK"); throw error; }
-      log("Verified and adopted the final-state baseline; existing application data and settings were preserved.");
+      log("Verified and adopted the final-state baseline; access rules synchronized; application data and settings were preserved.");
       applied = await history(client);
     } else if (legacy) {
       throw new Error("Incomplete or modified predecessor migration history. Apply the missing original files from commit 8c20d630 before adopting this baseline. No application data was changed.");

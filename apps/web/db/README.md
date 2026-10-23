@@ -22,7 +22,7 @@ The SQL file is a single transaction and refuses an existing application schema.
 
 ## Existing databases and manually applied SQL
 
-A database with all 39 predecessor checksums is automatically adopted only after its application catalog matches the baseline fingerprint. This updates migration history without replaying seeds or replacing existing data/settings. Previous history entries remain recorded.
+A database with all 39 predecessor checksums is automatically adopted only after its application catalog matches the baseline fingerprint. This synchronizes the baseline access allowlist and updates migration history without replaying seeds or replacing existing data/settings. Previous history entries remain recorded.
 
 If this exact SQL file was applied manually, register it after catalog verification:
 
@@ -30,7 +30,7 @@ If this exact SQL file was applied manually, register it after catalog verificat
 DIRECT_URL='postgresql://...' npm run migrate -- --adopt-baseline
 ```
 
-Incomplete/modified history or a nonmatching schema is rejected. Do not reset an existing database or mark missing files as applied. Complete the original migration chain using an isolated checkout at `8c20d630`, then return to this revision and migrate. The predecessor filenames/checksums and final catalog fingerprint are in `baselines/2026-10-23.json`; original SQL remains in Git history. Adoption does not retrofit grants or overwrite intentional live settings. The explicit grants described below apply when installing the new baseline.
+Incomplete/modified history or a nonmatching schema is rejected. Do not reset an existing database or mark missing files as applied. Complete the original migration chain using an isolated checkout at `8c20d630`, then return to this revision and migrate. The predecessor filenames/checksums and final catalog fingerprint are in `baselines/2026-10-23.json`; original SQL remains in Git history. Adoption applies the same explicit grants/revocations as a fresh installation before recording history, so older inherited client grants cannot survive on private tables. Application settings and content are preserved; custom client table grants are replaced by the baseline allowlist.
 
 ## Provider-neutral permissions
 

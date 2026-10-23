@@ -418,7 +418,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
    If the raw SQL was applied manually, run `npm run migrate -- --adopt-baseline`
    to verify its catalog and register it. Fully migrated predecessor databases
-   are verified and adopted automatically without replaying seeds. Partial or
+   are verified and adopted automatically without replaying seeds, with the
+   baseline access allowlist synchronized before history is recorded. Partial or
    modified histories are refused; finish their original files from commit
    `8c20d630` before adopting. See [database instructions](../apps/web/db/README.md).
 

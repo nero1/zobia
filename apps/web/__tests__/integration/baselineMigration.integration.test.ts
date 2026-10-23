@@ -68,8 +68,11 @@ integration("final-state database baseline and migration runner", () => {
   await client.query("CREATE TABLE migrations_log(id SERIAL PRIMARY KEY,filename TEXT UNIQUE NOT NULL,checksum TEXT NOT NULL,applied_at TIMESTAMPTZ NOT NULL DEFAULT now())");
   for (const [filename,digest] of Object.entries(manifest.predecessors)) await client.query("INSERT INTO migrations_log(filename,checksum) VALUES($1,$2)",[filename,digest]);
   await client.query("UPDATE x_manifest SET value='keep-me' WHERE key='minimum_age'");
+  const hasClientRole = !!(await client.query("SELECT 1 FROM pg_roles WHERE rolname='authenticated'")).rowCount;
+  if (hasClientRole) await client.query("GRANT SELECT ON users TO authenticated");
   expect((await run(url)).stdout).toContain("Verified and adopted");
   expect((await client.query("SELECT count(*)::int n FROM migrations_log")).rows[0].n).toBe(39);
+  if (hasClientRole) expect((await client.query("SELECT has_table_privilege('authenticated','public.users','SELECT') allowed")).rows[0].allowed).toBe(false);
   expect((await client.query("SELECT value FROM x_manifest WHERE key='minimum_age'")).rows[0].value).toBe("keep-me");
  }));
  it("refuses incomplete history and rejects adoption of a structurally incomplete database", async () => withDatabase(async ({client,url}) => {
