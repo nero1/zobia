@@ -38,6 +38,7 @@ The setup draft is separate from running configuration. Live application/provide
 - Local Next production build passed with compilation-only environment validation bypass. APK packaging and integration CI passed on merged PR #548; the continuation runs the same CI before merge.
 - All nine non-English catalogs have all 5,537 canonical keys, matching interpolation and no obsolete keys or unresolved translation markers. Shared/Capacitor and web catalogs match. Technical labels, names and natural Pidgin borrowings can match English; language quality still warrants native-speaker review. Eight catalogs used machine-assisted translation; Pidgin messages were authored/reviewed directly.
 - `git diff --check` passed. No discontinued Expo source changes.
+- Repository-level HTTP security suites are discoverable by the security command; execution requires a running configured server/test-account tokens. They were not run against production.
 - Authenticated browser/device journeys and live AI/storage/realtime/payment integrations require configured project/provider credentials. They were not exercised by compilation or mocked-provider tests.
 
 The account catalog keeps product identity separate from canonical entitlement tiers. Custom regular/business products inherit their selected tier across existing feature gates; the central panel edits shared tier settings.

@@ -1,3 +1,5 @@
+export {}; // Keep each standalone HTTP suite in its own TypeScript module.
+
 /**
  * security-tests/admin.security.test.ts
  *

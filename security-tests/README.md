@@ -19,8 +19,7 @@ security-tests/
 
 ```bash
 # From the monorepo root
-cd apps/web
-npx jest security-tests --testPathPattern="security" --runInBand
+npm run test:security -- --runInBand
 ```
 
 > These tests fire real HTTP requests against a locally running dev server.
@@ -51,3 +50,5 @@ SECURITY_TEST_OTHER_USER_ID=<second-user-uuid>
 | A09 Logging Failures   | admin.security.test.ts        | ✅     |
 | Rate Limits            | ratelimit.security.test.ts    | ✅     |
 | Economy Integrity      | economy.security.test.ts      | ✅     |
+
+The security command selects the repository-level HTTP suites explicitly; normal web unit/integration runs keep their own roots. Validate discovery without making requests using `npm exec --workspace=apps/web -- jest --testPathPattern=security-tests/ --listTests --runInBand`. A discovery check does not exercise security behavior. Live authenticated suites need the server and dedicated test-account tokens above.

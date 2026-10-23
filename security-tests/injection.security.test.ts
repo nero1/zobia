@@ -1,3 +1,5 @@
+export {}; // Keep each standalone HTTP suite in its own TypeScript module.
+
 /**
  * security-tests/injection.security.test.ts
  *
