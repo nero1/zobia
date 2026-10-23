@@ -50,7 +50,7 @@ cp apps/web/.env.example apps/web/.env.local
 
 # 5. Run the database schema (one consolidated migration file)
 cd apps/web
-psql "$DATABASE_URL" < db/migrations/0001_consolidated_schema.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_consolidated_schema.sql
 
 # 6. Start the development server (web)
 npm run dev:web
@@ -402,70 +402,39 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    function, e.g. feature flags, game catalog, gift/store catalog):
    ```bash
    cd apps/web
-   psql "$DIRECT_URL" < db/migrations/0001_consolidated_schema.sql
+   psql "$DIRECT_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_consolidated_schema.sql
    ```
    Or use the migration runner, which tracks what's applied in a
    `migrations_log` table so it's safe to re-run on every deploy:
    ```bash
    DATABASE_URL="$DIRECT_URL" npm run migrate
    ```
-   The file is idempotent (`IF NOT EXISTS`, `DROP ... IF EXISTS` + re-`CREATE`,
-   `ON CONFLICT DO NOTHING`) — safe to run more than once against the same
-   database. New schema changes going forward should be added as new
-   `0002_*.sql`, `0003_*.sql`, ... files in `db/migrations/` rather than
-   editing `0001` in place. If you apply the schema with `psql` instead of
-   the runner, also apply every later file in order — currently
-   `0002_ai_vision_and_ad_moderator.sql` (AI image classification + Ad
-   Moderator role), `0003_classroom_community.sql` (ClassRoom community
-   feed, moderators, slug-change policy/history, live sessions, lesson
-   progress and per-classroom points/levels/badges — see "ClassRooms" in
-   `docs/HOW-IT-WORKS.md`), `0004_referral_visits.sql` (referral link
-   click/visit tracking + the `referral_stats_full_plans` admin config key —
-   see "Referral System" in `docs/HOW-IT-WORKS.md`), and
-   `0005_boost_polls_quizzes.sql` (widens `ad_campaigns.boosted_content_type`
-   to accept `poll`/`quiz`, so polls and quizzes can be boosted like every
-   other Home Feed content type — see "Home Dashboard & Feed" in
-   `docs/HOW-IT-WORKS.md`), and `0006_currency_crypto_classroom_billing.sql`
-   (region-aware currency display fields on `users`; classroom draft/publish
-   `published_at` and per-plan classroom-count limits; the crypto-native
-   payout ledger — `crypto_balance_ledger`, `creator_crypto_balances`,
-   `creator_payouts` crypto columns, relaxed `creator_wallet_addresses`
-   uniqueness; the `subscription_cancellation_feedback` table — see
-   "ClassRooms", "Crypto Payments", and "Subscriptions & Billing" in
-   `docs/HOW-IT-WORKS.md`), `0007_gift_message.sql` (the optional gift
-   message — `gifts.message`/`message_word_count` plus the
-   `gift_message_*` x_manifest keys — see "Gift Messages" in the PRD §12),
-   `0008_account_appeals.sql` (the
-   `account_appeals` table plus the `appeals_max_refusals` /
-   `appeals_triage_mode` `x_manifest` keys — see "Suspended and Banned
-   Users" in the PRD and "Account Appeals" in `docs/HOW-IT-WORKS.md`),
-   `0009_admin_users_reports_index.sql` (missing index on
-   `reports.reported_user_id` — fixes `/gate44/users` failing to load once
-   the `reports` table has non-trivial rows), and `0010_signups_toggle.sql`
-   (seeds the `signups_enabled` x_manifest key — see "Signups Toggle" in
-   the PRD §20), and `0016_leaderboard_anonymity.sql` (adds
-   `users.hide_from_leaderboards` and the three `leaderboard_anonymity_*`
-   x_manifest keys for the paid "hide my name on leaderboards" privacy
-   setting — see "Leaderboard Anonymity" in `docs/HOW-IT-WORKS.md` and PRD
-   §42; no new table, so no Supabase GRANTs needed). `npm run migrate` does
-   this for you.
-   Also `0017_pin_lockout_config.sql` (admin-editable PIN lockout policy keys),
-   and `0018_hashtags_portals.sql` (Hashtags + Portals: the `hashtags`,
-   `content_hashtags`, `portals`, `portal_follows` and `portal_stats_daily`
-   tables with explicit `anon` / `authenticated` / `service_role` GRANTs and RLS
-   policies per Supabase's new Data-API rule, the `portal_top` /
-   `portal_after_3` / `portal_bottom` ad placements, and the `feature_portals`
-   + `portals_*` x_manifest keys, editable at `/gate44/config` -> "Portals").
-   `0019_seed_portals.sql` seeds 22 official starter portals (places such as
-   lagos, abuja, edo, detroit; universities such as uniben, unilag, oau; topics such as
-   naija, afrobeats, tech). They start empty of posts and are editable or
-   deletable at `/gate44/portals`.
-   Nothing else is needed to use Portals: create an official portal at
-   `/gate44/portals`, or let the feed-refresh job below promote trending tags.
-   `0020_ledger_archive_tables.sql` creates `audit_discrepancies_archive` and
-   `rank_up_events_archive` (internal tables, GRANTs for `service_role` only,
-   RLS on with no public policies), which `/api/cron/archive-ledgers` needs;
-   until it runs, that CRON fails before archiving anything.
+   The baseline now contains the final state of all former 0001–0039 files:
+   309 tables, final constraints/indexes/policies and 809 catalog/config rows.
+   It declares each table once and runs in one transaction. It requires an
+   empty application schema; repeating `npm run migrate` is safe because the
+   runner records its checksum. Repeating the raw SQL against existing tables
+   is deliberately refused.
+
+   If the raw SQL was applied manually, run `npm run migrate -- --adopt-baseline`
+   to verify its catalog and register it. Fully migrated predecessor databases
+   are verified and adopted automatically without replaying seeds, with the
+   baseline access allowlist synchronized before history is recorded. Partial or
+   modified histories are refused; finish their original files from commit
+   `8c20d630` before adopting. See [database instructions](../apps/web/db/README.md).
+
+   PostgreSQL 16+ is supported without Supabase schemas or roles. Existing
+   extension namespaces are resolved without moving provider-owned objects.
+   Supabase
+   client/service grants and role-specific policies are conditional on those
+   roles already existing. Broad inherited client grants are revoked on app
+   tables before the client allowlist is applied; service-role CRUD is explicit.
+   Nothing creates or alters platform roles. New schema changes belong in new
+   numbered files rather than editing an applied baseline.
+
+   The baseline includes the 22 starter portals, classroom/community schema,
+   archive tables, help guides, Tales, automation and account catalog. No other
+   historical SQL files need to be applied for a fresh installation.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
@@ -1753,7 +1722,7 @@ manual action required.
 
 ## October 2026 schema and cloud validation
 
-Apply migrations through `0036_help_directory.sql` with the existing migration command before running the new features. The migrations add challenge defaults/quests, private AI usage, classroom restrictions, help search/guides, private blog revisions, bookmark tables/entitlements, per-participant archives and blog post bundles. New private tables explicitly revoke `anon`/`authenticated` access and grant the server `service_role`; clients use authenticated APIs.
+Install the single final-state `0001_consolidated_schema.sql` baseline on a fresh database using the migration runner. It includes all former 0001–0039 changes, including challenge defaults/quests, private AI usage, classroom restrictions, help search/guides, private blog revisions, bookmark tables/entitlements, per-participant archives and blog post bundles. New private tables explicitly revoke `anon`/`authenticated` access and grant the server `service_role`; clients use authenticated APIs.
 
 The frozen dependency graph requires Node >=22.12 for current toolchain packages; the cloud workspace uses Node 22.22.0 despite the older `.nvmrc` pin. Install with `npm ci`; do not regenerate the lockfile as an environment workaround.
 
@@ -1778,21 +1747,21 @@ Use `/gate44/tales` (web) or the Tales moderation panel in Capacitor for pending
 
 Use `/gate44/auto-content` or the matching Capacitor admin panel to create official accounts and jobs. Accounts have no email/password/OAuth login, carry a persistent Ⓩ marker, use the platform’s Max content allowances, and receive no content-creation XP or credits. Assign official blogs/wikis/public rooms to that account before selecting their UUIDs. Forum targets are active public boards. Choose configured providers, editorial direction, interval, review mode and whether to enable the job. Jobs are disabled by default. No generated content is seeded by migrations or setup.
 
-Invoke `/api/cron/auto-content` with the cron Bearer secret to process one due job. Leases last 15 minutes, failed jobs retry after an hour, and successful jobs advance by their configured interval. The generation prompt and a separate reviewer use the selected configured fallback providers. Fuzzy matching uses PostgreSQL `pg_trgm`; migration 0034 creates its extension and index. Ensure the migration role can install this supported extension. Generation/provider failures appear in job status and do not silently publish.
+Invoke `/api/cron/auto-content` with the cron Bearer secret to process one due job. Leases last 15 minutes, failed jobs retry after an hour, and successful jobs advance by their configured interval. The generation prompt and a separate reviewer use the selected configured fallback providers. Fuzzy matching uses PostgreSQL `pg_trgm`; the consolidated baseline creates its extension and index. Ensure the migration role can install this supported extension. Generation/provider failures appear in job status and do not silently publish.
 
-Private automation/Tales tables revoke Data API access from `anon` and `authenticated`. New reward-pot generations preserve historical claims while allowing future funding cycles; apply migration 0033 before deploying that code. Verify actual text/cover moderation and editorial quality with configured providers before enabling unattended publication.
+Private automation/Tales tables revoke Data API access from `anon` and `authenticated`. New reward-pot generations preserve historical claims while allowing future funding cycles; the current consolidated baseline includes that schema. Verify actual text/cover moderation and editorial quality with configured providers before enabling unattended publication.
 
 ### Account products and verified billing
 
-Apply migrations 0037–0039 before deploying the account catalog. Use `/gate44/accounts` or native `/admin/accounts` to create regular/business products, choose an inherited entitlement tier, set prices and availability, and edit shared tier limits. Products are ordered by monthly cost. A product's identity/kind/tier cannot be changed after creation; retire it and create another product instead. Existing entitlements keep their tier.
+The consolidated baseline includes the account catalog, global Play receipts and subscription lifecycle constraint. Use `/gate44/accounts` or native `/admin/accounts` to create regular/business products, choose an inherited entitlement tier, set prices and availability, and edit shared tier limits. Products are ordered by monthly cost. A product's identity/kind/tier cannot be changed after creation; retire it and create another product instead. Existing entitlements keep their tier.
 
 For Android, create matching subscription products in Play Console and enter their IDs in account settings. Play determines the checkout price; web/PWA prices are configured in kobo. Retired product IDs remain mapped for restoring paid purchases and cannot be reassigned to another tier or billing period. Store configuration, credentials and live purchase evaluation require the operator's real project.
 
-Google Play verification now records exact period expiry and a global purchase receipt before granting anything. Apply migration 0039 before running `/api/cron/daily-economy`; the older constraint rejected `grace` and `lapsed`. Cancelled plans keep benefits until expiry and then enter the normal cleanup lifecycle.
+Google Play verification now records exact period expiry and a global purchase receipt before granting anything. Use the current consolidated baseline before running `/api/cron/daily-economy`; the older constraint rejected `grace` and `lapsed`. Cancelled plans keep benefits until expiry and then enter the normal cleanup lifecycle.
 
 Crypto checkout shows the original amount, network, destination and token contract. Users submit their sending address and transaction hash; the existing server-side chain verifier grants the purchase only after confirmation. Wallet lists recent pending intents for recovery after reload. Automatic status polling is bounded; do not increase its frequency to compensate for missing RPC/provider configuration.
 
 
 The localization catalogs contain 5,537 English messages and complete key/interpolation coverage for all nine supported non-English languages, including Hindi and Nigerian Pidgin. Run `node scripts/audit-i18n.mjs --check` and `node scripts/sync-i18n.mjs --check` before release. Technical terms and names may legitimately match English. Native-speaker review is separate from structural validation; eight catalogs used machine-assisted translation, while Pidgin messages were authored/reviewed directly.
 
-Expiry cleanup and personal plan changes serialize with renewals using user-first account locks. Paystack disables use the valid `cancelled` state and retain access until the recorded period ends; stale cancellation events cannot affect a newer provider subscription. Run the existing daily-economy endpoint after applying migration 0039 to exercise overdue cancellation/grace transitions. No cron frequencies were changed.
+Expiry cleanup and personal plan changes serialize with renewals using user-first account locks. Paystack disables use the valid `cancelled` state and retain access until the recorded period ends; stale cancellation events cannot affect a newer provider subscription. Run the existing daily-economy endpoint after installing the current baseline to exercise overdue cancellation/grace transitions. No cron frequencies were changed.

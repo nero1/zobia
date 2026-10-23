@@ -33,7 +33,7 @@ The setup draft is separate from running configuration. Live application/provide
 
 - Workspace typecheck passed, including the actual Capacitor application project.
 - Web unit tests: 547 passed in 50 suites.
-- Disposable-Postgres integration tests: 126 passed in 27 suites, including renewal/expiry serialization, purchase replay ownership, transactional rollback and provider lifecycle handling.
+- Disposable-Postgres integration tests: 133 passed in 28 suites, including renewal/expiry serialization, purchase replay ownership, transactional rollback and provider lifecycle handling.
 - Android tests: 25 passed in 5 files. Capacitor Vite production bundle passed.
 - Local Next production build passed with compilation-only environment validation bypass. APK packaging and integration CI passed on merged PR #548; the continuation runs the same CI before merge.
 - All nine non-English catalogs have all 5,537 canonical keys, matching interpolation and no obsolete keys or unresolved translation markers. Shared/Capacitor and web catalogs match. Technical labels, names and natural Pidgin borrowings can match English; language quality still warrants native-speaker review. Eight catalogs used machine-assisted translation; Pidgin messages were authored/reviewed directly.
@@ -49,5 +49,10 @@ The account catalog keeps product identity separate from canonical entitlement t
 - Google Play product mappings retain retired IDs for purchase restoration. Verified purchase tokens are globally bound to an owner and product before wallet credit or entitlement activation. Personal and business expiry follows Google's verified period; business activation, reporting and notification writes are atomic.
 - Web/PWA checkout handles redirect, free-context and crypto responses. Crypto payments can be resumed from Wallet using the original quoted base units. The wallet now reads the API's actual `paymentUrl` field.
 - Cancelled subscriptions are included in expiry cleanup. Migration 0039 fixes an older database constraint that rejected the sweep's `grace`/`lapsed` states. Invoke `/api/cron/daily-economy` through the existing scheduler for period-end cleanup; not running cron leaves cleanup pending.
-- New migrations in this continuation: 0037 account products/store mappings; 0038 global Play receipts; 0039 subscription lifecycle states.
+- Former migrations 0037–0039 (account products/store mappings, global Play receipts and subscription lifecycle states) are now included in the single final-state `0001_consolidated_schema.sql` baseline.
 - Expiry cleanup rechecks billing state under account locks; renewal cannot lose its new entitlement or saved data to a stale candidate. Cleanup failures roll the transition back. Paystack lifecycle events match the actual provider subscription, preserve period-end access, and share monthly-bonus deduplication with checkout/cron.
+
+
+## Migration consolidation
+
+All former 0001–0039 SQL files are consolidated into one declarative baseline: 309 tables and 809 reference rows. A scratch database built from the old chain and databases built from the new SQL have matching final application schemas and reference data. Supabase-style role tests preserve client grants/policies, add explicit server grants and confirm that broad inherited defaults do not expose private receipts. A non-superuser owner installs the schema without platform roles and tolerates an unavailable monitoring extension. Existing extension namespaces are supported without moving provider-owned objects. Seven runner integration checks cover installation/adoption/concurrency/rollback and refuse partial histories or changed files. Existing live databases were not changed. See [database instructions](../apps/web/db/README.md).
