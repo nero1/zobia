@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { enforceRateLimit,getClientIp } from "@/lib/security/rateLimit";
 import { searchDocs } from "@/lib/help/service";
 
 const querySchema = z.object({
@@ -19,6 +20,7 @@ const querySchema = z.object({
 
 export async function GET(req: NextRequest) {
   try {
+    await enforceRateLimit(getClientIp(req),"ip",{name:"help:search",limit:30,windowMs:60_000,globalLimit:1000,bypassL1:true});
     const query = validateSearchParams(req.nextUrl.searchParams, querySchema);
     const results = await searchDocs(query.q);
     return NextResponse.json({ success: true, data: results, error: null });

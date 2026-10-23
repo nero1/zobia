@@ -82,7 +82,7 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
       (entries) => {
         if (entries[0]?.isIntersecting && !impressedRef.current) {
           impressedRef.current = true;
-          enqueueAdEvent({ creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
+          enqueueAdEvent({ receipt:ad.receipt, creativeId: ad.creativeId, placementKey: ad.placementKey, type: "impression" });
           observer.disconnect();
         }
       },
@@ -127,7 +127,7 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
 
   function handleClick() {
     if (!ad) return;
-    enqueueAdEvent({ creativeId: ad.creativeId, placementKey: ad.placementKey, type: "click" });
+    enqueueAdEvent({ receipt:ad.receipt, creativeId: ad.creativeId, placementKey: ad.placementKey, type: "click" });
   }
 
   const sizeClass = SIZE_CLASS[ad.size] ?? SIZE_CLASS.native;

@@ -1142,6 +1142,7 @@ export const GAME_CATEGORIES: GameCategory[] = ['Tap', 'Arcade', 'Puzzle', 'Card
 
 /** Public/cover representation of a game (directory + /g/<slug> page). */
 export interface GameSummary {
+  scoreVerification?: "practice"|"server";
   id: string;
   slug: string;
   name: string;

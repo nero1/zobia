@@ -325,6 +325,7 @@ export default function SettingsPage() {
     leaderboardAnonymityEnabled: true,
   });
   const [privacySettings, setPrivacySettings] = useState({
+    contact_discovery_enabled: false,
     profile_private: false,
     profile_hidden_sections: [] as string[],
     disable_friend_requests: false,
@@ -1277,6 +1278,14 @@ export default function SettingsPage() {
       {/* Privacy */}
       <Section title="Privacy">
         <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-foreground">{t('settings.privacy.contactDiscovery', 'Let contacts find me')}</p>
+              <p className="text-xs text-muted-foreground">{t('settings.privacy.contactDiscoveryDesc', 'Allow people who have your verified phone number to find your account.')}</p>
+            </div>
+            <ToggleSwitch checked={privacySettings.contact_discovery_enabled} disabled={savingPrivacy}
+              onChange={(v) => void savePrivacy({ contact_discovery_enabled: v })} />
+          </div>
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Disable direct messages</p>

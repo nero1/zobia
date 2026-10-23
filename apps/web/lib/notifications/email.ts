@@ -89,12 +89,10 @@ async function postToMailgun(payload: EmailPayload): Promise<void> {
       body: form.toString(),
     }, { requireAllowlist: true });
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => "(unreadable)");
-      logger.error({ status: response.status, to: payload.to, body: text }, `[email] Mailgun error`);
-    }
+    if (!response.ok) throw new Error(`Mail delivery rejected (HTTP ${response.status})`);
   } catch (err) {
-    logger.error({ err: err }, `[email] Failed to send email to ${payload.to}:`);
+    logger.error({ errorType:err instanceof Error?err.name:'Error' }, "[email] Delivery failed");
+    throw err;
   }
 }
 
@@ -189,9 +187,9 @@ export async function sendEmail(
   html?: string,
   notificationType?: EmailNotificationType,
   userId?: string
-): Promise<void> {
-  if (!hasMailgunConfig()) return;
-  if (!(await isPlatformEmailEnabled())) return;
+): Promise<{status:"delivered"|"skipped";reason?:string}> {
+  if (!hasMailgunConfig()) {if(notificationType==="security")throw new Error("Security email delivery unavailable");return {status:"skipped",reason:"unconfigured"};}
+  if (notificationType!=="security" && !(await isPlatformEmailEnabled())) return {status:"skipped",reason:"platform_disabled"};
 
   // Warn when a notification type is specified without a userId — per-user opt-out
   // cannot be checked, so the email will bypass the user's preferences.
@@ -202,10 +200,11 @@ export async function sendEmail(
   if (userId && notificationType) {
     const { getDb } = await import("@/lib/db/drizzle");
     const orm = await getDb();
-    if (!(await isEmailTypeEnabledForUser(userId, notificationType, orm))) return;
+    if (!(await isEmailTypeEnabledForUser(userId, notificationType, orm))) return {status:"skipped",reason:"user_preference"};
   }
 
   await postToMailgun({ to, subject, text, html });
+  return {status:"delivered"};
 }
 
 /**

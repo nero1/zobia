@@ -17,10 +17,12 @@ export const runtime = 'nodejs';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { once } from "node:events";
 import { Readable, PassThrough } from "node:stream";
 import { z } from "zod";
 import ExcelJS from "exceljs";
 import { getDb } from "@/lib/db/drizzle";
+import {bindSql,executeSql} from "@/lib/db/parameterized";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -66,7 +68,7 @@ function formatCell(field: ExportField, value: unknown): string | number | boole
 
 /** Fetch one page of matching users, keyset-paginated. Returns rows + whether more remain. */
 async function fetchBatch(
-  pool: import("pg").Pool,
+  query: typeof executeSql,
   selectCols: string,
   whereClauses: string[],
   baseParams: SqlParam[],
@@ -84,8 +86,8 @@ async function fetchBatch(
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const { rows } = await pool.query<UserRow>(
-    `SELECT ${selectCols}, u.created_at AS __cursor_created_at, u.id AS __cursor_id
+  const { rows } = await query<UserRow>(
+    `SELECT ${selectCols}, to_char(u.created_at,'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS __cursor_created_at, u.id AS __cursor_id
      FROM users u
      ${where}
      ORDER BY u.created_at DESC, u.id DESC
@@ -112,7 +114,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const filters = body.filters ?? {};
 
     const orm = await getDb();
-    const pool = orm.$client;
+    const query = async <T extends object=Record<string,unknown>>(text:string,values:readonly unknown[]=[])=>orm.execute<T & Record<string,unknown>>(bindSql(text,values));
 
     const selectCols = fields.map((f) => `${FIELD_TO_COLUMN[f]} AS "${f}"`).join(", ");
 
@@ -123,7 +125,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     // leaderboardRank: 1 — a single-row export, no pagination needed.
     const isLeaderboardTop1 = filters.leaderboardRank === 1;
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_export_users",
       metadata: { format: body.format, fields, filters, scope: isLeaderboardTop1 ? "leaderboard_top1" : "filtered" },
@@ -133,6 +135,13 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     if (body.format === "xlsx") {
       const pass = new PassThrough();
+      const abort = () => pass.destroy(new Error("Export cancelled"));
+      req.signal.addEventListener("abort", abort, {once:true});
+      pass.once("close", () => req.signal.removeEventListener("abort", abort));
+      const checkDrain = async () => {
+        if (pass.destroyed || req.signal.aborted) throw new Error("Export cancelled");
+        if (pass.writableNeedDrain) await once(pass, "drain", {signal:req.signal});
+      };
       const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: pass });
       const sheet = workbook.addWorksheet("Users");
       sheet.columns = fields.map((f) => ({ header: f, key: f }));
@@ -140,20 +149,22 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       (async () => {
         try {
           if (isLeaderboardTop1) {
-            const { rows } = await pool.query<UserRow>(
+            const { rows } = await query<UserRow>(
               `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
               filterParams
             );
             for (const row of rows) {
               sheet.addRow(fields.map((f) => formatCell(f, row[f]))).commit();
+              await checkDrain();
             }
           } else {
             let cursor: { createdAt: string; id: string } | null = null;
             let hasMore = true;
             while (hasMore) {
-              const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+              const batch = await fetchBatch(query, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
               for (const row of batch.rows) {
                 sheet.addRow(fields.map((f) => formatCell(f, row[f]))).commit();
+              await checkDrain();
               }
               hasMore = batch.hasMore;
               cursor = batch.last;
@@ -183,24 +194,23 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       (async () => {
         try {
           if (isLeaderboardTop1) {
-            const { rows } = await pool.query<UserRow>(
+            const { rows } = await query<UserRow>(
               `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
               filterParams
             );
-            for (const row of rows) plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
+            for (const row of rows) await plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
           } else {
             let cursor: { createdAt: string; id: string } | null = null;
             let hasMore = true;
             while (hasMore) {
-              const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
-              for (const row of batch.rows) plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
+              const batch = await fetchBatch(query, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+              for (const row of batch.rows) await plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
               hasMore = batch.hasMore;
               cursor = batch.last;
             }
           }
-        } finally {
-          plainWriter.close();
-        }
+        await plainWriter.close();
+        } catch(error) { await plainWriter.abort(error); }
       })();
 
       return new NextResponse(plainWriter.toReadableStream(), {
@@ -215,33 +225,32 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     // CSV / TSV
     const delimiter = body.format === "csv" ? "," : "\t";
     const writer = createDelimitedStream(delimiter);
-    writer.writeHeader(fields);
 
-    (async () => {
+    void (async () => {
       try {
+        await writer.writeHeader(fields);
         if (isLeaderboardTop1) {
-          const { rows } = await pool.query<UserRow>(
+          const { rows } = await query<UserRow>(
             `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
             filterParams
           );
           for (const row of rows) {
-            writer.writeRow(fields.map((f) => formatCell(f, row[f])));
+            await writer.writeRow(fields.map((f) => formatCell(f, row[f])));
           }
         } else {
           let cursor: { createdAt: string; id: string } | null = null;
           let hasMore = true;
           while (hasMore) {
-            const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+            const batch = await fetchBatch(query, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
             for (const row of batch.rows) {
-              writer.writeRow(fields.map((f) => formatCell(f, row[f])));
+              await writer.writeRow(fields.map((f) => formatCell(f, row[f])));
             }
             hasMore = batch.hasMore;
             cursor = batch.last;
           }
         }
-      } finally {
-        writer.close();
-      }
+      await writer.close();
+      } catch(error) {await writer.abort(error); }
     })();
 
     return new NextResponse(writer.toReadableStream(), {

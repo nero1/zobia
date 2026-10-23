@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { inArray } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { withAuth, validateBody } from "@/lib/api/middleware";
+import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -33,9 +33,8 @@ const emailSettingsSchema = z.object({
 // GET /api/admin/email-settings
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (_req: NextRequest, { auth }) => {
+export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
   try {
-    if (!auth.user.is_admin) throw forbidden("Admin access required");
 
     const orm = await getDb();
     const rows = await orm
@@ -66,9 +65,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 // PUT /api/admin/email-settings
 // ---------------------------------------------------------------------------
 
-export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
+export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    if (!auth.user.is_admin) throw forbidden("Admin access required");
 
     const body = await validateBody(req, emailSettingsSchema);
 

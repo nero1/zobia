@@ -35,6 +35,7 @@ interface GameRow {
   name: string;
   category: GameCategory | null;
   engine_key: string | null;
+  score_verification?:"practice"|"server";
   cover_emoji: string;
   cover_image_url: string | null;
   tagline: string | null;
@@ -66,6 +67,7 @@ type FormState = {
   slug: string;
   category: GameCategory;
   engine_key: string;
+  score_verification?:"practice"|"server";
   cover_emoji: string;
   cover_image_url: string;
   tagline: string;
@@ -109,6 +111,7 @@ function fromGame(g: GameRow): FormState {
     name: g.name,
     slug: g.slug,
     category: g.category ?? 'Puzzle',
+    score_verification:g.score_verification??"practice",
     engine_key: g.engine_key ?? (KNOWN_ENGINE_KEYS[0] ?? 'tetris'),
     cover_emoji: g.cover_emoji,
     cover_image_url: g.cover_image_url ?? '',
@@ -154,6 +157,12 @@ function GameFormModal({ initial, onSave, onClose, saving }: { initial: FormStat
             <AdminField label={t('admin.games.category', 'Category')}>
               <select value={form.category} onChange={(e) => set('category', e.target.value as GameCategory)} className={adminInputClass}>
                 {GAME_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </AdminField>
+            <AdminField label={t('games.resultVerification','Result verification')}>
+              <select value={form.score_verification??'practice'} onChange={e=>set('score_verification',e.target.value as 'practice'|'server')} className={adminInputClass}>
+                <option value="practice">{t('games.practiceMode','Practice (no financial rewards)')}</option>
+                <option value="server">{t('games.verifiedMode','Trusted game backend')}</option>
               </select>
             </AdminField>
             <AdminField label={t('admin.games.engine', 'Engine')}>
@@ -294,6 +303,7 @@ function AdminGamesPage() {
         slug: form.slug || undefined,
         category: form.category,
         engineKey: form.engine_key,
+        scoreVerification:form.score_verification??"practice",
         tagline: form.tagline || null,
         description: form.description || null,
         coverEmoji: form.cover_emoji,

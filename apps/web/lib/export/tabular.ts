@@ -31,7 +31,9 @@ export type DelimitedValue = string | number | boolean | null | undefined;
  */
 export function escapeDelimitedValue(value: DelimitedValue, delimiter: string): string {
   if (value === null || value === undefined) return "";
-  const str = typeof value === "boolean" ? (value ? "true" : "false") : String(value);
+  let str = typeof value === "boolean" ? (value ? "true" : "false") : String(value);
+  // Preserve numeric cells; escape strings Excel/LibreOffice can execute.
+  if(typeof value==='string' && /^[\s\u0000-\u001f]*[=+@-]/.test(str)) str="'"+str;
   if (str.includes(delimiter) || str.includes('"') || str.includes("\n") || str.includes("\r")) {
     return `"${str.replace(/"/g, '""')}"`;
   }
@@ -43,116 +45,34 @@ export function escapeDelimitedValue(value: DelimitedValue, delimiter: string): 
  * straight to a NextResponse for real HTTP streaming (bytes are enqueued as
  * writeHeader/writeRow are called, not buffered into one giant string).
  */
-export class DelimitedStreamWriter {
-  private delimiter: string;
-  private controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-  private encoder = new TextEncoder();
-  private stream: ReadableStream<Uint8Array>;
-  private pending: string[] = [];
-  private closed = false;
-
-  constructor(delimiter: "," | "\t") {
-    this.delimiter = delimiter;
-    this.stream = new ReadableStream<Uint8Array>({
-      start: (controller) => {
-        this.controller = controller;
-        // Flush anything queued before the stream was pulled (e.g. writeHeader
-        // called synchronously right after construction).
-        for (const chunk of this.pending) controller.enqueue(this.encoder.encode(chunk));
-        this.pending = [];
-        if (this.closed) controller.close();
-      },
-    });
+/** Pull-driven writes keep one small byte queue; cancellation rejects the producer. */
+class ByteStreamWriter {
+  private transform = new TransformStream<Uint8Array,Uint8Array>(undefined,
+    {highWaterMark:64*1024,size:chunk=>chunk.byteLength},
+    {highWaterMark:64*1024,size:chunk=>chunk.byteLength});
+  private writer=this.transform.writable.getWriter();
+  private encoder=new TextEncoder();
+  private closed=false;
+  constructor(){void this.writer.closed.catch(()=>{this.closed=true;});}
+  protected async enqueue(line:string):Promise<void>{
+    if(this.closed)throw new Error('Export stream closed');
+    try {await this.writer.write(this.encoder.encode(line));}
+    catch(error){this.closed=true;throw error instanceof Error?error:new Error("Export stream cancelled");}
   }
-
-  private enqueue(line: string): void {
-    if (this.controller) {
-      this.controller.enqueue(this.encoder.encode(line));
-    } else {
-      this.pending.push(line);
-    }
-  }
-
-  writeHeader(fields: string[]): void {
-    this.enqueue(fields.map((f) => escapeDelimitedValue(f, this.delimiter)).join(this.delimiter) + "\r\n");
-  }
-
-  writeRow(values: DelimitedValue[]): void {
-    this.enqueue(values.map((v) => escapeDelimitedValue(v, this.delimiter)).join(this.delimiter) + "\r\n");
-  }
-
-  close(): void {
-    this.closed = true;
-    if (this.controller) {
-      this.controller.close();
-    }
-  }
-
-  toReadableStream(): ReadableStream<Uint8Array> {
-    return this.stream;
-  }
+  async close():Promise<void>{if(this.closed)return;this.closed=true;await this.writer.close();}
+  async abort(reason:unknown):Promise<void>{this.closed=true;await this.writer.abort(reason).catch(()=>{});}
+  toReadableStream():ReadableStream<Uint8Array>{return this.transform.readable;}
 }
-
-/**
- * Create a streaming CSV (',') or TSV ('\t') writer.
- */
-export function createDelimitedStream(delimiter: "," | "\t"): DelimitedStreamWriter {
-  return new DelimitedStreamWriter(delimiter);
+export class DelimitedStreamWriter extends ByteStreamWriter {
+  constructor(private delimiter:','|'\t'){super();}
+  writeHeader(fields:string[]):Promise<void>{return this.writeRow(fields);}
+  writeRow(values:DelimitedValue[]):Promise<void>{return this.enqueue(values.map(v=>escapeDelimitedValue(v,this.delimiter)).join(this.delimiter)+'\r\n');}
 }
-
-/**
- * Incremental plain-text (.txt) writer: one raw value per line, no header,
- * no escaping/quoting — used by the "export wallet addresses only" quick
- * preset, where the output is meant to be pasted straight into another tool
- * (a spreadsheet column, an allowlist file, etc.) without CSV punctuation.
- */
-export class PlainLineStreamWriter {
-  private controller: ReadableStreamDefaultController<Uint8Array> | null = null;
-  private encoder = new TextEncoder();
-  private stream: ReadableStream<Uint8Array>;
-  private pending: string[] = [];
-  private closed = false;
-
-  constructor() {
-    this.stream = new ReadableStream<Uint8Array>({
-      start: (controller) => {
-        this.controller = controller;
-        for (const chunk of this.pending) controller.enqueue(this.encoder.encode(chunk));
-        this.pending = [];
-        if (this.closed) controller.close();
-      },
-    });
-  }
-
-  private enqueue(line: string): void {
-    if (this.controller) {
-      this.controller.enqueue(this.encoder.encode(line));
-    } else {
-      this.pending.push(line);
-    }
-  }
-
-  /** Writes one line — skipped entirely (not even a blank line) when value is null/undefined/empty. */
-  writeLine(value: string | null | undefined): void {
-    if (!value) return;
-    this.enqueue(`${value}\n`);
-  }
-
-  close(): void {
-    this.closed = true;
-    if (this.controller) {
-      this.controller.close();
-    }
-  }
-
-  toReadableStream(): ReadableStream<Uint8Array> {
-    return this.stream;
-  }
+export function createDelimitedStream(delimiter:','|'\t'):DelimitedStreamWriter{return new DelimitedStreamWriter(delimiter);}
+export class PlainLineStreamWriter extends ByteStreamWriter {
+  async writeLine(value:string|null|undefined):Promise<void>{if(value)await this.enqueue(value.replace(/[\r\n]/g,'')+'\n');}
 }
-
-export function createPlainLineStream(): PlainLineStreamWriter {
-  return new PlainLineStreamWriter();
-}
+export function createPlainLineStream():PlainLineStreamWriter{return new PlainLineStreamWriter();}
 
 /** MIME content types for each supported export format. */
 export const EXPORT_CONTENT_TYPES = {

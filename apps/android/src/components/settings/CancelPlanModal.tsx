@@ -16,6 +16,7 @@
  * again.
  */
 
+import {AccessibleDialog} from "@zobia/shared/ui/Dialog";
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
@@ -126,8 +127,8 @@ export function CancelPlanModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-neutral-900 p-5">
+    <AccessibleDialog aria-label={t("subscription.cancelModal.title", "Cancel plan")} onClose={onClose} className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
+      <div className="w-full max-w-md rounded-2xl bg-card p-5">
         {step === 'confirm' && (
           <>
             <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
@@ -227,7 +228,7 @@ export function CancelPlanModal({
                   rows={2}
                   value={followUps[key] ?? ''}
                   onChange={(e) => setFollowUps((prev) => ({ ...prev, [key]: e.target.value }))}
-                  className="mt-1 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                  className="mt-1 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-card px-3 py-2 text-sm"
                 />
                 <p className="text-right text-[10px] text-neutral-400">{followUps[key]?.length ?? 0}/500</p>
               </div>
@@ -242,7 +243,7 @@ export function CancelPlanModal({
                 rows={3}
                 value={generalFeedback}
                 onChange={(e) => setGeneralFeedback(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-neutral-300 dark:border-neutral-700 bg-card px-3 py-2 text-sm"
               />
               <p className="text-right text-[10px] text-neutral-400">{generalFeedback.length}/500</p>
             </div>
@@ -280,6 +281,6 @@ export function CancelPlanModal({
           </div>
         )}
       </div>
-    </div>
+    </AccessibleDialog>
   );
 }

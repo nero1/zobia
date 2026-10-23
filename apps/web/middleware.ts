@@ -201,6 +201,7 @@ const HOME_URL = "/home";
 /** Routes that are always public (no auth required). */
 const PUBLIC_PREFIXES = [
   "/auth",
+  "/sitemaps/",
   "/api/auth",
   "/api/auth/silent-refresh",
   "/api/health",
@@ -213,8 +214,11 @@ const PUBLIC_PREFIXES = [
   // returns only public/live entities). Used by the Expo universal-link screens.
   "/api/public",
   "/api/tales/public",
+  "/api/games/results",
   // CSP violation reports from browsers (no auth, unauthenticated browsers send these)
   "/api/security/csp-report",
+  // A scoped, expiring signature is validated by the download handler.
+  "/api/users/me/export/",
   // CRON endpoints authenticate via CRON_SECRET (Bearer token), not JWT cookies.
   // The middleware must let them through so the route handler can verify the secret.
   "/api/cron",
@@ -357,7 +361,9 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
   }
 }
 
+const ADMIN_PREAUTH_ROUTES=new Set(['/api/admin/auth/login','/api/admin/auth/totp','/api/admin/auth/totp/setup','/api/admin/auth/unlock']);
 function isPublicRoute(pathname: string): boolean {
+  if(ADMIN_PREAUTH_ROUTES.has(pathname) || pathname === "/robots.txt" || pathname === "/sitemap.xml")return true;
   if (pathname === "/" || pathname === "" || pathname === "/h" || pathname === "/t") return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
@@ -592,7 +598,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // CSRF check for all API mutation endpoints (including auth POSTs but not GET callbacks)
   const isAuthMutation =
-    pathname.startsWith("/api/auth/") &&
+    pathname !== "/api/auth/telegram/bot" && (pathname.startsWith("/api/auth/") || ADMIN_PREAUTH_ROUTES.has(pathname)) &&
     !CSRF_SAFE_METHODS.has(request.method.toUpperCase());
 
   if (((pathname.startsWith("/api/") && !isPublicRoute(pathname)) || isAuthMutation) && !isCsrfSafe(request)) {

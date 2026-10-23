@@ -25,6 +25,7 @@ export const runtime = 'nodejs';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/lib/db/drizzle";
+import {bindSql,executeSql} from "@/lib/db/parameterized";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -55,9 +56,9 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const { clauses, params, nextParamIdx } = buildFilterConditions(filters, 1);
     const whereClauses = ["u.deleted_at IS NULL", ...clauses];
     const orm = await getDb();
-    const pool = orm.$client;
+    const query = async <T extends object=Record<string,unknown>>(text:string,values:readonly unknown[]=[])=>orm.execute<T & Record<string,unknown>>(bindSql(text,values));
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_export_accounts",
       metadata: {
@@ -82,8 +83,8 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
           idx += 2;
         }
 
-        const { rows } = await pool.query<{ row: Record<string, unknown>; created_at: string; id: string }>(
-          `SELECT row_to_json(u) AS row, u.created_at, u.id
+        const { rows } = await query<{ row: Record<string, unknown>; created_at: string; id: string }>(
+          `SELECT row_to_json(u) AS row, to_char(u.created_at,'YYYY-MM-DD"T"HH24:MI:SS.USOF') AS created_at, u.id
            FROM users u
            WHERE ${idxClauses.join(" AND ")}
            ORDER BY u.created_at DESC, u.id DESC

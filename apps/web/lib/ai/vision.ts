@@ -150,7 +150,7 @@ export async function classifyImage<T>(options: ClassifyImageOptions<T>): Promis
         model: response.model,
         success: parsed !== null,
         confidence,
-        rawContent: response.content.slice(0, 500),
+        rawContent: options.feature.startsWith("kyc:") ? null : response.content.slice(0, 500),
         errorMessage: parsed ? null : "Unparseable AI response",
       });
 
@@ -161,7 +161,7 @@ export async function classifyImage<T>(options: ClassifyImageOptions<T>): Promis
         success: parsed !== null,
         latencyMs: Date.now() - startedAt,
         confidence,
-        resultPreview: response.content.slice(0, 500),
+        resultPreview: options.feature.startsWith("kyc:") ? "KYC classification (personal data redacted)" : response.content.slice(0, 500),
         usage: response.usage
           ? { inputTokens: response.usage.promptTokens, outputTokens: response.usage.completionTokens }
           : undefined,
@@ -184,7 +184,7 @@ export async function classifyImage<T>(options: ClassifyImageOptions<T>): Promis
       }
       // Otherwise fall through and try the next provider (escalation).
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = options.feature.startsWith("kyc:") ? "Identity review provider failed" : err instanceof Error ? err.message : String(err);
       logger.warn({ err: message, provider: providerId, feature: options.feature }, "[ai:vision] classification attempt failed");
       attempts.push({ provider: providerId, model: "n/a", success: false, confidence: null, rawContent: null, errorMessage: message });
       await logAiCall({

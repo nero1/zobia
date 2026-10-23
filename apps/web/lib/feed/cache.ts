@@ -16,6 +16,7 @@
  * so a request is never left with an empty feed.
  */
 
+import { sharedCached } from "@/lib/cache/sharedFill";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
 import { logger } from "@/lib/logger";
@@ -24,14 +25,13 @@ import type { FeedItem } from "./types";
 
 type PoolKind = "for_you" | "trending";
 
-const REDIS_KEY_PREFIX = "feed:pool:v1:";
+const REDIS_KEY_PREFIX = "{feed:pool:v2}:";
 /** In-process cache is intentionally short — just long enough to absorb a burst of concurrent requests on one instance. */
 const MEM_CACHE_TTL_MS = 15_000;
 
-const _inflight = new Map<PoolKind, Promise<FeedItem[]>>();
 
 function memKey(kind: PoolKind): string {
-  return `feed:pool:mem:${kind}`;
+  return `${REDIS_KEY_PREFIX}${kind}`;
 }
 
 export async function setCandidatePool(kind: PoolKind, items: FeedItem[]): Promise<void> {
@@ -51,33 +51,6 @@ export async function setCandidatePool(kind: PoolKind, items: FeedItem[]): Promi
  * of each running the full cross-table aggregation.
  */
 export async function getCandidatePool(kind: PoolKind, recompute: () => Promise<FeedItem[]>): Promise<FeedItem[]> {
-  const mem = memGet<FeedItem[]>(memKey(kind));
-  if (mem) return mem;
-
-  try {
-    const cached = await redis.get(`${REDIS_KEY_PREFIX}${kind}`);
-    if (cached) {
-      const items = JSON.parse(cached) as FeedItem[];
-      memSet(memKey(kind), items, MEM_CACHE_TTL_MS);
-      return items;
-    }
-  } catch (err) {
-    logger.error({ err, kind }, "[feed] Redis read failed for candidate pool — falling back to recompute");
-  }
-
-  const existing = _inflight.get(kind);
-  if (existing) return existing;
-
-  const promise = (async () => {
-    try {
-      logger.info({ kind }, "[feed] candidate pool cache miss — recomputing synchronously (should only happen before the first CRON run)");
-      const items = await recompute();
-      await setCandidatePool(kind, items);
-      return items;
-    } finally {
-      setTimeout(() => _inflight.delete(kind), 0);
-    }
-  })();
-  _inflight.set(kind, promise);
-  return promise;
+  const manifest=await loadManifest();
+  return sharedCached(`${REDIS_KEY_PREFIX}${kind}`,manifest.homeFeed.cacheTtlSeconds,MEM_CACHE_TTL_MS,recompute);
 }

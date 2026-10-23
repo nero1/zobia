@@ -25,6 +25,7 @@ const createSchema = z.object({
   name: z.string().min(1).max(120),
   slug: z.string().min(1).max(60).regex(/^[a-z0-9-]+$/).optional(),
   category: categoryEnum,
+  scoreVerification:z.enum(["practice","server"]).optional(),
   engineKey: z.string().min(1).max(60),
   tagline: z.string().max(160).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
@@ -136,6 +137,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const [created] = await orm
       .insert(games)
       .values({
+        scoreVerification:body.scoreVerification??"practice",
         slug,
         name: body.name,
         category: body.category,

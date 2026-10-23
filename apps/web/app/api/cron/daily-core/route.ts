@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -21,7 +22,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { resetDailyQuests } from "@/lib/quests/questEngine";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getCurrentSeason } from "@/lib/seasons/seasonEngine";
@@ -32,8 +33,8 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_core_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_core_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
@@ -42,7 +43,12 @@ export const GET = async (req: NextRequest) => {
 
   // 1. Reset daily quests
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("questReset",async()=>{
+
     results.questReset = await resetDailyQuests(orm);
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`questReset: ${String(err)}`);
   }
@@ -55,6 +61,9 @@ export const GET = async (req: NextRequest) => {
   // of every user who simply hadn't opened the app yet today. A streak is only
   // broken once a whole calendar day was missed (last login before yesterday).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("loginStreaks",async()=>{
+
     const streakReset = await orm.execute<{ count: string }>(sql`
       WITH reset AS (
         UPDATE users
@@ -72,6 +81,8 @@ export const GET = async (req: NextRequest) => {
     results.loginStreaks = {
       reset: parseInt(streakReset.rows[0]?.count ?? "0"),
     };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`loginStreaks: ${String(err)}`);
   }
@@ -80,6 +91,9 @@ export const GET = async (req: NextRequest) => {
   // BUG-03: also upsert leaderboard_snapshots for every user who receives XP.
   // BUG-04: use CURRENT_DATE so today's logins qualify (same as the streak fix above).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("dailyLoginXP",async()=>{
+
     const loginXpResult = await orm.execute<{ user_id: string; new_xp_total: string; city: string | null; season_xp: string }>(sql`
       WITH awarded AS (
         INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
@@ -158,12 +172,17 @@ export const GET = async (req: NextRequest) => {
       usersAwarded,
       xpPerUser: XP_VALUES.daily_login,
     };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`dailyLoginXP: ${String(err)}`);
   }
 
   // 4. Expire moments — delete rows whose expires_at has passed
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("momentsExpiry",async()=>{
+
     const [expiredMoments, expiredDmMoments] = await Promise.all([
       orm.execute<{ count: string }>(sql`
         WITH deleted AS (
@@ -194,12 +213,17 @@ export const GET = async (req: NextRequest) => {
     results.dmMomentsExpiry = {
       expired: parseInt(expiredDmMoments.rows[0]?.count ?? "0"),
     };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`momentsExpiry: ${String(err)}`);
   }
 
   // 5. Sweep expired coin-purchased message pins
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("expiredPinSweep",async()=>{
+
     const { rowCount } = await orm.execute(sql`
       UPDATE room_messages
       SET is_pinned = false, pinned_at = NULL, pinned_by = NULL, pin_expires_at = NULL
@@ -208,12 +232,17 @@ export const GET = async (req: NextRequest) => {
         AND pin_expires_at <= NOW()
     `);
     results.expiredPinSweep = { unpinned: rowCount ?? 0 };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`expiredPinSweep: ${String(err)}`);
   }
 
   // 6. Enforce plan-based message history limits — set-based DELETEs
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("messageHistoryCleanup",async()=>{
+
     // BUG-47 FIX: honour retain_until so messages with purchased or admin-set
     // long-term retention are not pruned before their retention window expires.
     // BUG-48 FIX: use the sender's CURRENT plan (not plan at creation) to
@@ -249,10 +278,13 @@ export const GET = async (req: NextRequest) => {
       freeDeleted: parseInt(freeDeleted.rows[0]?.count ?? "0", 10),
       plusDeleted: parseInt(plusDeleted.rows[0]?.count ?? "0", 10),
     };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`messageHistoryCleanup: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

@@ -71,11 +71,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     let data: Record<string, unknown>;
     if (body.action === "merge") {
       data = await mergeHashtags(body.slug, body.into);
-      writeAuditLog({ actorId: auth.user.sub, action: "admin_hashtag_merge", targetType: "hashtag", targetId: body.slug, metadata: { into: body.into, ...data } });
+      await writeAuditLog({ actorId: auth.user.sub, action: "admin_hashtag_merge", targetType: "hashtag", targetId: body.slug, metadata: { into: body.into, ...data } });
     } else {
       await setHashtagBlocked(body.slug, body.action === "block");
       data = { slug: body.slug, blocked: body.action === "block" };
-      writeAuditLog({ actorId: auth.user.sub, action: body.action === "block" ? "admin_hashtag_block" : "admin_hashtag_unblock", targetType: "hashtag", targetId: body.slug });
+      await writeAuditLog({ actorId: auth.user.sub, action: body.action === "block" ? "admin_hashtag_block" : "admin_hashtag_unblock", targetType: "hashtag", targetId: body.slug });
     }
 
     await Promise.all([

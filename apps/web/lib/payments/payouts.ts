@@ -16,7 +16,7 @@
  *   After 3 attempts → dead-letter queue + failure notifications
  */
 
-import { eq, sql } from "drizzle-orm";
+import { and,eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
@@ -128,7 +128,7 @@ export async function processPendingPayouts(
     SET status = 'processing', updated_at = NOW()
     WHERE id IN (
       SELECT id FROM creator_payouts
-      WHERE status = 'pending' AND payout_method = 'bank_transfer'
+      WHERE status = 'pending' AND payout_method = 'bank_transfer' AND NOT earnings_restored AND NOT COALESCE(requires_manual_approval,false) AND NOT EXISTS(SELECT 1 FROM creator_payouts hold WHERE hold.creator_id=creator_payouts.creator_id AND hold.provider_status='ambiguous_success_after_restore')
       ORDER BY created_at ASC
       LIMIT ${batchSize}
       FOR UPDATE SKIP LOCKED
@@ -156,7 +156,7 @@ export async function processPendingPayouts(
     SET status = 'processing', updated_at = NOW()
     WHERE id IN (
       SELECT id FROM creator_payouts
-      WHERE status = 'failed'
+      WHERE status = 'failed' AND NOT earnings_restored AND NOT COALESCE(requires_manual_approval,false) AND NOT EXISTS(SELECT 1 FROM creator_payouts hold WHERE hold.creator_id=creator_payouts.creator_id AND hold.provider_status='ambiguous_success_after_restore')
         AND payout_method = 'bank_transfer'
         AND next_retry_at IS NOT NULL
         AND next_retry_at <= NOW()
@@ -223,7 +223,7 @@ async function attemptTransfer(
           await orm
             .update(schema.creatorPayouts)
             .set({ status: "completed", updatedAt: sql`NOW()` })
-            .where(eq(schema.creatorPayouts.id, payout.id));
+            .where(and(eq(schema.creatorPayouts.id,payout.id),eq(schema.creatorPayouts.status,"processing"),eq(schema.creatorPayouts.earningsRestored,false)));
           return { success: true, dlq: false };
         }
       } catch (verifyErr) {
@@ -256,7 +256,7 @@ async function attemptTransfer(
         nextRetryAt: null,
         updatedAt: sql`NOW()`,
       })
-      .where(eq(schema.creatorPayouts.id, payout.id));
+      .where(and(eq(schema.creatorPayouts.id,payout.id),eq(schema.creatorPayouts.status,"processing"),eq(schema.creatorPayouts.earningsRestored,false)));
 
     return { success: true, dlq: false };
   } catch (err) {
@@ -290,7 +290,7 @@ async function attemptTransfer(
         nextRetryAt: sql`NOW() + (${String(offsetMinutes)} || ' minutes')::INTERVAL`,
         updatedAt: sql`NOW()`,
       })
-      .where(eq(schema.creatorPayouts.id, payout.id));
+      .where(and(eq(schema.creatorPayouts.id,payout.id),eq(schema.creatorPayouts.status,"processing"),eq(schema.creatorPayouts.earningsRestored,false)));
 
     return { success: false, dlq: false };
   }
@@ -361,7 +361,7 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
             .from(schema.creatorPayouts)
             .where(eq(schema.creatorPayouts.id, candidate.id))
             .for("update", { skipLocked: true });
-          if (!cur[0] || cur[0].status === "completed") return; // already handled
+          if (!cur[0] || cur[0].status !== "processing") return; // already handled
           await tx
             .update(schema.creatorPayouts)
             .set({ status: "completed", updatedAt: sql`NOW()` })
@@ -382,10 +382,10 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
             .from(schema.creatorPayouts)
             .where(eq(schema.creatorPayouts.id, candidate.id))
             .for("update", { skipLocked: true });
-          if (!cur[0] || cur[0].status === "failed") return; // already handled
+          if (!cur[0] || cur[0].status !== "processing") return; // already handled
           await tx
             .update(schema.creatorPayouts)
-            .set({ status: "failed", updatedAt: sql`NOW()` })
+            .set({ status: "failed", nextRetryAt:null,updatedAt: sql`NOW()` })
             .where(eq(schema.creatorPayouts.id, candidate.id));
           if (!cur[0].earningsRestored) {
             if (cur[0].netKobo == null) {
@@ -447,7 +447,7 @@ export async function moveToDeadLetterQueue(
       .from(schema.creatorPayouts)
       .where(eq(schema.creatorPayouts.id, payoutId))
       .for("update");
-    if (!current[0]) return;
+    if (!current[0] || ["completed","reversed"].includes(current[0].status)) return;
 
     // Mark payout as permanently failed
     await tx

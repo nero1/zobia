@@ -26,6 +26,7 @@ const updateSchema = z.object({
   name: z.string().min(1).max(120).optional(),
   slug: z.string().min(1).max(60).regex(/^[a-z0-9-]+$/).optional(),
   category: categoryEnum.optional(),
+  scoreVerification:z.enum(["practice","server"]).optional(),
   engineKey: z.string().min(1).max(60).optional(),
   tagline: z.string().max(160).nullable().optional(),
   description: z.string().max(2000).nullable().optional(),
@@ -78,6 +79,7 @@ export const PUT = withAdminAuth(
       const updates: Partial<typeof games.$inferInsert> = {};
       if (body.name !== undefined) updates.name = body.name;
       if (body.category !== undefined) updates.category = body.category;
+      if(body.scoreVerification!==undefined)updates.scoreVerification=body.scoreVerification;
       if (body.engineKey !== undefined) updates.engineKey = body.engineKey;
       if (body.tagline !== undefined) updates.tagline = body.tagline;
       if (body.description !== undefined) updates.description = body.description;

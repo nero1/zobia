@@ -75,7 +75,7 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_payment_context_updated",
       targetType: "payment_context_settings",

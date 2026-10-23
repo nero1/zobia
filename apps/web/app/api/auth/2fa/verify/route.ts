@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
         throw forbidden("Your account has been banned.");
       }
 
-      if (user.isSuspended && user.suspendedUntil && new Date(user.suspendedUntil) > new Date()) {
+      if (user.isSuspended && (!user.suspendedUntil || new Date(user.suspendedUntil) > new Date())) {
         throw forbidden("Your account is currently suspended.");
       }
 

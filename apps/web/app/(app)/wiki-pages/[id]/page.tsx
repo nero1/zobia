@@ -9,12 +9,12 @@
  */
 
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 
 export default async function WikiPageRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const { rows } = await db.query<{ wiki_slug: string; page_slug: string }>(
+  const { rows } = await executeSql<{ wiki_slug: string; page_slug: string }>(
     `SELECT w.slug AS wiki_slug, p.slug AS page_slug
      FROM wiki_pages p
      JOIN wikis w ON w.id = p.wiki_id

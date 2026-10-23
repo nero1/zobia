@@ -8,7 +8,7 @@ import { catalogChecksum } from "./catalog";
 const directory = path.join(__dirname, "migrations");
 const baseline = "0001_consolidated_schema.sql";
 const predecessor = JSON.parse(fs.readFileSync(path.join(__dirname, "baselines/2026-10-23.json"), "utf8")) as {
-  catalogChecksum: string; predecessors: Record<string,string>;
+  catalogChecksum: string; predecessors: Record<string,string>; previousBaselineChecksum:string; previousCatalogChecksum:string; upgradeFile:string; upgradeChecksum:string;
 };
 const log = (message: string) => process.stdout.write(`[migrate] ${message}\n`);
 
@@ -69,11 +69,18 @@ async function main() {
       return;
     }
     const existingApp = (await client.query("SELECT to_regclass('public.users') AS name")).rows[0].name;
-    if ((legacy && completePredecessor) || args.has("--adopt-baseline")) {
+    if ((legacy && (completePredecessor || applied.get(baseline)===predecessor.previousBaselineChecksum)) || args.has("--adopt-baseline")) {
       if (!existingApp) throw new Error("No application schema exists to adopt; run migrate without --adopt-baseline");
-      await verifyBaseline(client);
+      const observed=await catalogChecksum(client);
+      if(observed!==predecessor.catalogChecksum && observed!==predecessor.previousCatalogChecksum)throw new Error("Existing schema is neither the verified previous baseline nor the current final schema. No data was changed; inspect schema drift before upgrading.");
       await client.query("BEGIN");
       try {
+        if(observed===predecessor.previousCatalogChecksum){
+          const upgrade=fs.readFileSync(path.join(__dirname,"upgrades",predecessor.upgradeFile),"utf8");
+          if(checksum(upgrade)!==predecessor.upgradeChecksum)throw new Error("Verified upgrade file checksum mismatch");
+          await client.query(migrationBody(upgrade));
+        }
+        await verifyBaseline(client);
         const text = contents.get(baseline)!;
         const start = text.indexOf("\n-- Explicit Data API grants;");
         const end = text.lastIndexOf("\nCOMMIT;");

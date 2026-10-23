@@ -16,6 +16,7 @@
 import { onReadCacheInvalidate } from "@/lib/cache/readCache";
 
 export interface ClientServedAd {
+  receipt: string;
   creativeId: string;
   campaignId: string;
   placementKey: string;

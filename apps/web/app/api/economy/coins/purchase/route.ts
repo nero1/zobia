@@ -87,12 +87,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         currency: schema.storeItems.currency,
         coinsGranted: schema.storeItems.coinsGranted,
         isActive: schema.storeItems.isActive,
+        validUntil:schema.storeItems.validUntil,
       })
       .from(schema.storeItems)
       .where(
         and(
           eq(schema.storeItems.id, body.packId),
-          or(eq(schema.storeItems.itemType, "coin_pack"), eq(schema.storeItems.itemType, "star_pack"))
+          eq(schema.storeItems.itemType, "coin_pack")
         )
       )
       .limit(1);
@@ -102,8 +103,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const pack = packRows[0];
+    if(!Number.isSafeInteger(pack.coinsGranted) || !pack.coinsGranted || pack.coinsGranted<=0)throw badRequest("This pack has no valid coin quantity");
+    if(!Number.isSafeInteger(Number(pack.priceKobo)) || Number(pack.priceKobo)<0 || pack.currency!=='NGN')throw badRequest("This pack has an invalid price or unsupported billing currency");
 
-    if (!pack.isActive) {
+    if (!pack.isActive || (pack.validUntil && pack.validUntil.getTime()<=Date.now())) {
       throw badRequest("This pack is currently unavailable");
     }
 

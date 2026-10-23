@@ -51,7 +51,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const orm = await getDb();
     const { rows: userRows } = await orm.execute<{ is_admin: boolean; is_moderator: boolean }>(sql`
       SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-       FROM users WHERE id = ${auth.user.sub} AND deleted_at IS NULL LIMIT 1
+       FROM users WHERE id = ${auth.user.sub} AND deleted_at IS NULL AND NOT is_banned AND NOT (is_suspended AND (suspended_until IS NULL OR suspended_until > NOW())) LIMIT 1
     `);
     if (!userRows[0]?.is_admin && !userRows[0]?.is_moderator) {
       throw forbidden("Admin or moderator access required");

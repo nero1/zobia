@@ -154,7 +154,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Invalid tab");
     }
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "data_management_stats_read",
       metadata: { tab, live: isLive },

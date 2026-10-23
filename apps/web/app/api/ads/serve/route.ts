@@ -33,7 +33,7 @@ const PLACEMENT_RE = /^[a-z0-9_]{1,64}$/;
 
 export const GET = withAuth(async (req: NextRequest, { auth }: { auth: AuthContext }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
+    await enforceRateLimit(auth.user.sub, "user", {limit:30,windowMs:60_000,name:"ads:serve",globalLimit:10000,bypassL1:true});
 
     const params = req.nextUrl.searchParams;
     const single = params.get("placement");
@@ -56,7 +56,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }: { auth: AuthConte
         .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
         .limit(1);
       const plan = rows[0]?.plan ?? "free";
-      const served = await Promise.all(placements.map((p) => serveAd(p, plan)));
+      const served = await Promise.all(placements.map((p) => serveAd(p, plan, auth.user.sub)));
       ads = Object.fromEntries(placements.map((p, i) => [p, served[i]]));
     }
 

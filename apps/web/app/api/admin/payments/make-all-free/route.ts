@@ -27,7 +27,7 @@ export const POST = withAdminAuth(async (_req: NextRequest, { auth }) => {
 
     await makeAllPaymentsFree(auth.user.sub);
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_all_payments_made_free",
       targetType: "payment_context_settings",

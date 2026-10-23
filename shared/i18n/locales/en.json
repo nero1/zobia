@@ -5535,5 +5535,21 @@
   "checkout.resumePayment": "Resume payment",
   "checkout.invalidUrl": "Invalid checkout address",
   "checkout.missingReference": "Payment reference is missing",
-  "checkout.notConfirmed": "Payment has not been confirmed"
+  "checkout.notConfirmed": "Payment has not been confirmed",
+  "subscription.cancelModal.playStoreBody": "This plan was purchased through Google Play. To stop future billing, manage or cancel it from your Play Store subscriptions.",
+  "subscription.cancelModal.body": "Cancel to stop recurring billing. After cancelling you can still use Zobia {{plan}} until your current plan ends, which is on {{date}}.",
+  "games.resultVerification": "Result verification",
+  "games.practiceMode": "Practice (no financial rewards)",
+  "games.verifiedMode": "Trusted game backend",
+  "games.verificationNotice": "Client-reported scores are practice scores. Currency rewards and wagers require a trusted server-verified result.",
+  "settings.dataAccount.exportFailed": "Unable to prepare your download. Please try again.",
+  "settings.privacy.contactDiscovery": "Let contacts find me",
+  "settings.privacy.contactDiscoveryDesc": "Allow people who have your verified phone number to find your account.",
+  "settings.privacy.nemesisSystem": "Nemesis system",
+  "settings.privacy.nemesisSystemDesc": "Turn off Nemesis rival matchups and challenges",
+  "checkout.signManually": "Sign the displayed message in your wallet and paste the signature below.",
+  "checkout.signFailed": "Wallet signing failed",
+  "checkout.proveOwnership": "Prove that you own the sending wallet",
+  "checkout.signOwnership": "Sign with wallet",
+  "checkout.ownershipSignature": "Wallet ownership signature"
 }

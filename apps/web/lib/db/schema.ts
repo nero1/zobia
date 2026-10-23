@@ -19,6 +19,7 @@ import {
   boolean,
   integer,
   smallint,
+  varchar,
   bigint,
   timestamp,
   date,
@@ -316,6 +317,9 @@ export const users = pgTable("users", {
   avatarChangedAt: timestamp("avatar_changed_at", { withTimezone: true }),
 
   // Privacy/notification (additional)
+  purgedAt: timestamp("purged_at",{withTimezone:true}),
+  contactDiscoveryEnabled: boolean("contact_discovery_enabled").notNull().default(false),
+  contactDiscoveryConsentedAt: timestamp("contact_discovery_consented_at",{withTimezone:true}),
   sitemapOptOut: boolean("sitemap_opt_out").notNull().default(false),
   groupInvitePrivacy: text("group_invite_privacy").notNull().default("friends"),
   nemesisOptOut: boolean("nemesis_opt_out").notNull().default(false),
@@ -417,7 +421,7 @@ export const userPushTokens = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
     platform: text("platform").notNull().default("android"),
-    deviceId: text("device_id"),
+    deviceId: varchar("device_id",{length:255}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
@@ -2380,11 +2384,11 @@ export const xpLedger = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    amount: integer("amount").notNull(),
+    amount: bigint("amount",{mode:"number"}).notNull(),
     track: text("track").notNull().default("main"),
     source: text("source").notNull(),
     referenceId: text("reference_id"),
-    baseAmount: integer("base_amount").notNull(),
+    baseAmount: bigint("base_amount",{mode:"number"}).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -2401,11 +2405,11 @@ export const xpLedger = pgTable(
 export const xpLedgerArchive = pgTable("xp_ledger_archive", {
   id: uuid("id").primaryKey(),
   userId: uuid("user_id").notNull(),
-  amount: integer("amount").notNull(),
+  amount: bigint("amount",{mode:"number"}).notNull(),
   track: text("track").notNull().default("main"),
   source: text("source").notNull(),
   referenceId: text("reference_id"),
-  baseAmount: integer("base_amount").notNull(),
+  baseAmount: bigint("base_amount",{mode:"number"}).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }),
   archivedAt: timestamp("archived_at", { withTimezone: true })
     .notNull()
@@ -2513,6 +2517,7 @@ export const payments = pgTable("payments", {
   tokenSymbol: text("token_symbol"),
   txHash: text("tx_hash"),
   walletAddress: text("wallet_address"),
+  senderAddress: text("sender_address"),
   expectedTokenAmount: numeric("expected_token_amount", { precision: 38, scale: 0 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -2865,7 +2870,7 @@ export const auditDiscrepancies = pgTable("audit_discrepancies", {
 export const failedXpAwards = pgTable("failed_xp_awards", {
   id: uuidPk(),
   userId: uuid("user_id").notNull(),
-  amount: integer("amount").notNull(),
+  amount: bigint("amount",{mode:"number"}).notNull(),
   track: text("track").notNull(),
   source: text("source").notNull(),
   referenceId: text("reference_id"),
@@ -3244,6 +3249,7 @@ export const kycSubmissions = pgTable("kyc_submissions", {
 });
 
 export const kycDocuments = pgTable("kyc_documents", {
+  uploadState: text("upload_state").notNull().default("ready"),
   id: uuidPk(),
   // Nullable: a document is uploaded (and AV/type-checked) before the
   // submission row exists, then attached in the same transaction that
@@ -3599,7 +3605,7 @@ export const merchProductReviews = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     orderId: uuid("order_id").references(() => merchOrders.id, { onDelete: "set null" }),
-    rating: integer("rating").notNull(),
+    rating: smallint("rating").notNull(),
     comment: text("comment"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3920,6 +3926,7 @@ export const classroomDailyStats = pgTable(
 export const games = pgTable(
   "games",
   {
+    scoreVerification: text("score_verification").notNull().default("practice"),
     id: uuidPk(),
     slug: text("slug").notNull(),
     name: text("name").notNull(),
@@ -3978,7 +3985,7 @@ export const gameRatings = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    rating: integer("rating").notNull(),
+    rating: smallint("rating").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -5439,7 +5446,7 @@ export const forumVotes = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    value: integer("value").notNull(),
+    value: smallint("value").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
@@ -6130,6 +6137,8 @@ export const featureFlags = pgTable("feature_flags", {
 
 // Migration 015 (db): failed webhook events for retry
 export const failedWebhooks = pgTable("failed_webhooks", {
+  eventKey:text("event_key").unique(),
+  processingToken:uuid("processing_token"),
   id: uuidPk(),
   provider: text("provider").notNull(),
   eventType: text("event_type"),
@@ -7252,7 +7261,20 @@ export const automationAccounts=pgTable("automation_accounts",{userId:uuid("user
 export const automationJobs=pgTable("automation_jobs",{id:uuidPk(),accountId:uuid("account_id").notNull().references(()=>automationAccounts.userId),name:text("name").notNull(),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),instructions:text("instructions").notNull().default(""),providers:jsonb("providers").notNull().default(sql`'[]'::jsonb`),intervalHours:integer("interval_hours").notNull().default(24),publicationMode:text("publication_mode").notNull().default("review"),enabled:boolean("enabled").notNull().default(false),nextRunAt:timestamp("next_run_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),leaseUntil:timestamp("lease_until",{withTimezone:true}),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
 export const automationGenerations=pgTable("automation_generations",{id:uuidPk(),jobId:uuid("job_id").references(()=>automationJobs.id,{onDelete:"set null"}),accountId:uuid("account_id").notNull().references(()=>users.id,{onDelete:"cascade"}),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),title:text("title").notNull(),body:text("body").notNull(),normalized:text("normalized").notNull(),fingerprint:text("fingerprint").notNull().unique(),status:text("status").notNull().default("review"),reviewedBy:uuid("reviewed_by").references(()=>users.id,{onDelete:"set null"}),reviewedAt:timestamp("reviewed_at",{withTimezone:true}),reviewReason:text("review_reason").notNull(),provider:text("provider").notNull(),publishedContentId:uuid("published_content_id"),publishedUrl:text("published_url"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),publishedAt:timestamp("published_at",{withTimezone:true})});
 
+export const cryptoTransferClaims=pgTable("crypto_transfer_claims",{
+ chain:text("chain").notNull(),txHash:text("tx_hash").notNull(),paymentId:uuid("payment_id").notNull().unique().references(()=>payments.id),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[primaryKey({columns:[t.chain,t.txHash]})]);
+export const accountRestoreUses=pgTable("account_restore_uses",{jti:text("jti").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const objectDeletionTasks=pgTable("object_deletion_tasks",{id:uuidPk(),storageKey:text("storage_key").notNull().unique(),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const restoreEmailTasks=pgTable("restore_email_tasks",{userId:uuid("user_id").primaryKey().references(()=>users.id,{onDelete:"cascade"}),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),deliveredAt:timestamp("delivered_at",{withTimezone:true}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow()});
+export const cronJobRuns=pgTable("cron_job_runs",{jobKey:text("job_key").notNull(),runDate:date("run_date").notNull(),leaseToken:uuid("lease_token").notNull(),leaseUntil:timestamp("lease_until",{withTimezone:true}).notNull(),completedAt:timestamp("completed_at",{withTimezone:true})},t=>[primaryKey({columns:[t.jobKey,t.runDate]})]);
+export const cronJobSteps=pgTable("cron_job_steps",{jobKey:text("job_key").notNull(),runDate:date("run_date").notNull(),step:text("step").notNull(),completedAt:timestamp("completed_at",{withTimezone:true}).notNull().defaultNow()},t=>[primaryKey({columns:[t.jobKey,t.runDate,t.step]})]);
+export const gameScoreAttestations=pgTable("game_score_attestations",{playId:uuid("play_id").primaryKey().references(()=>gamePlays.id,{onDelete:"cascade"}),score:bigint("score",{mode:"bigint"}).notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const gameProgressTasks=pgTable("game_progress_tasks",{playId:uuid("play_id").primaryKey().references(()=>gamePlays.id,{onDelete:"cascade"}),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),completedAt:timestamp("completed_at",{withTimezone:true})});
+
 export const schema = {
+  cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
+  auditDiscrepanciesArchive,rankUpEventsArchive,
   accountTypePlayProducts,
   playPurchaseReceipts,
   accountTypes,

@@ -15,6 +15,7 @@
  *   4. Thank you — auto-closes.
  */
 
+import {AccessibleDialog} from "@zobia/shared/ui/Dialog";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";
@@ -115,7 +116,7 @@ export function CancelPlanModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <AccessibleDialog aria-label={t("subscription.cancelModal.title", "Cancel plan")} onClose={onClose} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 dark:border-neutral-800 dark:bg-neutral-900">
         {step === "confirm" && (
           <>
@@ -267,6 +268,6 @@ export function CancelPlanModal({
           </div>
         )}
       </div>
-    </div>
+    </AccessibleDialog>
   );
 }

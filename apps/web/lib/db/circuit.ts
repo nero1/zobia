@@ -100,14 +100,47 @@ export const dbCircuit: CircuitBreakerLike = USE_DISTRIBUTED_DB_CIRCUIT
  */
 export async function withCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
   try {
-    return await dbCircuit.execute(fn);
+    const outcome = await dbCircuit.execute(async () => {
+      try {
+        return { ok: true as const, value: await fn() };
+      } catch (error) {
+        let cause = error as {
+          code?: string;
+          message?: string;
+          cause?: unknown;
+        };
+        for (let depth = 0; depth < 3 && cause?.cause; depth++)
+          cause = cause.cause as typeof cause;
+        const code = cause?.code ?? "",
+          message = cause?.message ?? "";
+        if (
+          /^(08|53|57P|57014)/.test(code) ||
+          [
+            "ECONNRESET",
+            "ECONNREFUSED",
+            "ETIMEDOUT",
+            "ENOTFOUND",
+            "EPIPE",
+          ].includes(code) ||
+          /connection (?:terminated|timeout|timed out|closed)|timeout exceeded when trying to connect/i.test(
+            message,
+          )
+        )
+          throw error;
+        // A rejected business operation or SQL constraint says nothing about
+        // database availability; it must not open a circuit for every user.
+        return { ok: false as const, error };
+      }
+    });
+    if (!outcome.ok) throw outcome.error;
+    return outcome.value;
   } catch (err) {
     // Only the breaker's own rejections are prefixed with "[database]" (its
     // configured `name`) — real errors from `fn()` never carry this prefix,
     // so this check can't accidentally reclassify a genuine query error.
     if (err instanceof Error && err.message.startsWith("[database]")) {
       const serviceUnavailable = new Error(
-        "Database is temporarily unavailable — please try again shortly"
+        "Database is temporarily unavailable — please try again shortly",
       ) as Error & { statusCode: number; code: string };
       serviceUnavailable.statusCode = 503;
       serviceUnavailable.code = "DB_UNAVAILABLE";
@@ -121,53 +154,79 @@ export async function withCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
 // Pool-level wrapping — covers Drizzle's direct pg.Pool usage
 // ---------------------------------------------------------------------------
 
-/**
- * BUG (discovered while investigating a raw, unhandled-looking 500 on
- * GET /api/creator/dashboard that happened to log a breaker state change
- * nearby): every provider adapter's own `query()`/`transaction()` methods
- * are wrapped in `withCircuitBreaker` above, but `lib/db/drizzle.ts`'s
- * `getDb()` hands the *same* underlying `pg.Pool` straight to Drizzle
- * (`drizzle(pool, { schema })`) and Drizzle calls `pool.query(...)` on it
- * directly — completely bypassing the adapter wrapper, and therefore the
- * breaker. Since "full Drizzle ORM coverage" (see PR #532) moved nearly all
- * application code from `db.query()` (protected) onto `getDb()`/Drizzle
- * (unprotected), the breaker had stopped protecting the vast majority of
- * real traffic: during a DB outage, Drizzle-issued queries would each hang
- * for the full `statement_timeout`/`connectionTimeoutMillis` instead of
- * failing fast with a clean 503, and never contributed to (or benefited
- * from) the breaker's OPEN/CLOSED state at all.
- *
- * Fix: wrap the Pool's own `query` method once, at the lowest shared layer
- * (the Pool itself, not each caller), so both the legacy adapter and every
- * Drizzle call issued against the same pool go through the same breaker.
- * Only the non-transactional `pool.query(...)` path is wrapped — the
- * per-adapter `transaction()` methods above already wrap their own
- * `pool.connect()` + multi-statement unit of work, and Drizzle's own
- * `.transaction()` similarly checks out a dedicated client via
- * `pool.connect()`; wrapping `connect()` too would double-count a single
- * transaction's queries against the breaker's window and is left alone.
- * Callback-style `pool.query(text, cb)` calls (unused anywhere in this
- * codebase — everything here is promise-based) fall through to the
- * original method untouched rather than risk breaking that signature.
- *
- * Idempotent — safe to call on the same pool more than once (double-wrapping
- * is a harmless no-op check via `__circuitWrapped`).
- */
-export function wrapPoolWithCircuitBreaker(pool: {
-  query: (...args: unknown[]) => unknown;
-  __circuitWrapped?: boolean;
-}): void {
+/** Transaction-local server context works with direct PG and transaction poolers.
+ * No session GUC is assumed to survive between requests or pool checkouts. */
+export function wrapPoolWithCircuitBreaker(
+  pool: import("pg").Pool & { __circuitWrapped?: boolean },
+): void {
   if (pool.__circuitWrapped) return;
   pool.__circuitWrapped = true;
-
-  const originalQuery = pool.query.bind(pool);
-  pool.query = (...args: unknown[]) => {
-    const lastArg = args[args.length - 1];
-    if (typeof lastArg === "function") {
-      // Callback style — bypass the breaker rather than risk mismatching pg's
-      // callback-based overload signature. Not used anywhere in this codebase.
-      return originalQuery(...args);
+  const connect = pool.connect.bind(pool);
+  type ContextClient = import("pg").PoolClient & { __contextWrapped?: boolean };
+  function prepare(client: ContextClient): ContextClient {
+    if (client.__contextWrapped) return client;
+    client.__contextWrapped = true;
+    const query = client.query.bind(client);
+    client.query = ((...args: unknown[]) => {
+      const value = args[0];
+      const text =
+        typeof value === "string" ? value : (value as { text?: string })?.text;
+      const result = (query as (...args: unknown[]) => Promise<unknown>)(
+        ...args,
+      );
+      if (/^\s*begin\b/i.test(text ?? "")) {
+        return result.then(async (value) => {
+          await query(
+            "SELECT set_config('app.is_system','true',true),set_config('statement_timeout','10000',true),set_config('idle_in_transaction_session_timeout','15000',true)",
+          );
+          return value;
+        });
+      }
+      return result;
+    }) as typeof client.query;
+    return client;
+  }
+  pool.connect = ((
+    callback?: (
+      error: Error | undefined,
+      client: import("pg").PoolClient | undefined,
+      release: () => void,
+    ) => void,
+  ) => {
+    if (callback)
+      return connect((error, client, release) =>
+        callback(error, client ? prepare(client) : client, release),
+      );
+    return connect().then(prepare);
+  }) as typeof pool.connect;
+  pool.query = ((...args: unknown[]) => {
+    const callback =
+      typeof args.at(-1) === "function"
+        ? (args.pop() as (error: unknown, result?: unknown) => void)
+        : undefined;
+    const task = withCircuitBreaker(async () => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const result = await (
+          client.query as (...args: unknown[]) => Promise<unknown>
+        )(...args);
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+    });
+    if (callback) {
+      void task.then(
+        (value) => callback(null, value),
+        (error) => callback(error),
+      );
+      return;
     }
-    return withCircuitBreaker(() => Promise.resolve(originalQuery(...args)) as Promise<unknown>);
-  };
+    return task;
+  }) as typeof pool.query;
 }

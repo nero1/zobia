@@ -227,3 +227,8 @@ export function withErrorHandling<TArgs extends unknown[], TReturn>(
     }
   };
 }
+
+/** Brief dependency outages can be retried without exposing internals. */
+export function serviceUnavailable(message = 'Temporarily unavailable'): ApiError {
+  return new ApiError(503,'SERVICE_UNAVAILABLE',message,undefined,{'Retry-After':'1'});
+}

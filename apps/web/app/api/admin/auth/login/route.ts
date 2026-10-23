@@ -37,7 +37,7 @@ import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 const loginSchema = z.object({
   email: z.string().email("Valid email required"),
-  password: z.string().min(1, "Password required"),
+  password: z.string().min(1, "Password required").max(1024),
   captchaToken: z.string().max(4000).optional(),
 });
 
@@ -99,6 +99,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         totp_enabled: schema.users.totpEnabled,
         is_admin: schema.users.isAdmin,
         deleted_at: schema.users.deletedAt,
+        is_banned:schema.users.isBanned,
+        is_suspended:schema.users.isSuspended,
+        suspended_until:schema.users.suspendedUntil,
       })
       .from(schema.users)
       .where(eq(schema.users.email, body.email.toLowerCase()))
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const passwordHash = user?.password_hash ?? (await DUMMY_HASH_PROMISE);
     const passwordValid = await compare(body.password, passwordHash);
 
-    if (!user || !passwordValid || !user.is_admin || user.deleted_at) {
+    if (!user || !passwordValid || !user.is_admin || user.deleted_at || user.is_banned || (user.is_suspended && (!user.suspended_until || user.suspended_until.getTime()>Date.now()))) {
       // Only count failures against real admin emails toward the lockout —
       // still runs bcrypt above either way so timing doesn't leak which case this is.
       if (user?.is_admin) {

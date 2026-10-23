@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api/client';
 import { Icon } from '@/components/ui/Icon';
 
 interface PrivacySettings {
+  contact_discovery_enabled: boolean;
   profile_private: boolean;
   profile_hidden_sections: string[];
   disable_friend_requests: boolean;
@@ -39,6 +40,7 @@ interface PrivacyCapabilities {
 }
 
 const DEFAULT_SETTINGS: PrivacySettings = {
+  contact_discovery_enabled: false,
   profile_private: false,
   profile_hidden_sections: [],
   disable_friend_requests: false,
@@ -69,11 +71,11 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-        checked ? 'bg-primary-600' : 'bg-neutral-300'
+        checked ? 'bg-primary' : 'bg-muted'
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white dark:bg-neutral-800 shadow transition-transform ${
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-card shadow transition-transform ${
           checked ? 'translate-x-5' : 'translate-x-0.5'
         }`}
       />
@@ -153,8 +155,15 @@ function PrivacyPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
-      <div className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-xl bg-white dark:bg-neutral-800 px-4 shadow-card">
+    <div className="h-full overflow-y-auto bg-background px-4 py-4">
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-xl bg-card px-4 shadow-card">
+        <PrivacyRow
+          title={t('settings.privacy.contactDiscovery', 'Let contacts find me')}
+          description={t('settings.privacy.contactDiscoveryDesc', 'Allow people who have your verified phone number to find your account.')}
+          checked={settings.contact_discovery_enabled}
+          onChange={(v) => void save({ contact_discovery_enabled: v })}
+          disabled={saving}
+        />
         <PrivacyRow
           title={t('settings.privacy.disableFriendRequests', 'Disable friend requests')}
           description={t('settings.privacy.disableFriendRequestsDesc', 'Prevent others from sending you friend requests')}
@@ -248,7 +257,7 @@ function PrivacyPage() {
             value={settings.group_invite_privacy}
             onChange={(e) => void save({ group_invite_privacy: e.target.value as PrivacySettings['group_invite_privacy'] })}
             disabled={saving}
-            className="rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-1.5 text-sm"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 bg-card px-3 py-1.5 text-sm"
           >
             <option value="anybody">{t('settings.privacy.groupInvite.anybody', 'Anybody')}</option>
             <option value="friends">{t('settings.privacy.groupInvite.friends', 'Only friends')}</option>

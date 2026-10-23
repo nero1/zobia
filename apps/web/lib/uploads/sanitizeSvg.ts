@@ -14,18 +14,66 @@
 import sanitizeHtmlLib from "sanitize-html";
 
 const SVG_ALLOWED_TAGS = [
-  "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline",
-  "polygon", "defs", "clipPath", "linearGradient", "radialGradient", "stop",
-  "title", "desc", "text", "tspan",
+  "svg",
+  "g",
+  "path",
+  "rect",
+  "circle",
+  "ellipse",
+  "line",
+  "polyline",
+  "polygon",
+  "defs",
+  "clipPath",
+  "linearGradient",
+  "radialGradient",
+  "stop",
+  "title",
+  "desc",
+  "text",
+  "tspan",
 ];
 
 const SVG_ALLOWED_ATTRS = [
-  "id", "class", "viewBox", "width", "height", "x", "y", "x1", "y1", "x2", "y2",
-  "cx", "cy", "r", "rx", "ry", "points", "d", "transform", "fill", "fill-opacity",
-  "fill-rule", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
-  "stroke-dasharray", "opacity", "offset", "stop-color", "stop-opacity",
-  "gradientUnits", "gradientTransform", "clip-path", "xmlns", "preserveAspectRatio",
-  "font-size", "font-family", "text-anchor",
+  "id",
+  "class",
+  "viewBox",
+  "width",
+  "height",
+  "x",
+  "y",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "cx",
+  "cy",
+  "r",
+  "rx",
+  "ry",
+  "points",
+  "d",
+  "transform",
+  "fill",
+  "fill-opacity",
+  "fill-rule",
+  "stroke",
+  "stroke-width",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "stroke-dasharray",
+  "opacity",
+  "offset",
+  "stop-color",
+  "stop-opacity",
+  "gradientUnits",
+  "gradientTransform",
+  "clip-path",
+  "xmlns",
+  "preserveAspectRatio",
+  "font-size",
+  "font-family",
+  "text-anchor",
 ];
 
 /**
@@ -35,13 +83,30 @@ const SVG_ALLOWED_ATTRS = [
  */
 export function sanitizeSvg(svgText: string): string {
   return sanitizeHtmlLib(svgText, {
+    parser: { lowerCaseTags: false, lowerCaseAttributeNames: false },
     allowedTags: SVG_ALLOWED_TAGS,
     allowedAttributes: { "*": SVG_ALLOWED_ATTRS },
     allowedSchemes: ["data"],
     disallowedTagsMode: "discard",
     // Belt-and-braces: sanitize-html already drops event-handler attributes
     // by name convention, but explicitly enforce it since `*` above is broad.
+    transformTags: {
+      "*": (tagName, attribs) => ({
+        tagName,
+        attribs: Object.fromEntries(
+          Object.entries(attribs).filter(
+            ([key, value]) =>
+              !["fill", "stroke", "clip-path"].includes(key) ||
+              (!/[\\\/\u0000-\u001f]/.test(value) &&
+                (!/url\s*\(/i.test(value) ||
+                  /^url\(#[a-zA-Z_][\w.-]*\)$/.test(value))),
+          ),
+        ),
+      }),
+    },
     exclusiveFilter: (frame) =>
-      Object.keys(frame.attribs).some((attr) => attr.toLowerCase().startsWith("on")),
+      Object.keys(frame.attribs).some((attr) =>
+        attr.toLowerCase().startsWith("on"),
+      ),
   });
 }

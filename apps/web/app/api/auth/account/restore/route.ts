@@ -14,6 +14,7 @@ import { z } from "zod";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, getUserAgent } from "@/lib/security/rateLimit";
+import { buildCookieHeaders } from "@/lib/auth/session";
 import { initiateAccountRestore, completeAccountRestore } from "@/lib/auth/restore";
 
 const initiateSchema = z.object({
@@ -21,7 +22,7 @@ const initiateSchema = z.object({
 });
 
 const completeSchema = z.object({
-  token: z.string().min(10, "Invalid restore token"),
+  token: z.string().min(10, "Invalid restore token").max(4096),
 });
 
 /** POST — send restore email */
@@ -52,6 +53,7 @@ export const POST = async (req: NextRequest) => {
 /** PATCH — complete restore with token */
 export const PATCH = async (req: NextRequest) => {
   try {
+    await enforceRateLimit(getClientIp(req),"ip",{name:"auth:restore-complete",limit:10,windowMs:60_000,bypassL1:true});
     const body = await validateBody(req, completeSchema);
     const result = await completeAccountRestore(body.token, {
       ip: getClientIp(req),
@@ -62,15 +64,12 @@ export const PATCH = async (req: NextRequest) => {
       throw badRequest(result.error ?? "Restore failed", "RESTORE_FAILED");
     }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        accessToken: result.accessToken,
-        refreshToken: result.refreshToken,
-        message: "Account restored successfully. Welcome back!",
-      },
-      error: null,
-    });
+    const response = NextResponse.json({ success:true, data:{ preAuthCode:result.preAuthCode, requiresAdminLogin:result.requiresAdminLogin, restored:true } });
+    if (result.accessToken && result.refreshToken && result.expiresIn && result.refreshTtl) {
+      const cookies = buildCookieHeaders({ accessToken:result.accessToken, refreshToken:result.refreshToken, expiresIn:result.expiresIn, refreshTtl:result.refreshTtl });
+      response.headers.append("Set-Cookie",cookies.accessCookie); response.headers.append("Set-Cookie",cookies.refreshCookie);
+    }
+    return response;
   } catch (err) {
     return handleApiError(err);
   }

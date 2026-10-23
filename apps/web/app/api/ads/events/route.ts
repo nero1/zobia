@@ -27,7 +27,8 @@ const bodySchema = z.object({
         creativeId: z.string().uuid(),
         placementKey: z.string().min(1).max(50),
         type: z.enum(["impression", "click"]),
-        clientEventId: z.string().min(8).max(100).optional(),
+        clientEventId: z.string().min(8).max(100),
+        receipt:z.string().min(32).max(1024),
       })
     )
     .min(1)
@@ -37,15 +38,11 @@ const bodySchema = z.object({
 export const POST = withAuth(async (req: NextRequest, { auth }: { auth: AuthContext }) => {
   try {
     await requireFeatureEnabled("nativeAds");
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", {limit:60,windowMs:60_000,name:"ads:events",globalLimit:10000,bypassL1:true});
     const body = await validateBody(req, bodySchema);
 
-    await recordAdEvents(
-      body.events.map((e) => ({ creativeId: e.creativeId, placementKey: e.placementKey, type: e.type, clientEventId: e.clientEventId })),
-      auth.user.sub
-    );
-
-    return NextResponse.json({ success: true, data: { recorded: body.events.length }, error: null });
+    const result=await recordAdEvents(body.events,auth.user.sub);
+    return NextResponse.json({success:true,data:result,error:null});
   } catch (err) {
     return handleApiError(err);
   }

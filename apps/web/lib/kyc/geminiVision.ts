@@ -90,7 +90,7 @@ export async function analyzeDocument(
     });
     return classification.result;
   } catch (err) {
-    logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[kyc/geminiVision] Document analysis failed");
+    logger.warn({ err: err instanceof Error ? err.name : "Identity processing error" }, "[kyc/geminiVision] Document analysis failed");
     return null;
   }
 }

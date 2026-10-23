@@ -21,6 +21,7 @@ export interface GameConfigRow {
   cover_image_url: string | null;
   category: string | null;
   engine_key: string | null;
+  score_verification?: "practice"|"server";
   reward_credits_per_win: number;
   reward_xp_per_win: number;
   reward_stars_per_win: number;
@@ -41,7 +42,7 @@ export interface GameConfigRow {
 
 const SUMMARY_COLUMNS = sql.raw(`
   id, slug, name, tagline, description, long_description, cover_emoji,
-  cover_image_url, category, engine_key,
+  cover_image_url, category, engine_key, score_verification,
   reward_credits_per_win, reward_xp_per_win, reward_stars_per_win,
   play_cost_credits, play_cost_stars, max_score, min_play_seconds,
   play_count, avg_rating, rating_count, favorite_count, is_active, is_public, created_at
@@ -52,14 +53,16 @@ const SUMMARY_COLUMNS = sql.raw(`
 // "column reference is ambiguous" errors.
 const SUMMARY_COLUMNS_G = sql.raw(`
   g.id, g.slug, g.name, g.tagline, g.description, g.long_description, g.cover_emoji,
-  g.cover_image_url, g.category, g.engine_key,
+  g.cover_image_url, g.category, g.engine_key, g.score_verification,
   g.reward_credits_per_win, g.reward_xp_per_win, g.reward_stars_per_win,
   g.play_cost_credits, g.play_cost_stars, g.max_score, g.min_play_seconds,
   g.play_count, g.avg_rating, g.rating_count, g.favorite_count, g.is_active, g.is_public, g.created_at
 `);
 
 function toSummary(row: GameConfigRow): GameSummary {
+  const financial=row.score_verification==='server' && !!process.env.GAME_RESULT_WEBHOOK_SECRET;
   return {
+    scoreVerification:financial?'server':'practice',
     id: row.id,
     slug: row.slug,
     name: row.name,
@@ -70,11 +73,11 @@ function toSummary(row: GameConfigRow): GameSummary {
     coverImageUrl: row.cover_image_url,
     category: (row.category as GameCategory | null) ?? null,
     engineKey: row.engine_key,
-    rewardCreditsPerWin: row.reward_credits_per_win,
-    rewardXpPerWin: row.reward_xp_per_win,
-    rewardStarsPerWin: row.reward_stars_per_win,
-    playCostCredits: row.play_cost_credits,
-    playCostStars: row.play_cost_stars,
+    rewardCreditsPerWin: financial?row.reward_credits_per_win:0,
+    rewardXpPerWin: financial?row.reward_xp_per_win:0,
+    rewardStarsPerWin: financial?row.reward_stars_per_win:0,
+    playCostCredits: financial?row.play_cost_credits:0,
+    playCostStars: financial?row.play_cost_stars:0,
     playCount: Number(row.play_count),
     avgRating: Number(row.avg_rating ?? 0),
     ratingCount: Number(row.rating_count ?? 0),

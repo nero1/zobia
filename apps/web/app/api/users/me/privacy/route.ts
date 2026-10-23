@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { getRankForXP } from '@/lib/xp/engine';
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@/lib/api/middleware';
+import { z } from 'zod';
+import { withAuth, validateBody } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
 import { sql, eq, and } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db/drizzle';
@@ -53,16 +54,13 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const body = await req.json().catch(() => ({})) as {
-      profile_private?: boolean;
-      profile_hidden_sections?: string[];
-      disable_friend_requests?: boolean;
-      sitemap_opt_out?: boolean;
-      show_online_status?: boolean;
-      group_invite_privacy?: 'anybody' | 'friends' | 'nobody';
-      nemesis_opt_out?: boolean;
-      hide_from_leaderboards?: boolean;
-    };
+    const body = await validateBody(req, z.object({
+      profile_private:z.boolean().optional(), profile_hidden_sections:z.array(z.string().max(40)).max(20).optional(),
+      disable_friend_requests:z.boolean().optional(), sitemap_opt_out:z.boolean().optional(),
+      show_online_status:z.boolean().optional(), group_invite_privacy:z.enum(['anybody','friends','nobody']).optional(),
+      nemesis_opt_out:z.boolean().optional(),hide_from_leaderboards:z.boolean().optional(),
+      contact_discovery_enabled:z.boolean().optional(),
+    }).strict());
 
     // Fetch current user plan + prestige + role + business tier (business
     // tier and role are additional eligibility dimensions alongside plan/
@@ -126,6 +124,10 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       updates.disable_friend_requests = Boolean(body.disable_friend_requests);
     }
 
+    if (body.contact_discovery_enabled !== undefined) {
+      updates.contact_discovery_enabled = body.contact_discovery_enabled;
+    }
+
     if (body.sitemap_opt_out !== undefined) {
       updates.sitemap_opt_out = Boolean(body.sitemap_opt_out);
     }
@@ -173,7 +175,9 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     // through the Drizzle instance instead of the query builder.
     const setClauses = Object.entries(updates).map(([k, v]) => sql`${sql.raw(k)} = ${v}`);
     await db.execute(sql`
-      UPDATE users SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW() WHERE id = ${userId}
+      UPDATE users SET ${sql.join(setClauses, sql`, `)},
+        contact_discovery_consented_at = CASE WHEN ${body.contact_discovery_enabled === true} THEN NOW() WHEN ${body.contact_discovery_enabled === false} THEN NULL ELSE contact_discovery_consented_at END,
+        updated_at = NOW() WHERE id = ${userId}
     `);
 
     // Take effect immediately rather than waiting for the weekly refresh —
@@ -214,6 +218,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       profile_private: boolean;
       profile_hidden_sections: string[];
       disable_friend_requests: boolean;
+      contact_discovery_enabled: boolean;
       sitemap_opt_out: boolean;
       show_online_status: boolean;
       group_invite_privacy: string;
@@ -231,6 +236,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               COALESCE(u.profile_private, false) AS profile_private,
               COALESCE(u.profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
               COALESCE(u.disable_friend_requests, false) AS disable_friend_requests,
+              u.contact_discovery_enabled,
               COALESCE(u.sitemap_opt_out, false) AS sitemap_opt_out,
               COALESCE(u.show_online_status, false) AS show_online_status,
               COALESCE(u.group_invite_privacy, 'friends') AS group_invite_privacy,
@@ -273,6 +279,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           ? user.profile_hidden_sections
           : [],
         disable_friend_requests: user.disable_friend_requests,
+        contact_discovery_enabled: user.contact_discovery_enabled,
         sitemap_opt_out: user.sitemap_opt_out,
         show_online_status: user.show_online_status,
         group_invite_privacy: user.group_invite_privacy,

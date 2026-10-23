@@ -38,9 +38,9 @@ interface Overview {
   providers: string[];
 }
 const field =
-  "block w-full rounded-lg border border-neutral-300 bg-white text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100 p-3 my-2";
+  "block w-full rounded-lg border border-input bg-background text-foreground p-3 my-2";
 const panel =
-  "rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4";
+  "rounded-xl border border-border bg-card p-4";
 const pill =
   "rounded-full border border-neutral-300 px-4 py-2 text-sm disabled:opacity-50";
 const initial: Job = {
@@ -90,7 +90,7 @@ export function AutomationPanel({ api }: { api: TalesTransport }) {
     }
   }
   return (
-    <div className="mx-auto max-w-4xl p-4 space-y-4 text-neutral-900 dark:text-neutral-100">
+    <div className="site-container p-4 space-y-4 text-foreground">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">
           {t("automation.title", "Official content studio")}

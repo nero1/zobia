@@ -14,7 +14,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { withAuth, validateBody } from "@/lib/api/middleware";
+import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 
 const patchSchema = z.object({
@@ -23,7 +23,7 @@ const patchSchema = z.object({
   action: z.enum(["override", "disqualify"]).default("override"),
 });
 
-export const PATCH = withAuth(
+export const PATCH = withAdminAuth(
   async (
     req: NextRequest,
     { params, auth }: { params: { userId: string }; auth: { user: { sub: string } } }

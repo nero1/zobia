@@ -8,14 +8,23 @@
  * query param, verifies the 6-digit TOTP code, then completes the session.
  */
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/Icon";
 
 function TwoFAForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const preAuthToken = searchParams?.get("token") ?? "";
+  const [preAuthToken, setPreAuthToken] = useState("");
+  const exchange = useRef<Promise<{token:string}> | null>(null);
+  const exchangeCode = searchParams?.get("code");
+  useEffect(() => {
+    if (!exchangeCode) return;
+    let cancelled = false;
+    const pending = exchange.current ??= fetch("/api/auth/2fa/pre-auth-token", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({code:exchangeCode}) }).then(async r => { if (!r.ok) throw new Error("Login challenge expired"); return r.json(); });
+    void pending.then(r => { if (!cancelled) { setPreAuthToken(r.token); window.history.replaceState(null,"",window.location.pathname); } }).catch(e => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
+  }, [exchangeCode]);
 
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +62,7 @@ function TwoFAForm() {
     }
   };
 
-  if (!preAuthToken) {
+  if (!preAuthToken && !exchangeCode) {
     return (
       <p className="text-center text-sm text-red-600 dark:text-red-400">
         Invalid or missing token. Please try logging in again.

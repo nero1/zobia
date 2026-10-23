@@ -1,114 +1,20 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyWebhookSignature } from '@/lib/payments/paystack';
+import { receivePaystackEvent, processInboxEvent } from '@/lib/payments/webhookInbox';
+import { logger } from '@/lib/logger';
 export const dynamic = 'force-dynamic';
-
-/**
- * POST /api/economy/webhooks/paystack
- *
- * Paystack payment event webhook handler.
- *
- * Security model:
- *   - Validates HMAC-SHA512 signature before ANY processing
- *   - Idempotent: skips duplicate events using provider_reference uniqueness
- *   - Returns 200 immediately; coin credits happen synchronously but atomically
- *
- * Supported events:
- *   - charge.success → credits coins / stars to the purchasing user
- *
- * @module app/api/economy/webhooks/paystack
- */
-
-import { NextRequest, NextResponse } from "next/server";
-import { verifyWebhookSignature } from "@/lib/payments/paystack";
-import { getDb } from "@/lib/db/drizzle";
-import { redis } from "@/lib/redis";
-import { logger } from "@/lib/logger";
-import { raiseAlert } from "@/lib/alerts/dispatch";
-import {
-  handlePaystackWebhookPayload,
-  type PaystackChargeEvent,
-  type PaystackTransferEvent,
-  type PaystackSubscriptionEvent,
-  type PaystackEvent,
-} from "@/lib/payments/paystackWebhookHandler";
-
-// ---------------------------------------------------------------------------
-// Route handler
-// ---------------------------------------------------------------------------
-
-/**
- * POST /api/economy/webhooks/paystack
- *
- * Paystack will retry on non-200 responses. We always return 200 after
- * signature validation — processing errors are logged, not retried.
- */
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // 0. Validate Content-Type before any body parsing
-  if (!req.headers.get("content-type")?.includes("application/json")) {
-    return NextResponse.json({ error: "Unsupported Media Type" }, { status: 415 });
-  }
-
-  // 1. Read raw body bytes for signature validation
-  const rawBody = Buffer.from(await req.arrayBuffer());
-  const signature = req.headers.get("x-paystack-signature") ?? "";
-
-  // 2. Validate HMAC-SHA512 signature — reject silently to avoid oracle attacks
-  const isValid = verifyWebhookSignature(rawBody, signature);
-  if (!isValid) {
-    logger.warn("[webhook/paystack] Invalid signature rejected");
-    // Return 200 so Paystack does not retry — a bad signature will never become valid on retry.
-    return NextResponse.json({ received: false }, { status: 200 });
-  }
-
-  // 3. Parse event
-  let event: PaystackEvent;
+  if (!req.headers.get('content-type')?.includes('application/json')) return NextResponse.json({received:false},{status:415});
+  const limit=256*1024; const chunks:Uint8Array[]=[];let length=0;
   try {
-    event = JSON.parse(rawBody.toString("utf-8")) as PaystackEvent;
-  } catch {
-    return NextResponse.json({ received: false }, { status: 400 });
-  }
-
-  // 3b. Replay protection — deduplicate by event reference using Redis (STRUC-04)
-  // Extract a stable event identifier (charge reference or subscription code)
-  const eventRef = (event as PaystackChargeEvent).data?.reference
-    ?? (event as PaystackTransferEvent).data?.reference
-    ?? (event as PaystackSubscriptionEvent).data?.subscription_code
-    ?? (event as { data?: { customer_code?: string } }).data?.customer_code
-    ?? null;
-  const eventTs = (event as PaystackChargeEvent).data?.paid_at ?? (event as { data?: { created_at?: string } }).data?.created_at ?? Date.now().toString();
-  const replayKey = `webhook:paystack:${event.event}:${eventRef ?? `ts-${eventTs}`}`;
-  // If Redis SET throws, return 500 so Paystack retries the webhook rather than
-  // silently treating a Redis failure as a duplicate event.
-  const alreadySeen = await redis.set(replayKey, "1", "EX", 86400, "NX");
-  if (alreadySeen === null) {
-    // null = NX condition not met → key already existed → duplicate event
-    logger.info({ replayKey }, `[webhook/paystack] Duplicate event ignored`);
-    return NextResponse.json({ received: true, duplicate: true });
-  }
-
-  // 4. Route to handler (failures are caught so we can still return 200)
-  try {
-    await handlePaystackWebhookPayload(event.event, event);
-  } catch (err) {
-    const errCode = (err as NodeJS.ErrnoException).code;
-    const isTransient = errCode === "ECONNREFUSED" || errCode === "ETIMEDOUT" || errCode === "ECONNRESET";
-    if (isTransient) {
-      logger.error({ err: err }, "[webhook/paystack] Transient error (Paystack will retry):");
-      return NextResponse.json({ received: false, error: "Processing failed" }, { status: 500 });
-    }
-    // Non-recoverable error — log for ops review but return 200 to stop Paystack retry loops
-    logger.error({ err: err }, "[webhook/paystack] Non-recoverable processing error:");
-    try {
-      await raiseAlert(await getDb(), {
-        type: "webhook_processing_error",
-        category: "financial",
-        priorityLevel: 2,
-        title: "Paystack webhook processing error",
-        message: (err as Error).message,
-        metadata: { webhook: "paystack", error: (err as Error).message },
-        dedupeKey: "webhook_processing_error:paystack",
-      });
-    } catch { /* ignore */ }
-    return NextResponse.json({ received: true });
-  }
-
-  return NextResponse.json({ received: true });
+    if (Number(req.headers.get('content-length'))>limit) return NextResponse.json({received:false},{status:413});
+    if(req.body) for await (const chunk of req.body as unknown as AsyncIterable<Uint8Array>) { length+=chunk.byteLength; if(length>limit)return NextResponse.json({received:false},{status:413});chunks.push(chunk); }
+    const bytes=Buffer.concat(chunks);
+    if(!verifyWebhookSignature(bytes,req.headers.get('x-paystack-signature')??'')) return NextResponse.json({received:false},{status:401});
+    const raw=bytes.toString('utf8');const event=JSON.parse(raw);
+    if(typeof event?.event!=='string'||!event.data||typeof event.data!=='object')return NextResponse.json({received:false},{status:400});
+    const id=await receivePaystackEvent(event,raw);
+    try { await processInboxEvent(id); } catch(error) { logger.error({err:error,eventId:id},'Verified webhook queued for recovery'); }
+    return NextResponse.json({received:true});
+  } catch(error) { logger.error({err:error},'Webhook ingestion failed');return NextResponse.json({received:false},{status:503}); }
 }

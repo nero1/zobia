@@ -181,52 +181,16 @@ async function runGeoAnomalyCheck(
 // Session verification policy (REDIS-COST-01)
 // ---------------------------------------------------------------------------
 
-/**
- * Route patterns whose requests must always be checked against live Redis
- * session state and live database account standing, never against the signed
- * access token alone.
- *
- * The rationale: an access token is a bearer credential that stays
- * cryptographically valid until it expires. Reading `session:<sid>` on every
- * single request to catch the small window between a revocation and the
- * token's natural expiry was costing one Redis command per request across the
- * entire app — by far our highest-volume read. We now pay that cost only where
- * acting on a stale credential would be materially harmful: anything that
- * moves money or grants elevated capability.
- *
- * Everything else (feeds, profiles, rooms, leaderboards, chat polling) trusts
- * the signed token for at most one access-token lifetime after revocation.
- * Revocation itself is push-based: every ban/suspend/delete/downgrade path
- * calls `revokeUserAccess`, which destroys the session records immediately, so
- * the next refresh — and every sensitive request in between — fails closed.
- */
-const SENSITIVE_PATH_PATTERN =
-  /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/(iap|subscriptions|crypto)|business(?:\/|$)|accounts\/select|economy\/coins\/purchase|economy\/stars\/purchase|economy\/coins\/withdraw|kyc|auth\/2fa|auth\/pin|auth\/sessions|creator\/bank-account)/;
-
-/**
- * Decide whether this request needs live Redis/DB verification.
- *
- * Any non-idempotent request to a sensitive surface qualifies. GET/HEAD
- * requests never do, because reading data you were authorised to read moments
- * ago is not a privilege escalation — with the deliberate exception of
- * `/auth/sessions`, where the response itself is security state.
- *
- * Exported so the classification can be asserted directly in tests — getting it
- * wrong is a security regression, not a performance one, so it is pinned
- * explicitly rather than exercised only through the HOC.
- */
+/** All authenticated routes require current revocation and account-state checks. */
 export function requiresLiveVerification(req: NextRequest, pathname: string): boolean {
-  if (!SENSITIVE_PATH_PATTERN.test(pathname)) return false;
-  if (req.method === "GET" || req.method === "HEAD") {
-    return pathname.includes("/auth/sessions");
-  }
+  // Every authenticated endpoint can disclose private data or trigger writes.
+  // Client read caches absorb repeated reads; authorization remains authoritative.
   return true;
 }
 
 /**
  * Confirm, against the database, that an account is still in good standing.
- * Only called on the sensitive paths identified above — the ordinary request
- * path relies on push-based revocation instead (see `revokeUserAccess`).
+ * Runs for every authenticated route, including private-data reads.
  *
  * Fails CLOSED: if the account row cannot be read, the request is rejected.
  * A brief database blip is preferable to letting a banned user transact (#20).
@@ -245,7 +209,7 @@ async function assertAccountActive(userId: string): Promise<void> {
     const rows = await orm
       .select({
         is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
-        is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+        is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         suspended_until: schema.users.suspendedUntil,
         deleted_at: schema.users.deletedAt,
       })
@@ -346,7 +310,7 @@ export function withAuth<TParams = Record<string, string>>(
         // Bypass the L1 cache: on these paths we want the current truth, not a
         // copy that may be up to SESSION_CACHE_TTL_MS old.
         session = await getSessionFresh(payload.sid);
-        if (!session) {
+        if (!session || session.uid !== payload.sub) {
           // Clear the stale cookies so the browser doesn't loop between /home
           // and /auth/login with a JWT that passes signature checks but has no
           // corresponding Redis session.
@@ -389,7 +353,7 @@ export function withAuth<TParams = Record<string, string>>(
       const withRLS = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -465,7 +429,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
       // BUG-L1-01: bypass the 3-second L1 in-process cache for admin paths so a
       // de-provisioned admin cannot continue to act within the staleness window.
       const session = await getSessionFresh(payload.sid);
-      if (!session) {
+      if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },
           { status: 401 }
@@ -482,7 +446,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
         .select({
           is_admin: schema.users.isAdmin,
           is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
-          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
         .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
@@ -514,7 +478,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
       const withRLSAdmin = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -593,7 +557,7 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       // Bypass the L1 in-process cache so a de-provisioned mod/admin cannot
       // continue to act within the staleness window (same as withAdminAuth).
       const session = await getSessionFresh(payload.sid);
-      if (!session) {
+      if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },
           { status: 401 }
@@ -611,7 +575,7 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
           is_admin: schema.users.isAdmin,
           is_moderator: sql<boolean>`COALESCE(${schema.users.isModerator}, false)`,
           is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
-          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
         .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
@@ -644,7 +608,7 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       const withRLSMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );
@@ -722,7 +686,7 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
       if (store) store.userId = payload.sub;
 
       const session = await getSessionFresh(payload.sid);
-      if (!session) {
+      if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },
           { status: 401 }
@@ -744,7 +708,7 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
           is_admin: schema.users.isAdmin,
           is_ad_moderator: sql<boolean>`COALESCE(is_ad_moderator, false)`,
           is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
-          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
         .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
@@ -777,7 +741,7 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
       const withRLSAdMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
         getDb().then((orm) =>
           orm.transaction(async (client) => {
-            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE), set_config('app.user_id', ${payload.sub}, TRUE)`);
             return fn(client);
           })
         );

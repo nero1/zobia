@@ -73,7 +73,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, createPortalSchema);
     const row = await upsertOfficialPortal({ ...body, sections: body.sections as never }, auth.user.sub);
     await invalidateSuggestionCache();
-    writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_upsert", targetType: "portal", targetId: row.id, metadata: { slug: row.slug } });
+    await writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_upsert", targetType: "portal", targetId: row.id, metadata: { slug: row.slug } });
     return NextResponse.json({ success: true, data: { portal: row }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

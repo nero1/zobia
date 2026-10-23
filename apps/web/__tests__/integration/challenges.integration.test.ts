@@ -16,8 +16,10 @@ integration('challenge escrow atomicity', () => {
     if (!await integrationSetup()) throw new Error('Integration database unavailable');
     (getDb as jest.Mock).mockResolvedValue(drizzle(pool, { schema }));
     gameId = (await pool.query('SELECT id FROM games LIMIT 1')).rows[0].id;
+    process.env.GAME_RESULT_WEBHOOK_SECRET='trusted-result-provider-fixture-secret-long-enough';
+    await pool.query("UPDATE games SET score_verification='server' WHERE id=$1",[gameId]);
   });
-  afterAll(async () => { for (const id of users) await pool.query('DELETE FROM users WHERE id=$1', [id]); await pool.end(); await closeTestPool(); });
+  afterAll(async () => { await pool.query("UPDATE games SET score_verification='practice' WHERE id=$1",[gameId]);delete process.env.GAME_RESULT_WEBHOOK_SECRET;for (const id of users) await pool.query('DELETE FROM users WHERE id=$1', [id]); await pool.end(); await closeTestPool(); });
   async function account(balance: number) { const client = await pool.connect(); try { const u = await createUser(client, { coinBalance: balance }); users.push(u.id); return u.id; } finally { client.release(); } }
   async function invite(challenger: string, opponent: string, expired = false) {
     const { rows } = await pool.query("INSERT INTO game_challenges(game_id,challenger_id,opponent_id,wager_credits,expires_at) VALUES($1,$2,$3,10,now()+($4 * interval '1 hour')) RETURNING id", [gameId, challenger, opponent, expired ? -1 : 48]); return rows[0].id;

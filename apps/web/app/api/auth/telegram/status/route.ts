@@ -63,12 +63,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // This LEFT JOIN is preserved as-is via raw sql; it is not expected to
     // produce a refresh_token in practice.
     const result = await orm.execute(sql`
-      SELECT tls.state, tls.status, tls.token, tls.user_payload, tls.created_at,
-             s.refresh_token
+      SELECT tls.state, tls.status, tls.token, tls.user_payload, tls.created_at, NULL::text AS refresh_token
       FROM telegram_login_states tls
-      LEFT JOIN sessions s ON s.user_id = tls.user_id AND s.is_active = TRUE
       WHERE tls.state = ${state}
-      ORDER BY s.created_at DESC
       LIMIT 1
     `);
 
@@ -98,10 +95,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       } catch {
         return NextResponse.json({ status: "pending" }, { status: 200 });
       }
-      return NextResponse.json(
-        { status: "approved", token: row.token, refreshToken: row.refresh_token, user },
-        { status: 200 }
-      );
+      return NextResponse.json({ status: "expired" }, { status: 200 });
     }
 
     return NextResponse.json({ status: row.status }, { status: 200 });

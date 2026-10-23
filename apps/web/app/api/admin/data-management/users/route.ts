@@ -74,7 +74,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       })
       .returning({ id: u.id, username: u.username, email: u.email });
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_create_user",
       targetId: created.id,

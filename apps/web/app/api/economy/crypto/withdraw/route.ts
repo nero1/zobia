@@ -102,7 +102,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       return payoutRow?.id;
     });
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: userId,
       action: "crypto_withdrawal_requested",
       targetType: "creator_payout",

@@ -53,10 +53,10 @@ export function getAllowedMediaHosts(): string[] {
  */
 export function isAllowedMediaUrl(raw: string): boolean {
   const allowedHosts = getAllowedMediaHosts();
-  if (allowedHosts.length === 0) return true;
+  if (allowedHosts.length === 0) return false;
   try {
-    const { hostname } = new URL(raw);
-    return allowedHosts.includes(hostname.toLowerCase());
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:" && !parsed.username && !parsed.password && (!parsed.port || parsed.port === "443") && allowedHosts.includes(parsed.hostname.toLowerCase());
   } catch {
     return false;
   }

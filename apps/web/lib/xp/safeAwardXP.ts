@@ -111,7 +111,11 @@ export async function safeAwardXP(
     const result = await client.execute<{ id: string; xp_total: number; city: string | null } & Record<string, unknown>>(sql`
       WITH ins AS (
         INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-        VALUES (${userId}, ${amount}, ${track}, ${source}, ${referenceId ?? null}, ${amount}, NOW())
+        SELECT ${userId}, ${amount}, ${track}, ${source}, ${referenceId ?? null}, ${amount}, NOW()
+        WHERE EXISTS (SELECT 1 FROM users WHERE id=${userId} AND deleted_at IS NULL)
+          AND (${referenceId ?? null}::text IS NULL OR NOT EXISTS (
+            SELECT 1 FROM (SELECT user_id,source,reference_id FROM xp_ledger UNION ALL SELECT user_id,source,reference_id FROM xp_ledger_archive) xp_history WHERE user_id=${userId} AND source=${source} AND reference_id=${referenceId ?? null}
+          ))
         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
         RETURNING id
       )
@@ -363,7 +367,9 @@ export async function retryFailedXPAwards(): Promise<{
       const retryResult = await lockTx.execute<{ xp_total: number; city: string | null } & Record<string, unknown>>(sql`
         WITH ins AS (
           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-          VALUES (${row.user_id}, ${row.amount}, ${row.track}, ${row.source}, ${effectiveRef}, ${row.amount}, NOW())
+          SELECT ${row.user_id}, ${row.amount}, ${row.track}, ${row.source}, ${effectiveRef}, ${row.amount}, NOW()
+          WHERE EXISTS (SELECT 1 FROM users WHERE id=${row.user_id} AND deleted_at IS NULL)
+            AND NOT EXISTS (SELECT 1 FROM (SELECT user_id,source,reference_id FROM xp_ledger UNION ALL SELECT user_id,source,reference_id FROM xp_ledger_archive) xp_history WHERE user_id=${row.user_id} AND source=${row.source} AND reference_id=${effectiveRef})
           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
           RETURNING id
         )

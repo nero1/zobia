@@ -63,7 +63,7 @@ export async function getStaffRoles(userId: string): Promise<StaffRoles> {
         isAdModerator: sql<boolean>`${schema.users}.is_ad_moderator`,
       })
       .from(schema.users)
-      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt), eq(schema.users.isBanned, false), sql`NOT (COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW()))`))
       .limit(1);
     const row = rows[0];
     if (!row) return EMPTY_STAFF_ROLES;

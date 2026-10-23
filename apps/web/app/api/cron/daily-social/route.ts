@@ -1,3 +1,4 @@
+import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
@@ -20,7 +21,7 @@ export const maxDuration = 300;
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
-import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
+import { validateCronSecret } from "@/lib/cron/auth";
 import { refreshNemesisAssignments, expireUnacceptedNemesisChallenges } from "@/lib/nemesis/nemesisEngine";
 import { batchCalculateTrustScores } from "@/lib/trust/trustScore";
 
@@ -32,8 +33,8 @@ export const GET = async (req: NextRequest) => {
   }
 
   const orm = await getDb();
-  const didClaim = await checkCronIdempotency("cron_daily_social_last_run", orm);
-  if (!didClaim) {
+  const lease = await claimCronRun("cron_daily_social_last_run", orm);
+  if (!lease) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
 
@@ -44,11 +45,16 @@ export const GET = async (req: NextRequest) => {
 
   // 1. Nemesis assignments (Sundays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("nemesisRefresh",async()=>{
+
     if (isSunday) {
       results.nemesisRefresh = await refreshNemesisAssignments(orm);
     } else {
       results.nemesisRefresh = { skipped: true, reason: "Not Sunday" };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`nemesisRefresh: ${String(err)}`);
   }
@@ -56,13 +62,21 @@ export const GET = async (req: NextRequest) => {
   // 1b. Nemesis challenge accept-window sweep (every day — the accept
   // deadline is per-challenge, not tied to the weekly refresh cadence).
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("nemesisChallengeExpiry",async()=>{
+
     results.nemesisChallengeExpiry = await expireUnacceptedNemesisChallenges(orm);
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`nemesisChallengeExpiry: ${String(err)}`);
   }
 
   // 2. Weekly season leaderboard snapshot (Sundays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("weeklySeasonSnapshot",async()=>{
+
     if (isSunday) {
       const { rows: activeSeasons } = await orm.execute<{ id: string; name: string; starts_at: string }>(sql`
         SELECT id, name, starts_at FROM seasons WHERE is_active = TRUE LIMIT 1
@@ -105,12 +119,17 @@ export const GET = async (req: NextRequest) => {
     } else {
       results.weeklySeasonSnapshot = { skipped: true, reason: "Not Sunday" };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`weeklySeasonSnapshot: ${String(err)}`);
   }
 
   // 3. Leaderboard ripple notifications (already set-based — keep as-is)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("leaderboardRipple",async()=>{
+
     const { rows: currentRanks } = await orm.execute<{ user_id: string; rank: string; xp_value: string }>(sql`
       SELECT user_id, RANK() OVER (ORDER BY xp_value DESC)::text AS rank, xp_value::text
       FROM leaderboard_snapshots WHERE track = 'main' AND scope = 'global' AND season_id IS NULL
@@ -163,12 +182,17 @@ export const GET = async (req: NextRequest) => {
       }
     }
     results.leaderboardRipple = { notified, snapshotCount: currentRanks.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`leaderboardRipple: ${String(err)}`);
   }
 
   // 4. DM sticker milestones — fully set-based (was N+1 over conversations × milestones)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("stickerUnlocks",async()=>{
+
     const milestoneValues = sql.raw(STICKER_MILESTONES.map(m => `(${m})`).join(','));
     const { rows: newMilestones } = await orm.execute<{
       user_id_a: string;
@@ -235,12 +259,17 @@ export const GET = async (req: NextRequest) => {
       `).catch(() => {});
     }
     results.stickerUnlocks = { unlocked: newMilestones.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`stickerUnlocks: ${String(err)}`);
   }
 
   // 5. Trust score batch recalculation (replaces per-user calculateTrustScore loop)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("trustScoreUpdates",async()=>{
+
     const { rows: staleUsers } = await orm.execute<{ id: string }>(sql`
       SELECT DISTINCT u.id FROM users u
       WHERE u.deleted_at IS NULL AND (
@@ -254,12 +283,17 @@ export const GET = async (req: NextRequest) => {
       await batchCalculateTrustScores(staleUsers.map(u => u.id), orm);
     }
     results.trustScoreUpdates = { updated: staleUsers.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`trustScoreUpdates: ${String(err)}`);
   }
 
   // 6. Earnable sticker pack auto-unlock — fully set-based
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("earnableStickerUnlocks",async()=>{
+
     const { rows: newUnlocks } = await orm.execute<{ user_id: string; pack_id: string; pack_name: string; track: string; level: number }>(sql`
       WITH new_grants AS (
         INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
@@ -305,12 +339,17 @@ export const GET = async (req: NextRequest) => {
       `).catch(() => {});
     }
     results.earnableStickerUnlocks = { unlocked: newUnlocks.length };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`earnableStickerUnlocks: ${String(err)}`);
   }
 
   // 7. Creator tier progression — single UPDATE...FROM CTE (was per-creator loop)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("creatorTierUpdates",async()=>{
+
     const { rowCount: tierUpdates } = await orm.execute(sql`
       UPDATE users u
       SET creator_tier = tc.new_tier, updated_at = NOW()
@@ -336,12 +375,17 @@ export const GET = async (req: NextRequest) => {
         AND COALESCE(u.creator_tier, 'rookie') != tc.new_tier
     `);
     results.creatorTierUpdates = { updated: tierUpdates ?? 0 };
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`creatorTierUpdates: ${String(err)}`);
   }
 
   // 8. Nemesis notifications (Sundays only)
   try {
+    const stepErrors=errors.length;
+    await lease.runStep("nemesisNotifications",async()=>{
+
     if (isSunday) {
       const { rows: overtakeRows } = await orm.execute<{ user_id: string; nemesis_user_id: string; user_xp: number; nemesis_xp: number }>(sql`
         SELECT na.user_id, na.nemesis_user_id, u.xp_total AS user_xp, n.xp_total AS nemesis_xp
@@ -392,10 +436,13 @@ export const GET = async (req: NextRequest) => {
       }
       results.nemesisNotifications = { overtakes: overtakeRows.length };
     }
+
+    },()=>errors.length===stepErrors);
   } catch (err) {
     errors.push(`nemesisNotifications: ${String(err)}`);
   }
 
+  await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,
     results,

@@ -41,6 +41,7 @@
  * TOCTOU race between concurrent serverless instances.
  */
 
+import {isIP} from "node:net";
 import { redis } from "@/lib/redis";
 import { ApiError, tooManyRequests } from "@/lib/api/errors";
 import { memGet, memSet } from "@/lib/cache/memory";
@@ -331,7 +332,7 @@ const RL_MEM_TTL_MS = 2_000;
  * while still saving Redis round-trips on low-traffic endpoints.
  * For zero-tolerance endpoints use bypassL1: true.
  */
-const RL_SKIP_THRESHOLD = 0.1;
+const RL_SKIP_THRESHOLD = 0;
 
 // ---------------------------------------------------------------------------
 // Local tier
@@ -438,15 +439,10 @@ async function slidingWindowCheck(
     [allowed, remaining] = result;
     resetAt = now + result[2];
   } catch (err) {
-    // Redis unavailable. Fail OPEN for ordinary limiters so a cache outage does
-    // not take the whole app down, but fail CLOSED for limiters explicitly
-    // marked `bypassL1` — those are the security-critical ones (auth, PIN,
-    // payouts), where allowing unbounded attempts is worse than a brief outage.
+    // Distributed budgets must remain authoritative during a Redis outage.
+    // Local-only presets return before this branch and remain available.
     logger.error({ err, limiter: options.name }, "[rateLimit] Redis check failed");
-    if (options.bypassL1) {
-      return { allowed: false, remaining: 0, resetAt };
-    }
-    return { allowed: true, remaining: options.limit - 1, resetAt };
+    return { allowed: false, remaining: 0, resetAt };
   }
 
   // Seed the in-process cache with the real count from Redis so subsequent
@@ -601,7 +597,7 @@ export function getClientIp(request: Request): string {
   // — otherwise clients can spoof this header to bypass IP-based rate limiting
   if (process.env.VERCEL === "1") {
     const vercelIp = request.headers.get("x-vercel-forwarded-for");
-    if (vercelIp) return vercelIp.split(",")[0].trim();
+    if (vercelIp) {const ip=vercelIp.split(",")[0].trim();return isIP(ip)?ip:"unknown";}
   }
 
   // BUG-IP-01: x-real-ip is only trusted in non-production environments
@@ -610,7 +606,7 @@ export function getClientIp(request: Request): string {
   // to bypass IP-based rate limiting. Rely on x-forwarded-for instead.
   if (process.env.NODE_ENV !== 'production' || process.env.TRUST_X_REAL_IP === '1') {
     const realIp = request.headers.get("x-real-ip");
-    if (realIp) return realIp.trim();
+    if (realIp) return isIP(realIp.trim())?realIp.trim():"unknown";
   }
 
   // Fallback: parse X-Forwarded-For using TRUSTED_PROXY_COUNT so that the
@@ -623,15 +619,10 @@ export function getClientIp(request: Request): string {
       // TRUSTED_PROXY_COUNT: number of trusted proxy hops (default 1).
       // Select the IP at position (total - trustedCount) from the left,
       // falling back to the leftmost entry if the list is too short.
-      const trustedProxyCount = Math.max(
-        0,
-        parseInt(process.env.TRUSTED_PROXY_COUNT ?? "1", 10)
-      );
-      if (trustedProxyCount >= ips.length) {
-        logger.warn(`[rateLimit] TRUSTED_PROXY_COUNT (${trustedProxyCount}) exceeds XFF depth (${ips.length}); falling back to leftmost IP`);
-      }
-      const index = Math.max(0, ips.length - trustedProxyCount - 1);
-      return ips[index];
+      const trustedProxyCount=Number(process.env.TRUSTED_PROXY_COUNT??"1");
+      if(!Number.isSafeInteger(trustedProxyCount)||trustedProxyCount<1||trustedProxyCount>16)return "unknown";
+      const index = Math.max(0, ips.length - trustedProxyCount);
+      return isIP(ips[index])?ips[index]:"unknown";
     }
   }
 

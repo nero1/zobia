@@ -155,7 +155,7 @@ async function processRow(
   for (let attempt = 0; attempt < 3; attempt++) {
     const candidateUsername = await uniqueUsername(tx, baseUsername);
     try {
-      await tx.insert(schema.users).values({
+      await tx.transaction(async savepoint => { await savepoint.insert(schema.users).values({
         username: candidateUsername,
         email: email ?? null,
         displayName,
@@ -166,10 +166,10 @@ async function processRow(
         isEmailVerified,
         onboardingCompleted: false,
         isAdmin: false,
-      });
+      }); });
       return { status: "imported" };
     } catch (insertErr) {
-      const pgErr = insertErr as { code?: string };
+      const pgErr = ((insertErr as {cause?:unknown}).cause ?? insertErr) as { code?: string };
       if (pgErr.code === "23505" && attempt < 2) continue;
       return { status: "error", message: pgErr.code === "23505" ? "Duplicate email/username" : "Insert failed" };
     }
@@ -177,8 +177,8 @@ async function processRow(
   return { status: "error", message: "Failed to insert after retries" };
 }
 
-async function loadJob(jobId: string): Promise<ImportJobRow | null> {
-  const orm = await getDb();
+async function loadJob(jobId: string, client?: DbOrTx): Promise<ImportJobRow | null> {
+  const orm = client ?? await getDb();
   const [row] = await orm
     .select()
     .from(schema.adminDataImportJobs)
@@ -209,7 +209,7 @@ export const GET = withAdminAuth<{ jobId: string }>(async (_req, { params, auth 
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { jobId } = paramsSchema.parse(params);
-    const job = await loadJob(jobId);
+    let job = await loadJob(jobId);
     if (!job) throw notFound("Import job not found");
     return NextResponse.json({
       jobId: job.id,
@@ -231,7 +231,7 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { jobId } = paramsSchema.parse(params);
-    const job = await loadJob(jobId);
+    let job = await loadJob(jobId);
     if (!job) throw notFound("Import job not found");
 
     if (job.status === "completed" || job.status === "failed") {
@@ -247,10 +247,6 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
       });
     }
 
-    const lines = job.raw_data.split("\n").filter((l) => l.trim().length > 0);
-    const start = job.processed_rows;
-    const batch = lines.slice(start, start + BATCH_SIZE);
-
     let imported = 0;
     let skipped = 0;
     let errored = 0;
@@ -258,9 +254,20 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
 
     const orm = await getDb();
     await orm.transaction(async (tx) => {
+      await tx.execute(sql`SELECT id FROM admin_data_import_jobs WHERE id=${jobId} FOR UPDATE`);
+      const current = await loadJob(jobId,tx);
+      if (!current) throw notFound("Import job not found");
+      if (current.status === "completed" || current.status === "failed") return;
+      const job=current;
+    const lines = job.raw_data.split("\n").filter((l) => l.trim().length > 0);
+    const start = job.processed_rows;
+    const batch = lines.slice(start, start + BATCH_SIZE);
+
       for (let i = 0; i < batch.length; i++) {
         const lineNumber = start + i + 1;
-        const outcome = await processRow(tx, batch[i], job.dedupe_strategy);
+        let outcome: Awaited<ReturnType<typeof processRow>>;
+        try { outcome = await tx.transaction(savepoint=>processRow(savepoint,batch[i],job.dedupe_strategy)); }
+        catch {outcome={status:"error",message:"Invalid row or database constraint violation"};}
         if (outcome.status === "imported") imported++;
         else if (outcome.status === "skipped") skipped++;
         else {
@@ -290,7 +297,7 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
     if (!updated) throw notFound("Import job not found");
 
     if (updated.status === "completed") {
-      writeAuditLog({
+      await writeAuditLog({
         actorId: auth.user.sub,
         action: "admin_import_users_job_completed",
         targetId: jobId,

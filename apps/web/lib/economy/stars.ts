@@ -56,7 +56,7 @@ export type StarTransactionType =
  * camelCase AND snake_case keys — both are populated here so no caller
  * outside this migration batch is broken by the raw-SQL -> Drizzle swap.
  */
-function toStarLedgerEntry(row: typeof schema.starLedger.$inferSelect): StarLedgerEntry {
+function toStarLedgerEntry(row: Omit<typeof schema.starLedger.$inferSelect, "createdAt"> & {createdAt:Date|null}): StarLedgerEntry {
   const amount = Number(row.amount);
   const balanceBefore = Number(row.balanceBefore);
   const balanceAfter = Number(row.balanceAfter);
@@ -164,18 +164,17 @@ async function findExistingStarLedgerEntry(
   referenceId: string | null
 ): Promise<StarLedgerEntry | null> {
   if (!referenceId) return null;
-  const rows = await tx
-    .select()
-    .from(schema.starLedger)
-    .where(
-      and(
-        eq(schema.starLedger.userId, userId),
-        eq(schema.starLedger.transactionType, type),
-        eq(schema.starLedger.referenceId, referenceId)
-      )
-    )
-    .limit(1);
-  return rows[0] ? toStarLedgerEntry(rows[0]) : null;
+  // The archive and live table are one immutable business history. Locking
+  // the account serializes this lookup with all balance changes and archival.
+  await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR NO KEY UPDATE`);
+  const rows = await tx.select().from(schema.starLedger).where(and(
+    eq(schema.starLedger.userId,userId), eq(schema.starLedger.transactionType,type),
+    eq(schema.starLedger.referenceId,referenceId))).limit(1);
+  if (rows[0]) return toStarLedgerEntry(rows[0]);
+  const archived = await tx.select().from(schema.starLedgerArchive).where(and(
+    eq(schema.starLedgerArchive.userId,userId), eq(schema.starLedgerArchive.transactionType,type),
+    eq(schema.starLedgerArchive.referenceId,referenceId))).limit(1);
+  return archived[0] ? toStarLedgerEntry(archived[0]) : null;
 }
 
 // ---------------------------------------------------------------------------

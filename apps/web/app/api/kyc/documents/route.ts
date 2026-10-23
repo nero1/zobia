@@ -16,6 +16,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
+import {eq,sql} from "drizzle-orm";
+import {queueObjectDeletion} from "@/lib/storage/deletionQueue";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -27,7 +29,7 @@ const ALLOWED_DOC_TYPES = new Set([
   "govt_id_front", "govt_id_back", "proof_of_address", "selfie", "nin_slip", "liveness_selfie",
 ]);
 const ALLOWED_MIME = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
-const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MiB
+const MAX_SIZE_BYTES = 4 * 1024 * 1024; // Leaves multipart overhead below the Vercel request cap.
 
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -44,37 +46,36 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Invalid document type.", "INVALID_DOC_TYPE");
     }
     if (!ALLOWED_MIME.has(file.type)) throw badRequest("Only JPEG, PNG, WebP or PDF files are accepted.", "INVALID_FILE_TYPE");
-    if (file.size > MAX_SIZE_BYTES) throw badRequest("File must be under 10MB.", "FILE_TOO_LARGE");
+    if (file.size > MAX_SIZE_BYTES) throw badRequest("File must be under 4MB.", "FILE_TOO_LARGE");
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const ext = file.type === "application/pdf" ? "pdf" : file.type.split("/")[1];
     const docId = randomUUID();
     const key = `kyc/${userId}/${docId}.${ext}`;
 
-    const result = await storage.upload(key, buffer, {
-      contentType: file.type,
-      isPublic: false,
-      maxSizeBytes: MAX_SIZE_BYTES,
-      metadata: { userId, docType },
+    const orm=await getDb();
+    await orm.transaction(async tx=>{
+      await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
+      const count=await tx.execute<{n:number}>(sql`SELECT count(*)::int n FROM kyc_documents WHERE user_id=${userId} AND submission_id IS NULL`);
+      if(count.rows[0].n>=10)throw badRequest("Remove an unused document before uploading another.","DOCUMENT_QUOTA");
+      await tx.insert(schema.kycDocuments).values({id:docId,submissionId:null,userId,docType,storageKey:key,contentType:file.type,sizeBytes:file.size,uploadState:'uploading'});
+      // Persist cleanup before contacting storage, covering crashes and ambiguous uploads.
+      await queueObjectDeletion(tx,key,86400);
     });
-
-    const orm = await getDb();
-    await orm
-      .insert(schema.kycDocuments)
-      .values({
-        id: docId,
-        submissionId: null,
-        userId,
-        docType,
-        storageKey: result.key,
-        contentType: file.type,
-        sizeBytes: file.size,
-      })
-      .catch(async (err) => {
-        // Roll back the upload if the DB insert fails, so we don't leak orphaned objects.
-        await storage.delete(result.key, { ignoreNotFound: true }).catch(() => {});
-        throw err;
+    try {
+      await storage.upload(key,buffer,{contentType:file.type,isPublic:false,maxSizeBytes:MAX_SIZE_BYTES,metadata:{userId,docType}});
+      await orm.transaction(async tx=>{
+        const updated=await tx.update(schema.kycDocuments).set({uploadState:'ready'}).where(eq(schema.kycDocuments.id,docId)).returning({id:schema.kycDocuments.id});
+        if(!updated.length)throw new Error('Upload reservation expired');
+        await tx.execute(sql`DELETE FROM object_deletion_tasks WHERE storage_key=${key}`);
       });
+    }catch(error){
+      await orm.transaction(async tx=>{
+        await tx.delete(schema.kycDocuments).where(eq(schema.kycDocuments.id,docId));
+        await queueObjectDeletion(tx,key);
+      });
+      throw error;
+    }
 
     return NextResponse.json({ success: true, data: { id: docId, docType }, error: null }, { status: 201 });
   } catch (err) {

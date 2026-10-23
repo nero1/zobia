@@ -15,7 +15,7 @@ import Link from "@/components/ui/Link";
 import { serializeJsonLd } from "@/lib/seo/metadata";
 import { notFound } from "next/navigation";
 import { getThreadBySlug, listPostsInThread, incrementThreadViewCount } from "@/lib/bbforum/repo";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { sanitizeForumPostContent } from "@/lib/security/htmlSanitizer";
 import { ThreadPostsSection } from "@/components/bbforum/ThreadPostsSection";
@@ -57,7 +57,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
 
   const [posts, boardRows] = await Promise.all([
     listPostsInThread(thread.id, viewer?.userId ?? null),
-    db.query<{ slug: string; name: string }>(`SELECT slug, name FROM bb_boards WHERE id = $1`, [thread.board_id]),
+    executeSql<{ slug: string; name: string }>(`SELECT slug, name FROM bb_boards WHERE id = $1`, [thread.board_id]),
   ]);
   const board = boardRows.rows[0] ?? null;
 

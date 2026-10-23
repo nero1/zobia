@@ -46,7 +46,7 @@ describe("CRON route maxDuration", () => {
     }
   );
 
-  it("no other route sets its own maxDuration (it would split off a new function)", () => {
+  it("all explicit route durations share the existing 300-second function group", () => {
     const appDir = path.resolve(__dirname, "../../../app");
     const offenders: string[] = [];
     const walk = (dir: string) => {
@@ -54,7 +54,9 @@ describe("CRON route maxDuration", () => {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) walk(full);
         else if (/\.(ts|tsx)$/.test(entry.name) && !full.startsWith(CRON_DIR + path.sep)) {
-          if (/^export const maxDuration\b/m.test(fs.readFileSync(full, "utf8"))) offenders.push(path.relative(appDir, full));
+          const source=fs.readFileSync(full,"utf8");
+          const duration=source.match(/^export const maxDuration\s*=\s*(\d+)/m);
+          if(duration && Number(duration[1])!==CRON_MAX_DURATION)offenders.push(path.relative(appDir,full));
         }
       }
     };

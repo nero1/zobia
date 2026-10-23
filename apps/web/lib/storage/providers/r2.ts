@@ -23,6 +23,7 @@ import type {
   DeleteOptions,
 } from "../interface";
 import { env } from "@/lib/env";
+import { isPrivateStorageKey, storageKey } from "../privacy";
 
 // ---------------------------------------------------------------------------
 // Client factory
@@ -36,9 +37,10 @@ let _client: S3Client | null = null;
  */
 function getClient(): S3Client {
   if (!_client) {
-    const accountId = env.R2_ACCOUNT_ID;
-    const accessKeyId = env.R2_ACCESS_KEY_ID;
-    const secretAccessKey = env.R2_SECRET_ACCESS_KEY;
+    const s3 = env.STORAGE_PROVIDER === "s3";
+    const accountId = s3 ? "s3" : env.R2_ACCOUNT_ID;
+    const accessKeyId = s3 ? process.env.S3_ACCESS_KEY_ID : env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = s3 ? process.env.S3_SECRET_ACCESS_KEY : env.R2_SECRET_ACCESS_KEY;
 
     if (!accountId || !accessKeyId || !secretAccessKey) {
       throw new Error(
@@ -48,8 +50,9 @@ function getClient(): S3Client {
     }
 
     _client = new S3Client({
-      region: "auto",
-      endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+      region: s3 ? process.env.S3_REGION ?? "us-east-1" : "auto",
+      ...(s3 ? (process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT } : {}) : { endpoint: `https://${accountId}.r2.cloudflarestorage.com` }),
+      requestHandler: { requestTimeout: 10_000, connectionTimeout: 5_000 },
       credentials: { accessKeyId, secretAccessKey },
     });
   }
@@ -57,11 +60,17 @@ function getClient(): S3Client {
 }
 
 /** Resolve bucket name from env. */
-function getBucket(): string {
-  if (!env.R2_BUCKET_NAME) {
+function getBucket(key = ""): string {
+  const publicBucket = env.STORAGE_PROVIDER === "s3" ? process.env.S3_BUCKET_NAME : env.R2_BUCKET_NAME;
+  if (isPrivateStorageKey(key)) {
+    const bucket = env.STORAGE_PROVIDER === "s3" ? process.env.S3_PRIVATE_BUCKET_NAME : process.env.R2_PRIVATE_BUCKET_NAME;
+    if (!bucket || bucket === publicBucket) throw new Error("Configure a separate private storage bucket for KYC and exports");
+    return bucket;
+  }
+  if (!publicBucket) {
     throw new Error("[storage:r2] R2_BUCKET_NAME must be set when STORAGE_PROVIDER=r2");
   }
-  return env.R2_BUCKET_NAME;
+  return publicBucket;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,7 +84,8 @@ function getBucket(): string {
 export class R2StorageAdapter implements StorageAdapter {
   /** @inheritdoc */
   getPublicUrl(key: string): string {
-    const base = env.R2_PUBLIC_URL;
+    if (isPrivateStorageKey(key)) return "";
+    const base = env.STORAGE_PROVIDER === "s3" ? process.env.S3_PUBLIC_URL : env.R2_PUBLIC_URL;
     if (!base) {
       throw new Error("[storage:r2] R2_PUBLIC_URL must be set to build public URLs");
     }
@@ -88,6 +98,7 @@ export class R2StorageAdapter implements StorageAdapter {
     buffer: Buffer,
     options: UploadOptions = {}
   ): Promise<UploadResult> {
+    key = storageKey(key, options.isPublic ?? true);
     const {
       contentType = "application/octet-stream",
       cacheControl = "public, max-age=31536000, immutable",
@@ -104,11 +115,11 @@ export class R2StorageAdapter implements StorageAdapter {
 
     await getClient().send(
       new PutObjectCommand({
-        Bucket: getBucket(),
+        Bucket: getBucket(key),
         Key: key,
         Body: buffer,
         ContentType: contentType,
-        CacheControl: cacheControl,
+        CacheControl: isPrivateStorageKey(key) ? "private, no-store" : cacheControl,
         Metadata: metadata,
       })
     );
@@ -124,7 +135,7 @@ export class R2StorageAdapter implements StorageAdapter {
   /** @inheritdoc */
   async getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
     const command = new GetObjectCommand({
-      Bucket: getBucket(),
+      Bucket: getBucket(key),
       Key: key,
     });
     return awsGetSignedUrl(getClient(), command, { expiresIn });
@@ -135,7 +146,7 @@ export class R2StorageAdapter implements StorageAdapter {
     const { ignoreNotFound = true } = options;
     try {
       await getClient().send(
-        new DeleteObjectCommand({ Bucket: getBucket(), Key: key })
+        new DeleteObjectCommand({ Bucket: getBucket(key), Key: key })
       );
     } catch (err: unknown) {
       const code = (err as { Code?: string; name?: string })?.Code ?? (err as { name?: string })?.name;
@@ -146,24 +157,15 @@ export class R2StorageAdapter implements StorageAdapter {
 
   /** @inheritdoc */
   async deleteMany(keys: string[]): Promise<void> {
-    if (keys.length === 0) return;
-
-    await getClient().send(
-      new DeleteObjectsCommand({
-        Bucket: getBucket(),
-        Delete: {
-          Objects: keys.map((k) => ({ Key: k })),
-          Quiet: true,
-        },
-      })
-    );
+    // DeleteObjects has a 1,000-object limit and can report partial success.
+    for (const key of keys) await this.delete(key);
   }
 
   /** @inheritdoc */
   async exists(key: string): Promise<boolean> {
     try {
       await getClient().send(
-        new HeadObjectCommand({ Bucket: getBucket(), Key: key })
+        new HeadObjectCommand({ Bucket: getBucket(key), Key: key })
       );
       return true;
     } catch {

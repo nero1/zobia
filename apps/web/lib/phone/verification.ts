@@ -21,8 +21,8 @@
  * requesting a new code overwrites any still-pending one.
  */
 
-import { randomInt, createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { randomInt, createHmac, timingSafeEqual } from "node:crypto";
+import { eq, and, sql } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { sendSms } from "@/lib/notifications/sms";
@@ -48,7 +48,9 @@ function generateCode(): string {
 
 /** Peppered so a leaked `phone_verification_codes` row alone can't be brute-forced offline against a plain SHA-256 rainbow table. */
 function hashCode(userId: string, code: string): string {
-  return createHash("sha256").update(`${userId}:${code}`).digest("hex");
+  const pepper=process.env.PHONE_OTP_PEPPER??process.env.JWT_SECRET;
+  if(!pepper || pepper.length<32) throw new Error("Phone verification pepper unavailable");
+  return createHmac("sha256",pepper).update(`phone-otp:v1:${userId}:${code}`).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +83,8 @@ export async function startPhoneVerification(
   const manifest = await loadManifest();
 
   if (!manifest.phoneVerificationRequired) {
+    return client.transaction(async client=>{
+    await client.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
     await client
       .update(schema.users)
       .set({ phoneNumber, phoneVerifiedAt: null, updatedAt: new Date() })
@@ -88,11 +92,14 @@ export async function startPhoneVerification(
     // Drop any stale pending code from a prior window when verification was on.
     await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
     return { requiresVerification: false };
+    });
   }
 
   const code = generateCode();
   const expiresAt = new Date(Date.now() + CODE_TTL_MS);
 
+  await client.transaction(async client=>{
+  await client.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
   await client
     .insert(schema.phoneVerificationCodes)
     .values({ userId, phoneNumber, codeHash: hashCode(userId, code), attempts: 0, expiresAt })
@@ -100,12 +107,13 @@ export async function startPhoneVerification(
       target: schema.phoneVerificationCodes.userId,
       set: { phoneNumber, codeHash: hashCode(userId, code), attempts: 0, expiresAt, createdAt: new Date() },
     });
+  });
 
   const result = await sendSms(phoneNumber, `Your Zobia verification code is ${code}. It expires in 10 minutes.`);
   if (!result.ok) {
     logger.error({ userId, error: result.error }, "[phone/verification] SMS send failed");
     // Roll back the pending row so a failed send doesn't block a retry via onConflictDoUpdate's stale expiry.
-    await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
+    await client.delete(schema.phoneVerificationCodes).where(and(eq(schema.phoneVerificationCodes.userId, userId),eq(schema.phoneVerificationCodes.codeHash,hashCode(userId,code))));
     throw badRequest("Couldn't send the verification code. Please try again shortly.", "SMS_SEND_FAILED");
   }
 
@@ -126,49 +134,39 @@ export async function confirmPhoneVerification(
 ): Promise<{ phoneNumber: string }> {
   const client = txClient ?? (await getDb());
 
-  const rows = await client
-    .select()
-    .from(schema.phoneVerificationCodes)
-    .where(eq(schema.phoneVerificationCodes.userId, userId))
-    .limit(1);
-  const pending = rows[0];
-  if (!pending) {
-    throw notFound("No pending phone verification. Request a new code.");
-  }
-
-  if (pending.expiresAt.getTime() < Date.now()) {
-    await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
-    throw badRequest("This code has expired. Request a new one.", "CODE_EXPIRED");
-  }
-
-  if (pending.attempts >= MAX_VERIFY_ATTEMPTS) {
-    await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
-    throw tooManyRequests("Too many incorrect attempts. Request a new code.");
-  }
-
-  if (hashCode(userId, code.trim()) !== pending.codeHash) {
-    await client
-      .update(schema.phoneVerificationCodes)
-      .set({ attempts: pending.attempts + 1 })
-      .where(eq(schema.phoneVerificationCodes.userId, userId));
-    throw badRequest("Incorrect code. Please try again.", "INVALID_CODE");
-  }
-
-  await client
-    .update(schema.users)
-    .set({ phoneNumber: pending.phoneNumber, phoneVerifiedAt: new Date(), updatedAt: new Date() })
-    .where(eq(schema.users.id, userId));
-  await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
-
-  return { phoneNumber: pending.phoneNumber };
+  const result=await client.transaction(async tx=>{
+    await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
+    const rows=await tx.select().from(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId,userId)).limit(1).for("update");
+    const pending=rows[0];
+    if(!pending)return {error:notFound("No pending phone verification. Request a new code.")};
+    if(pending.expiresAt.getTime()<=Date.now()){
+      await tx.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId,userId));
+      return {error:badRequest("This code has expired. Request a new one.","CODE_EXPIRED")};
+    }
+    if(pending.attempts>=MAX_VERIFY_ATTEMPTS)return {error:tooManyRequests("Too many incorrect attempts. Request a new code.")};
+    const supplied=Buffer.from(hashCode(userId,code.trim()),'hex'),expected=Buffer.from(pending.codeHash,'hex');
+    if(supplied.length!==expected.length || !timingSafeEqual(supplied,expected)){
+      await tx.update(schema.phoneVerificationCodes).set({attempts:sql`${schema.phoneVerificationCodes.attempts}+1`}).where(eq(schema.phoneVerificationCodes.userId,userId));
+      return {error:badRequest("Incorrect code. Please try again.","INVALID_CODE")};
+    }
+    await tx.update(schema.users).set({phoneNumber:pending.phoneNumber,phoneVerifiedAt:new Date(),updatedAt:new Date()}).where(eq(schema.users.id,userId));
+    await tx.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId,userId));
+    return {phoneNumber:pending.phoneNumber};
+  });
+  // Throw after commit so failed attempts are not rolled back.
+  if(result.error)throw result.error;
+  return {phoneNumber:result.phoneNumber!};
 }
 
 /** Remove the user's phone number (and any pending code). Always allowed regardless of the verification-required toggle. */
 export async function clearPhoneNumber(userId: string, txClient?: DbOrTx): Promise<void> {
   const client = txClient ?? (await getDb());
+  await client.transaction(async client=>{
+  await client.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
   await client
     .update(schema.users)
     .set({ phoneNumber: null, phoneVerifiedAt: null, updatedAt: new Date() })
     .where(eq(schema.users.id, userId));
   await client.delete(schema.phoneVerificationCodes).where(eq(schema.phoneVerificationCodes.userId, userId));
+  });
 }

@@ -45,7 +45,7 @@ export const PATCH = withAdminAuth<{ id: string }>(async (req: NextRequest, { pa
     const body = await validateBody(req, patchPortalSchema);
     const row = await updatePortal(id.data, { ...body, sections: body.sections as never });
     await Promise.all([invalidatePortalCache(row.id), invalidateSuggestionCache()]);
-    writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_update", targetType: "portal", targetId: row.id, metadata: { slug: row.slug, fields: Object.keys(body) } });
+    await writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_update", targetType: "portal", targetId: row.id, metadata: { slug: row.slug, fields: Object.keys(body) } });
     return NextResponse.json({ success: true, data: { portal: row }, error: null });
   } catch (err) {
     return handleApiError(err);
@@ -61,7 +61,7 @@ export const DELETE = withAdminAuth<{ id: string }>(async (_req: NextRequest, { 
     if (!row) throw notFound("Portal not found");
     await deletePortal(row.id);
     await Promise.all([invalidatePortalCache(row.id), invalidateSuggestionCache()]);
-    writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_delete", targetType: "portal", targetId: row.id, metadata: { slug: row.slug } });
+    await writeAuditLog({ actorId: auth.user.sub, action: "admin_portal_delete", targetType: "portal", targetId: row.id, metadata: { slug: row.slug } });
     return NextResponse.json({ success: true, data: { deleted: true }, error: null });
   } catch (err) {
     return handleApiError(err);

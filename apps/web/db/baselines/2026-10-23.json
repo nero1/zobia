@@ -68,5 +68,9 @@
     "subscription_plans": 6,
     "x_manifest": 492
   },
-  "catalogChecksum": "954a61eba4276b7faecb7bc3f69770b1dd6c731b8e00104dd705748a7c1e383a"
+  "catalogChecksum": "afca9df65644a466f77e7d9d51ac61e5f437d7cf79b7e428f925b8ea308d00c1",
+  "previousBaselineChecksum": "680b20e6",
+  "previousCatalogChecksum": "954a61eba4276b7faecb7bc3f69770b1dd6c731b8e00104dd705748a7c1e383a",
+  "upgradeFile": "2026-10-23-forensic-hardening.sql",
+  "upgradeChecksum": "05331a27"
 }

@@ -8,7 +8,7 @@
 
 import type { Metadata } from "next";
 import { getOptionalServerUser } from "@/lib/auth/serverUser";
-import { db } from "@/lib/db";
+import { executeSql } from "@/lib/db/parameterized";
 import { SiteContactForm } from "@/components/contact/SiteContactForm";
 
 export const metadata: Metadata = {
@@ -20,7 +20,7 @@ export default async function ContactUsPage() {
   const viewer = await getOptionalServerUser();
   let contactViewer: { username: string } | null = null;
   if (viewer) {
-    const { rows } = await db.query<{ username: string }>(
+    const { rows } = await executeSql<{ username: string }>(
       `SELECT username FROM users WHERE id = $1 LIMIT 1`,
       [viewer.userId]
     );

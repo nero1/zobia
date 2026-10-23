@@ -216,7 +216,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
 
       await orm.update(schema.guilds).set(updates).where(eq(schema.guilds.id, guildId));
 
-      writeAuditLog({
+      await writeAuditLog({
         actorId: auth.user.sub,
         action:
           body.action === "suspend" ? "admin_suspend_guild"
@@ -259,7 +259,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
           .where(eq(schema.guilds.id, guildId));
       });
 
-      writeAuditLog({
+      await writeAuditLog({
         actorId: auth.user.sub,
         action: "admin_transfer_guild_captain",
         targetType: "guild",
@@ -291,7 +291,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
           .where(eq(schema.users.id, body.userId));
       });
 
-      writeAuditLog({
+      await writeAuditLog({
         actorId: auth.user.sub,
         action: "admin_remove_guild_member",
         targetType: "guild",
@@ -346,7 +346,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: GuildC
         .where(eq(schema.users.guildId, guildId));
     });
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_delete_guild",
       targetType: "guild",

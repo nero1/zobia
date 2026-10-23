@@ -110,7 +110,13 @@ export async function getDb(): Promise<DrizzleDb> {
     pool = getPool();
   }
 
-  _drizzleDb = drizzle(pool, { schema }) as DrizzleDb;
+  const { withCircuitBreaker } = await import("./circuit");
+  const instance = drizzle(pool, { schema }) as DrizzleDb;
+  const transaction = instance.transaction.bind(instance);
+  // Guard acquisition and the entire unit of work once, including commit/rollback.
+  instance.transaction = ((...args: Parameters<DrizzleDb["transaction"]>) =>
+    withCircuitBreaker(() => transaction(...args))) as DrizzleDb["transaction"];
+  _drizzleDb = instance;
   return _drizzleDb;
 }
 

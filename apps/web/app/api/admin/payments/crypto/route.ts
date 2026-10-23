@@ -117,7 +117,7 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
         const expiresAt = expiresInMinutes ? new Date(Date.now() + expiresInMinutes * 60_000) : null;
         await setManualOverride(symbol as never, new Decimal(usdPrice), auth.user.sub, expiresAt);
       }
-      writeAuditLog({
+      await writeAuditLog({
         actorId: auth.user.sub,
         action: "admin_crypto_rate_override_set",
         targetType: "crypto_exchange_rate_override",

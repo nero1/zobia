@@ -8,12 +8,20 @@ on:
     paths:
       - 'apps/web/**'
       - '!apps/web/**/*.md'
+      - 'shared/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '.github/workflows/integration-tests.yml'
   pull_request:
     branches:
       - main
     paths:
       - 'apps/web/**'
       - '!apps/web/**/*.md'
+      - 'shared/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '.github/workflows/integration-tests.yml'
 
 jobs:
   integration-tests:
@@ -76,6 +84,9 @@ jobs:
       - name: Run integration tests
         run: npm run test:integration
 
+      - name: Verify complete Drizzle database contract
+        run: npx tsx db/check-schema.ts
+
   drizzle-schema-check:
     name: Drizzle Schema Consistency
     runs-on: ubuntu-latest
@@ -108,4 +119,3 @@ jobs:
         run: npx drizzle-kit check
         env:
           DATABASE_URL: ""
-        continue-on-error: true

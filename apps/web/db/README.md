@@ -1,6 +1,6 @@
 # PostgreSQL baseline
 
-`migrations/0001_consolidated_schema.sql` is the complete final state after the former 0001–0039 migrations at commit `8c20d630`. The migration directory contains one SQL file. It declares 309 tables once, with final columns, checks, primary/unique keys, indexes, foreign keys, functions, triggers, RLS and 809 reference/configuration rows. Foreign keys follow reference inserts to resolve circular references; triggers are installed after importing their already-materialized reference data. Historical column alterations, backfills and temporary schema states are absent.
+`migrations/0001_consolidated_schema.sql` is the complete final state including the forensic hardening review. The migration directory contains one SQL file. It declares 317 tables once, with final columns, checks, primary/unique keys, indexes, foreign keys, functions, triggers, RLS and 809 reference/configuration rows. Foreign keys follow reference inserts to resolve circular references; triggers are installed after importing their already-materialized reference data. Historical column alterations, backfills and temporary schema states are absent.
 
 ## Fresh installation
 
@@ -59,3 +59,9 @@ REFERENCE_DATABASE_URL='postgresql://...' BASELINE_DATABASE_URL='postgresql://..
 The comparison is read-only. Omit `--platform-access` when comparing a role-free installation; platform grants/policies are necessarily absent there. It compares all application tables/reference rows and the final catalog, including generated columns, constraints, indexes, functions, triggers and provider-neutral policies. Platform mode additionally compares all policies/client privileges and checks service-role grants and private-receipt denial.
 
 Add future changes as new numbered SQL files (starting with `0002_<new_name>.sql`). Do not edit an applied baseline. Optional demo accounts/content remain in `seed.sql` for local development only; `npm run migrate -- --seed` installs them separately and transactionally.
+
+## Upgrading the previous consolidated baseline
+
+The runner recognizes the verified previous baseline checksum and catalog. It applies `upgrades/2026-10-23-forensic-hardening.sql` transactionally, verifies the resulting catalog, synchronizes permissions and records the current baseline checksum. This upgrade is separate from the sole fresh-install migration. Unknown schema drift aborts without changing application data. Keep a recoverable database/object backup and validate an isolated restore before upgrading a live installation.
+
+The final schema has 317 tables and three security-invoker ledger history views. Platform roles are never created by the baseline; private tables, including phone verification and recovery queues, are not exposed to anon/authenticated roles. `service_role` receives explicit table permissions. Ordinary PostgreSQL application transactions establish transaction-local system context through the pool wrapper; request-scoped RLS contexts set both supported user settings and cannot leak through pooled connections.

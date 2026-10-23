@@ -16,6 +16,7 @@ import { requestAd } from '@/lib/ads/clientServe';
 import { enqueueAdEvent } from '@/lib/ads/adEventQueue';
 
 interface ServedAd {
+  receipt: string;
   creativeId: string;
   campaignId: string;
   placementKey: string;
@@ -39,8 +40,8 @@ const AD_STALE_TIME = 5 * 60_000;
 
 // ZB-AND-11 fix: was one immediate POST per impression/click; now queued and
 // flushed in batches (see lib/ads/adEventQueue.ts), matching web's pattern.
-function reportEvent(creativeId: string, placementKey: string, type: 'impression' | 'click') {
-  enqueueAdEvent({ creativeId, placementKey, type });
+function reportEvent(creativeId: string, placementKey: string, type: 'impression' | 'click', receipt:string) {
+  enqueueAdEvent({ creativeId, placementKey, type, receipt });
 }
 
 const SIZE_CLASS: Record<string, string> = {
@@ -74,7 +75,7 @@ export default function AdSlot({ placement, className }: { placement: string; cl
   useEffect(() => {
     if (visible && ad && !impressedRef.current) {
       impressedRef.current = true;
-      void reportEvent(ad.creativeId, ad.placementKey, 'impression');
+      void reportEvent(ad.creativeId, ad.placementKey, 'impression', ad.receipt);
     }
   }, [visible, ad]);
 
@@ -92,7 +93,7 @@ export default function AdSlot({ placement, className }: { placement: string; cl
       <button
         type="button"
         onClick={() => {
-          void reportEvent(ad.creativeId, ad.placementKey, 'click');
+          void reportEvent(ad.creativeId, ad.placementKey, 'click', ad.receipt);
           if (ad.clickUrl) void Browser.open({ url: ad.clickUrl });
         }}
         className="flex h-full w-full items-center gap-3 p-3 text-left"

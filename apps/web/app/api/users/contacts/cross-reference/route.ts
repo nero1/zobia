@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { and, inArray, isNull, ne } from "drizzle-orm";
+import { sql, and, inArray, isNull, ne, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -112,6 +112,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .where(
         and(
           isNull(schema.users.deletedAt),
+          sql`${schema.users.phoneVerifiedAt} IS NOT NULL`,
+          eq(schema.users.contactDiscoveryEnabled,true),
           inArray(schema.users.phoneNumber, phoneNumbers),
           ne(schema.users.id, callerId)
         )

@@ -37,7 +37,8 @@ export const POST = withAuth(
       if (!game) throw notFound("Game not found.");
 
       const result = await finalizeScore(auth.user.sub, body.nonce, body.score, game);
-      void triggerActivityQuestProgress(auth.user.sub, "game_play", await getDb());
+      // Practice scores do not unlock financially valuable quest rewards.
+      if(game.score_verification==='server' && !!process.env.GAME_RESULT_WEBHOOK_SECRET)await triggerActivityQuestProgress(auth.user.sub,"game_play",await getDb());
       return NextResponse.json({ success: true, data: result, error: null });
     } catch (err) {
       return handleApiError(err);

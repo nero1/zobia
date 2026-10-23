@@ -52,6 +52,7 @@ export interface CircuitBreakerOptions {
 
 export class CircuitBreaker {
   private state: CircuitState = "CLOSED";
+  private probeInFlight=false;
   private failures: boolean[] = [];
   private consecutiveSuccesses = 0;
   private openedAt: number | null = null;
@@ -80,13 +81,16 @@ export class CircuitBreaker {
    * Execute a function through the circuit breaker.
    * Throws if the circuit is OPEN.
    */
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
+  async execute<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
     this.transitionIfNeeded();
 
     if (this.state === "OPEN") {
       throw new Error(`[${this.name}] Circuit is OPEN — request rejected`);
     }
 
+    const probe=this.state==='HALF_OPEN';
+    if(probe && this.probeInFlight)throw new Error(`[${this.name}] Circuit recovery probe already running`);
+    if(probe)this.probeInFlight=true;
     try {
       const result = await this.withTimeout(fn);
       this.onSuccess();
@@ -94,20 +98,17 @@ export class CircuitBreaker {
     } catch (err) {
       this.onFailure();
       throw err;
-    }
+    } finally {if(probe)this.probeInFlight=false;}
   }
 
-  private withTimeout<T>(fn: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`[${this.name}] Call timed out after ${this.callTimeoutMs}ms`)),
-        this.callTimeoutMs
-      );
-      fn().then(
-        (v) => { clearTimeout(timer); resolve(v); },
-        (e) => { clearTimeout(timer); reject(e); }
-      );
-    });
+  private async withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`[${this.name}] Call timed out after ${this.callTimeoutMs}ms`)), this.callTimeoutMs);
+    try {
+      // Cancellation belongs to the transport. Await its definitive result:
+      // rejecting a race while a transaction keeps running invites double payments.
+      return await fn(controller.signal);
+    } finally { clearTimeout(timer); }
   }
 
   private transitionIfNeeded() {
@@ -240,7 +241,7 @@ export class RedisCircuitBreaker {
     return s.state;
   }
 
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
+  async execute<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const s = await this.readState();
     const current = this.resolvedState(s);
 
@@ -266,20 +267,16 @@ export class RedisCircuitBreaker {
     }
   }
 
-  private withTimeout<T>(fn: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`[${this.opts.name}] Call timed out after ${this.opts.callTimeoutMs}ms`)),
-        this.opts.callTimeoutMs
-      );
-      fn().then(
-        (v) => { clearTimeout(timer); resolve(v); },
-        (e) => { clearTimeout(timer); reject(e); }
-      );
-    });
+  private async withTimeout<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error(`[${this.opts.name}] Call timed out after ${this.opts.callTimeoutMs}ms`)), this.opts.callTimeoutMs);
+    try {
+      // Cancellation belongs to the transport. Await its definitive result:
+      // rejecting a race while a transaction keeps running invites double payments.
+      return await fn(controller.signal);
+    } finally { clearTimeout(timer); }
   }
 
-  // BUG-09: Atomic Lua scripts prevent read-modify-write race between concurrent serverless instances
   private static readonly SUCCESS_LUA = `
 local raw = redis.call('GET', KEYS[1])
 local s = raw and cjson.decode(raw) or {state='CLOSED',failures={},consecutiveSuccesses=0,openedAt=false}

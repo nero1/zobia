@@ -24,7 +24,7 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { writeAuditLog } from "@/lib/audit/auditLog";
 
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // ~50MB
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // ~50MB
 
 /** Normalize an uploaded body (NDJSON or JSON array) into NDJSON text. */
 function normalizeToNdjson(raw: string): string {
@@ -97,7 +97,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     const jobId = job.id;
 
-    writeAuditLog({
+    await writeAuditLog({
       actorId: auth.user.sub,
       action: "admin_import_users_job_created",
       targetId: jobId,
