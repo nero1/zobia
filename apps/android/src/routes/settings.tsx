@@ -12,7 +12,7 @@ import { App } from '@capacitor/app';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { restorePurchases } from '@/lib/payments/googlePlay';
-import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
+import { LOCALE_LABELS, LOCALE_FLAGS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import { DEFAULT_AVATAR_EMOJIS } from '@zobia/shared/utils';
 import i18n from '@/lib/i18n';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, usePhoneVerificationRequired } from '@/lib/hooks/useManifest';
@@ -963,7 +963,7 @@ function SettingsPage() {
                   : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
             >
-              <span className="text-sm">{LOCALE_LABELS[locale as SupportedLocale]}</span>
+              <span className="text-sm">{LOCALE_FLAGS[locale as SupportedLocale]} {LOCALE_LABELS[locale as SupportedLocale]}</span>
               {i18n.language === locale && (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="20 6 9 17 4 12" />

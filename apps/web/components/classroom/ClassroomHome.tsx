@@ -197,7 +197,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
               {insider && classroom.chatRoomEnabled && (
                 <Link
                   href={`/rooms/${roomId}`}
-                  className="rounded-full border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
+                  className="rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
                 >
                   <Icon emoji="💬" size={14} className="inline align-[-2px]" /> {t("classroom.home.chat", "Chat")}
                 </Link>

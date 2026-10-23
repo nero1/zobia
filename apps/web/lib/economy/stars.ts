@@ -5,7 +5,7 @@
  *
  * Stars are harder to obtain than coins (earned through special events,
  * achievements, or direct purchase). All operations mirror the coin ledger
- * pattern: append-only `star_ledger`, SELECT FOR UPDATE, Decimal.js arithmetic.
+ * pattern: append-only `star_ledger`, SELECT FOR NO KEY UPDATE, Decimal.js arithmetic.
  *
  * @module lib/economy/stars
  */
@@ -20,6 +20,7 @@ import type { StarLedgerEntry } from "@zobia/types";
 // ---------------------------------------------------------------------------
 
 export type StarTransactionType =
+  | "blog_post_bundle"
   | "purchase"
   | "quest_reward"
   | "achievement_reward"
@@ -74,6 +75,7 @@ function toStarLedgerEntry(row: typeof schema.starLedger.$inferSelect): StarLedg
     reference_id: row.referenceId ?? undefined,
     description: row.description ?? undefined,
     createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
+    created_at: row.createdAt ? row.createdAt.toISOString() : undefined,
   };
 }
 
@@ -90,7 +92,7 @@ async function lockAndGetStarBalance(userId: string, tx: DbOrTx): Promise<Decima
     .select({ starBalance: schema.users.starBalance })
     .from(schema.users)
     .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
-    .for("update");
+    .for("no key update");
   if (!rows[0]) {
     throw new Error(`[stars] User not found: ${userId}`);
   }

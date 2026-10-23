@@ -1,3 +1,7 @@
+import { questActionPath } from "@zobia/shared/utils";
+import { checkWikiCreationEligibility } from "@/lib/wiki/limits";
+import { loadManifest } from "@/lib/manifest";
+import { getRankForXP, xpForRankNumber } from "@/lib/xp/engine";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -47,19 +51,29 @@ export const GET = withAuth(async (req, { params, auth }) => {
 
     const orm = await getDb();
     const [planRow] = await orm
-      .select({ plan: schema.users.plan })
+      .select({ plan: schema.users.plan, levelCreator: schema.users.levelCreator, xpTotal: schema.users.xpTotal, isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
       .from(schema.users)
       .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
       .limit(1);
     const plan: Plan = (planRow?.plan as Plan | undefined) ?? "free";
 
-    const quests = await generateDailyDeck(auth.user.sub, plan, orm);
+    const [wiki, manifest, ownedBlogs] = await Promise.all([
+      checkWikiCreationEligibility({ plan, levelCreator: planRow?.levelCreator ?? 0, isAdmin: planRow?.isAdmin ?? false, isModerator: planRow?.isModerator ?? false }),
+      loadManifest(),
+      orm.select({ id: schema.blogs.id }).from(schema.blogs).where(and(eq(schema.blogs.ownerId, auth.user.sub), isNull(schema.blogs.deletedAt))).limit(1),
+    ]);
+    const excluded: string[] = [];
+    if (!wiki.eligible) excluded.push("wiki_edit");
+    if (!ownedBlogs.length) excluded.push("blog_publish");
+    if (getRankForXP(Number(planRow?.xpTotal ?? 0)).rankNumber < manifest.polls.minLevelToCreate) excluded.push("poll_create");
+    const quests = (await generateDailyDeck(auth.user.sub, plan, orm, excluded)).map((quest) => ({ ...quest, actionUrl: questActionPath(quest.action_type) }));
     const today = new Date().toISOString().slice(0, 10);
 
     const completedCount = quests.filter((q) => q.completed).length;
     return NextResponse.json(
       {
         date: today,
+        xpToLevel2: Math.max(0, xpForRankNumber(2) - Number(planRow?.xpTotal ?? 0)),
         quests,
         total: quests.length,
         completed: completedCount,

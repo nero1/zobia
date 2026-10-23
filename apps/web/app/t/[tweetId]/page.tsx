@@ -17,10 +17,15 @@
  * login. Listed in the sitemap at the same path.
  */
 
+import { TalesView } from "@/components/tales/TalesView";
+import { getTale } from "@/lib/tales/service";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { resolvePublicTweet } from "@/lib/public/resolveTweet";
-import { buildTweetMetadata, NOT_FOUND_METADATA } from "@/lib/public/tweetMetadata";
+import {
+  buildTweetMetadata,
+  NOT_FOUND_METADATA,
+} from "@/lib/public/tweetMetadata";
 import { PublicTweetView } from "@/components/public/PublicTweetView";
 
 export async function generateMetadata({
@@ -29,6 +34,15 @@ export async function generateMetadata({
   params: Promise<{ tweetId: string }>;
 }): Promise<Metadata> {
   const { tweetId } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId)) {
+    const tale = await getTale(tweetId).catch(() => null);
+    return tale
+      ? {
+          title: `${tale.story.title} — Zobia Tales`,
+          description: tale.story.synopsis.slice(0, 160),
+        }
+      : NOT_FOUND_METADATA;
+  }
   const tweet = await resolvePublicTweet(tweetId).catch(() => null);
   if (!tweet) return NOT_FOUND_METADATA;
   return buildTweetMetadata(tweet);
@@ -40,6 +54,8 @@ export default async function PublicTweetPage({
   params: Promise<{ tweetId: string }>;
 }) {
   const { tweetId } = await params;
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId))
+    return <TalesView slug={tweetId} />;
   const tweet = await resolvePublicTweet(tweetId).catch(() => null);
   if (!tweet) notFound();
 

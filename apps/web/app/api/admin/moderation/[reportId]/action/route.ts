@@ -1,3 +1,4 @@
+import { removeReportedContent } from "@/lib/moderation/removeReportedContent";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -242,6 +243,12 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
           reported_user_id: schema.moderationReports.reportedUserId,
           reported_message_id: schema.moderationReports.reportedMessageId,
           reported_guild_message_id: schema.moderationReports.reportedGuildMessageId,
+          reported_tale_id: schema.moderationReports.reportedTaleId,
+          reported_tale_chapter_id: schema.moderationReports.reportedTaleChapterId,
+          reported_bb_thread_id: schema.moderationReports.reportedBbThreadId,
+          reported_bb_post_id: schema.moderationReports.reportedBbPostId,
+          reported_forum_question_id: schema.moderationReports.reportedForumQuestionId,
+          reported_forum_answer_id: schema.moderationReports.reportedForumAnswerId,
           reporter_id: schema.moderationReports.reporterId,
           status: schema.moderationReports.status,
         })
@@ -323,17 +330,7 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
         }
 
         // 4. Remove content if requested
-        if (action === "remove_content" && report.reported_message_id) {
-          await tx
-            .update(schema.messages)
-            .set({ deletedAt: new Date(), deletedBy: auth.user.sub })
-            .where(eq(schema.messages.id, report.reported_message_id));
-        } else if (action === "remove_content" && report.reported_guild_message_id) {
-          await tx
-            .update(schema.guildMessages)
-            .set({ isDeleted: true, deletedBy: auth.user.sub })
-            .where(eq(schema.guildMessages.id, report.reported_guild_message_id));
-        }
+        if(action === "remove_content")await removeReportedContent(tx,report,auth.user.sub,note);
 
         // 5. Malicious/spammy report — flags the report, docks the original
         // reporter's Trust Score instead of the usual reward (dismiss only).

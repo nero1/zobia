@@ -113,6 +113,9 @@ export const QUEST_ACTION_TYPES = [
   "guild_quest",
   "xp_meta",
   "game_play",
+  "challenge_send",
+  "challenge_accept",
+  "challenge_win",
   "blog_publish",
   "blog_comment",
   "wiki_edit",
@@ -170,10 +173,19 @@ function cryptoRandInt(max: number): number {
 export async function generateDailyDeck(
   userId: string,
   plan: Plan,
-  db: DbOrTx
+  db: DbOrTx,
+  excludedActions: readonly string[] = []
 ): Promise<QuestDeckItem[]> {
   const today = new Date().toISOString().slice(0, 10);
   const deckSize = DECK_SIZE_BY_PLAN[plan] ?? 3;
+  if (excludedActions.length) {
+    // Remove stale assignments after a policy/account change as well as filtering
+    // new candidates. Completion-bonus accounting then uses the same visible deck.
+    await db.delete(schema.userQuestDecks).where(and(
+      eq(schema.userQuestDecks.userId, userId), eq(schema.userQuestDecks.assignedDate, today),
+      inArray(schema.userQuestDecks.questId, db.select({ id: schema.questTemplates.id }).from(schema.questTemplates).where(inArray(schema.questTemplates.actionType, [...excludedActions])))
+    ));
+  }
 
   // BUG-006 FIX: acquire a per-user+date distributed lock before inserting the
   // deck. Without this, two concurrent requests arriving at the same time (e.g.
@@ -285,7 +297,7 @@ export async function generateDailyDeck(
           )
         );
 
-      const allTemplates: QuestTemplate[] = allTemplatesRaw.map((r) => ({
+      const allTemplates: QuestTemplate[] = allTemplatesRaw.filter((r) => !excludedActions.includes(r.actionType)).map((r) => ({
         id: r.id,
         title: r.title,
         description: r.description,
@@ -465,7 +477,7 @@ export async function generateDailyDeck(
     loginStreak = streakRow?.loginStreak ?? 0;
   }
 
-  return assignedRows.map((row) => ({
+  return assignedRows.filter((row) => !excludedActions.includes(row.actionType)).map((row) => ({
     id: row.id,
     title: row.title,
     description: row.description,

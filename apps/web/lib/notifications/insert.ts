@@ -10,6 +10,7 @@
  * BUG-18: standardised on title/body/metadata columns (not payload).
  */
 
+import { randomUUID } from "node:crypto";
 import type { DbOrTx } from "@/lib/db/drizzle";
 import { schema } from "@/lib/db/schema";
 
@@ -41,16 +42,21 @@ export async function insertNotification(
   type: NotificationType,
   title: string,
   body: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  referenceId: string = randomUUID(),
 ): Promise<void> {
-  await db.insert(schema.notifications).values({
-    userId,
-    type,
-    title,
-    body,
-    metadata: metadata ?? {},
-    isRead: false,
-  });
+  await db
+    .insert(schema.notifications)
+    .values({
+      userId,
+      type,
+      referenceId,
+      title,
+      body,
+      metadata: metadata ?? {},
+      isRead: false,
+    })
+    .onConflictDoNothing();
 }
 
 /**
@@ -67,7 +73,8 @@ export async function insertNotificationBatch(
   type: NotificationType,
   title: string,
   body: string,
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  referenceId: string = randomUUID(),
 ): Promise<void> {
   if (userIds.length === 0) return;
   const metadataValue = metadata ?? {};
@@ -76,15 +83,19 @@ export async function insertNotificationBatch(
   const CHUNK_SIZE = 500;
   for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
     const chunk = userIds.slice(i, i + CHUNK_SIZE);
-    await db.insert(schema.notifications).values(
-      chunk.map((userId) => ({
-        userId,
-        type,
-        title,
-        body,
-        metadata: metadataValue,
-        isRead: false,
-      }))
-    );
+    await db
+      .insert(schema.notifications)
+      .values(
+        chunk.map((userId) => ({
+          userId,
+          type,
+          referenceId,
+          title,
+          body,
+          metadata: metadataValue,
+          isRead: false,
+        })),
+      )
+      .onConflictDoNothing();
   }
 }

@@ -1,0 +1,46 @@
+{
+  "nav": {
+    "home": "होम",
+    "search": "खोजें",
+    "profile": "प्रोफ़ाइल",
+    "settings": "सेटिंग्स",
+    "games": "खेल",
+    "challenges": "चुनौतियाँ",
+    "rooms": "चैटरूम",
+    "blogs": "ब्लॉग",
+    "quests": "कार्य",
+    "wallet": "वॉलेट",
+    "friends": "मित्र",
+    "messages": "संदेश",
+    "notifications": "सूचनाएँ",
+    "help": "सहायता",
+    "classroom": "कक्षा",
+    "gifts": "उपहार",
+    "events": "कार्यक्रम",
+    "bookmarks": "बुकमार्क"
+  },
+  "common": {
+    "save": "सहेजें",
+    "cancel": "रद्द करें",
+    "delete": "हटाएँ",
+    "edit": "संपादित करें",
+    "search": "खोजें",
+    "loading": "लोड हो रहा है…",
+    "loadMore": "और देखें",
+    "confirm": "पुष्टि करें",
+    "close": "बंद करें",
+    "back": "वापस",
+    "next": "अगला",
+    "yes": "हाँ",
+    "no": "नहीं"
+  },
+  "challengeInbox": {
+    "tabs": "चुनौती की स्थिति",
+    "active": "सक्रिय",
+    "expired": "समाप्त",
+    "archived": "संग्रहीत"
+  },
+  "privacy": {
+    "reciprocalPresence": "दूसरों की गतिविधि देखने के लिए गोपनीयता सेटिंग्स में अपनी हाल की गतिविधि दिखाना चालू करें।"
+  }
+}

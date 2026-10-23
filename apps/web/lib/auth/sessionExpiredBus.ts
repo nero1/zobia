@@ -1,4 +1,5 @@
 "use client";
+import { clearCachedMessages } from "@/lib/chat/messageCache";
 import { cachedRead, invalidateReadCache, readCacheKey, writeInvalidatesReadCache } from "@/lib/cache/readCache";
 
 /**
@@ -71,6 +72,7 @@ export function clearSessionHint(): void {
   // navigation, not a reload). Imported lazily: the realtime module pulls in
   // the Ably SDK only when it was actually used.
   invalidateReadCache();
+  clearCachedMessages();
   if (typeof window !== "undefined") {
     void import("@/lib/realtime/ablyShared").then(({ closeAbly }) => closeAbly()).catch(() => {});
   }
@@ -119,6 +121,7 @@ export function markSessionExpired(): void {
   // not "your session expired".
   if (!hadSession) return;
   expired = true;
+  clearCachedMessages();
   // Announce once: clear the shared device hint so a new window/visit does
   // not show the notice again. Other already-open tabs keep their own
   // per-tab flag and still show it.
@@ -145,6 +148,7 @@ export function markSessionExpired(): void {
 export function clearAuthCookies(): Promise<void> {
   clearSessionHint();
   invalidateReadCache();
+  clearCachedMessages();
   return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
     .then(() => undefined)
     .catch(() => undefined);
@@ -259,15 +263,18 @@ export function installSessionExpiryFetchGuard(): void {
       method !== "OPTIONS" &&
       writeInvalidatesReadCache(parsed.pathname);
     if (isWrite) invalidateReadCache();
+  clearCachedMessages();
 
     const res = cacheKey
       ? await cachedRead(cacheKey, () => base(input, init))
       : await base(input, init);
 
     if (isWrite) invalidateReadCache();
+  clearCachedMessages();
     if (isLogoutRequest(input)) clearSessionHint();
     if (res.status === 401) {
       invalidateReadCache();
+  clearCachedMessages();
       if (sameOriginApi && parsed && !isExemptApiPath(parsed.pathname)) {
         markSessionExpired();
       }

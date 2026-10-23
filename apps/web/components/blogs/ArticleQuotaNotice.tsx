@@ -9,6 +9,7 @@
  * this component never hardcodes plan limits itself.
  */
 
+import { PostBundles } from "./PostBundles";
 import { useEffect, useState } from "react";
 import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
@@ -21,8 +22,9 @@ interface LimitsData {
   planMaxPosts: { plus: number; pro: number; max: number };
 }
 
-export function ArticleQuotaNotice({ blogSlug }: { blogSlug: string }) {
+export function ArticleQuotaNotice({ blogSlug, published }: { blogSlug: string; published?: boolean }) {
   const { t } = useTranslation();
+  const [refresh,setRefresh]=useState(0);
   const [data, setData] = useState<LimitsData | null>(null);
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export function ArticleQuotaNotice({ blogSlug }: { blogSlug: string }) {
       .then((json) => { if (!cancelled) setData(json?.data ?? null); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [blogSlug]);
+  }, [blogSlug,refresh]);
 
   if (!data) return null;
 
@@ -40,7 +42,8 @@ export function ArticleQuotaNotice({ blogSlug }: { blogSlug: string }) {
   const isMaxPlan = data.plan === "max";
 
   return (
-    <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${exhausted ? "border-red-500/40 bg-red-950/10 text-red-300" : "border-border bg-card text-foreground"}`}>
+    <div className={`mb-4 rounded-xl border px-4 py-3 text-sm ${published ? "border-emerald-500/40 bg-emerald-50 dark:bg-emerald-950 text-emerald-900 dark:text-emerald-100" : exhausted ? "border-red-500/40 bg-red-950/10 text-red-300" : "border-border bg-card text-foreground"}`}>
+      {published && <p className="font-semibold">{t("blogs.published.success","Your post has been published.")}</p>}
       {exhausted ? (
         <p className="font-medium">
           {t("blogs.quota.exhausted", "You have used up all your available articles ({{max}}). Delete some or upgrade your plan for more articles.", { max: data.maxPosts })}
@@ -62,13 +65,14 @@ export function ArticleQuotaNotice({ blogSlug }: { blogSlug: string }) {
         </p>
       )}
 
+      {isMaxPlan && <PostBundles blogSlug={blogSlug} onPurchased={()=>setRefresh((n)=>n+1)} />}
       <div className="mt-2 flex gap-2">
         {exhausted && (
           <Link href={`/blogs/dashboard?blog=${encodeURIComponent(blogSlug)}`} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
             {t("blogs.quota.deleteLink", "Manage posts")}
           </Link>
         )}
-        {!isMaxPlan && (
+        {!isMaxPlan && data.remaining <= 10 && (
           <Link href="/settings/subscription" className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90">
             {t("blogs.quota.upgradeButton", "Upgrade plan")}
           </Link>

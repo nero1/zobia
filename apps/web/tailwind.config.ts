@@ -4,6 +4,7 @@ const tokens = require("../../shared/tailwind-tokens.js");
 const config: Config = {
   darkMode: "class",
   content: [
+    "../../shared/ui/**/*.{ts,tsx}",
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
     "./app/**/*.{js,ts,jsx,tsx,mdx}",

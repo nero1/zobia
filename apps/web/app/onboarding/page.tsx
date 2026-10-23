@@ -15,8 +15,8 @@
  * Redirects to /(app)/home on completion.
  */
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Script from "next/script";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
@@ -110,8 +110,11 @@ const CURRENT_YEAR = new Date().getFullYear();
 // Component
 // ---------------------------------------------------------------------------
 
-export default function OnboardingPage() {
+function OnboardingPage() {
   const router = useRouter();
+  const searchParams=useSearchParams();
+  const requested=searchParams?.get("redirect");
+  const returnTo=requested&&/^\/[a-zA-Z0-9/_-]*$/.test(requested)&&!requested.startsWith("//")?requested:"/home";
   const { t } = useTranslation();
 
   // Manifest (loaded once)
@@ -877,7 +880,7 @@ export default function OnboardingPage() {
 
               <button
                 type="button"
-                onClick={() => router.push("/home")}
+                onClick={() => router.push(returnTo)}
                 className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 transition-colors"
               >
                 {addedFriends.size > 0
@@ -1104,3 +1107,5 @@ function VibeQuestion({ question, options, selected, onSelect }: VibeQuestionPro
     </div>
   );
 }
+
+export default function Page(){return <Suspense fallback={<div role="status">Loading…</div>}><OnboardingPage/></Suspense>;}

@@ -62,12 +62,16 @@ function FriendGrid({ friends, emptyKey }: { friends: Friend[]; emptyKey: string
 export function PresenceTabs() {
   const { t } = useTranslation();
   const [friends, setFriends] = useState<Friend[] | undefined>(undefined);
+  const [visibilityDisabled, setVisibilityDisabled] = useState(false);
   const [tab, setTab] = useState<"online" | "recent">("online");
 
   useEffect(() => {
     fetch("/api/friends/online", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { data?: Friend[]; friends?: Friend[] } | null) => setFriends(d?.data ?? d?.friends ?? []))
+      .then((d: { data?: Friend[]; friends?: Friend[]; visibilityDisabled?: boolean } | null) => {
+        setVisibilityDisabled(Boolean(d?.visibilityDisabled));
+        setFriends(d?.data ?? d?.friends ?? []);
+      })
       .catch(() => setFriends([]));
   }, []);
 
@@ -95,6 +99,7 @@ export function PresenceTabs() {
         </button>
       </div>
       <p className="mb-3 text-[11px] text-neutral-400">{t("home.friends.privacyHint")}</p>
+      {visibilityDisabled && <p className="mb-3 text-sm"><a href="/settings#privacy" className="text-primary-600 underline">{t("privacy.reciprocalPresence", "Turn on recently active in privacy settings to see other people’s activity.")}</a></p>}
       {friends === undefined ? (
         <FriendsSkeleton />
       ) : tab === "online" ? (

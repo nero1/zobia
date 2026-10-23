@@ -1,3 +1,4 @@
+import { getRankForXP } from "@/lib/xp/engine";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -67,7 +68,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
           canLockProfile: userEligibleForFeature(user.plan, user.prestige_count, lockAllowed, eligibilityContext),
           canHideSections: userEligibleForFeature(user.plan, user.prestige_count, hideAllowed, eligibilityContext),
           canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),
-          canShowOnlineStatus: userEligibleForFeature(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext),
+          canShowOnlineStatus: user.is_admin || getRankForXP(Number(user.xp_total ?? 0)).rankNumber >= 2,
           hideableSections,
           canHideFromLeaderboards: isAnonymityEligible(
             {

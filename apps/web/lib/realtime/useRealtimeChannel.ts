@@ -20,6 +20,7 @@
  *          page is not hitting the REST API every few seconds.
  */
 
+import { isProtectedRealtimeChannel } from "@zobia/shared/utils";
 import { useEffect, useState } from "react";
 import { toPusherChannelName } from "./pusherChannelName";
 import { invalidateReadCache } from "@/lib/cache/readCache";
@@ -48,6 +49,10 @@ export function useRealtimeChannel(
     }
 
     const provider = process.env.NEXT_PUBLIC_REALTIME_PROVIDER;
+    if (provider === "supabase-realtime" && isProtectedRealtimeChannel(channel)) {
+      setConnected(false);
+      return;
+    }
     let cancelled = false;
     let cleanup: (() => void) | undefined;
     // Events on the user's own channel (rewards, coins, XP, notifications)

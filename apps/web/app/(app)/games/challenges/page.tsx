@@ -9,8 +9,8 @@
  * debounced username search-as-you-type, same pattern as the gifts page) to
  * a game (best of 1 or 3) with an optional credit wager.
  *
- * Challenges expire after 30 days (manifest `challengeExpiryHours`, default
- * 720) if the opponent never responds — expiry/refund is swept by
+ * Challenges expire after 48 hours (manifest `challengeExpiryHours`, default
+ * 48) if the opponent never responds — expiry/refund is swept by
  * /api/cron/games (run externally; see docs/HOW-IT-WORKS.md).
  */
 
@@ -41,6 +41,9 @@ interface UserSuggestion {
   username: string;
   displayName: string;
   avatarEmoji: string;
+  isFriend?: boolean;
+  recentlyActive?: boolean;
+  activityVisible?: boolean;
 }
 
 /** Countdown to a challenge's expires_at (mirrors the Drop Room countdown on the rooms page). */
@@ -85,12 +88,23 @@ export default function ChallengesPage() {
   const [opponentSuggestions, setOpponentSuggestions] = useState<UserSuggestion[]>([]);
   const [opponentSelected, setOpponentSelected] = useState<UserSuggestion | null>(null);
 
-  const reload = () => {
-    fetch("/api/games/challenges", { credentials: "include" })
-      .then((r) => r.json())
-      .then((b) => setChallenges(b?.data?.challenges ?? []))
-      .catch(() => {});
-  };
+  const [statusFilter, setStatusFilter] = useState<"active" | "expired" | "archived" | "completed">("active");
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const reload = useCallback(async (cursor?: string) => {
+    setLoadingPage(true);
+    try {
+      const query = new URLSearchParams({ status: statusFilter, limit: "20" });
+      if (cursor) query.set("cursor", cursor);
+      const res = await fetch(`/api/games/challenges?${query}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Could not load challenges.");
+      const b = await res.json();
+      setChallenges((previous) => cursor ? [...previous, ...(b.data?.challenges ?? [])] : b.data?.challenges ?? []);
+      setNextCursor(b.data?.nextCursor ?? null);
+    } catch (err) { setMsg(err instanceof Error ? err.message : "Could not load challenges."); }
+    finally { setLoadingPage(false); }
+  }, [statusFilter]);
+  useEffect(() => { void reload(); }, [reload]);
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "include" }).then((r) => r.json()).then((b) => setMe(b?.user?.id ?? null)).catch(() => {});
@@ -102,7 +116,6 @@ export default function ChallengesPage() {
         if (list[0]) setForm((f) => ({ ...f, gameSlug: list[0].slug }));
       })
       .catch(() => {});
-    reload();
   }, []);
 
   // Debounced opponent search (300ms, same as gifts.tsx).
@@ -111,7 +124,7 @@ export default function ChallengesPage() {
     setOpponentSelected(null);
     if (opponentQuery.trim().length < 2) { setOpponentSuggestions([]); return; }
     const id = setTimeout(() => {
-      fetch(`/api/users/search?q=${encodeURIComponent(opponentQuery.trim())}&limit=6`, { credentials: "include" })
+      fetch(`/api/users/search?purpose=challenge&q=${encodeURIComponent(opponentQuery.trim())}&limit=6`, { credentials: "include" })
         .then((r) => (r.ok ? r.json() : null))
         .then((b) => setOpponentSuggestions(b?.data?.users ?? []))
         .catch(() => setOpponentSuggestions([]));
@@ -224,6 +237,7 @@ export default function ChallengesPage() {
           {opponentSelected && (
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400"><Icon emoji="✓" className="inline h-3.5 w-3.5 align-text-bottom" /> {opponentSelected.displayName}</span>
           )}
+        {opponentSelected?.isFriend && opponentSelected.activityVisible && !opponentSelected.recentlyActive && <p role="status" className="mt-2 text-xs text-amber-600">{t('games.challenges.inactiveFriend','This friend has not been active recently and may not respond before the invitation expires.')}</p>}
           {!opponentSelected && opponentSuggestions.length > 0 && (
             <div className="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card shadow-modal overflow-hidden">
               {opponentSuggestions.map((u) => (
@@ -236,7 +250,7 @@ export default function ChallengesPage() {
                   <span className="text-lg">{u.avatarEmoji}</span>
                   <span className="flex-1 min-w-0">
                     <span className="block truncate font-medium text-foreground">{u.displayName}</span>
-                    <span className="block truncate text-xs text-muted-foreground">@{u.username}</span>
+                    <span className="block truncate text-xs text-muted-foreground">@{u.username}{u.recentlyActive ? ` · ${t("games.challenges.recentBadge","Recent")}` : ""}</span>
                   </span>
                 </button>
               ))}
@@ -282,13 +296,17 @@ export default function ChallengesPage() {
         />
       </div>
 
+      <div className="mb-4 flex gap-2" role="tablist" aria-label={t("challengeInbox.tabs", "Challenge status")}>
+        {(["active", "completed", "expired", "archived"] as const).map((status) => <button key={status} role="tab" aria-selected={statusFilter === status} onClick={() => setStatusFilter(status)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === status ? "bg-primary-600 text-white" : "bg-muted text-foreground"}`}>{t(`challengeInbox.${status}`)}</button>)}
+      </div>
       <div className="space-y-3">
         {filteredChallenges.length === 0 && (
           <p className="text-sm text-muted-foreground">
             {challenges.length === 0 ? t("games.noChallenges") : t("games.challenges.noResults", "No challenges match your search.")}
           </p>
         )}
-        {filteredChallenges.map((c) => {
+        {filteredChallenges.map((stored) => {
+          const c = { ...stored, status: ["pending", "active"].includes(stored.status) && Date.parse(stored.expiresAt) <= Date.now() ? "expired" : stored.status };
           const incoming = c.opponentId === me;
           const isChallenger = c.challengerId === me;
           const canDelete = isChallenger && c.status === "pending";
@@ -354,6 +372,7 @@ export default function ChallengesPage() {
           );
         })}
       </div>
+      {nextCursor && <button disabled={loadingPage} onClick={() => void reload(nextCursor)} className="mt-4 rounded-full border px-4 py-2 text-sm">{t("common.loadMore", "Load more")}</button>}
     </div>
   );
 }

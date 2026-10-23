@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { Link, createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Preferences } from '@capacitor/preferences';
 import { apiClient } from '@/lib/api/client';
@@ -137,7 +137,7 @@ function PostViewPage() {
   });
 
   const unlock = useMutation({
-    mutationFn: () => apiClient.post(`/blogs/${slug}/posts/${postSlug}/unlock`, {}),
+    mutationFn: () => apiClient.post(`/blogs/${slug}/posts/${postSlug}/unlock`, {confirmedCost: postQuery.data?.post.paywall_credits_cost}),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['blogs', 'post', slug, postSlug] }),
   });
 
@@ -228,7 +228,7 @@ function PostViewPage() {
               {t('blogs.post.paywallNotice', 'Pay {{cost}} credits to read the rest of the article.', { cost: post.paywall_credits_cost })}
             </p>
             <button
-              onClick={() => unlock.mutate()}
+              onClick={() => { if (window.confirm(t('blogEditing.confirmUnlock', 'Deduct {{cost}} credits from your wallet to unlock this post?', { cost: post.paywall_credits_cost }))) unlock.mutate(); }}
               disabled={unlock.isPending}
               className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
             >
@@ -237,6 +237,7 @@ function PostViewPage() {
           </div>
         )}
 
+        {unlock.isError && <p role="alert" className="mt-3 text-sm text-red-600">{t('blogs.unlock.failed','Unable to unlock this post. Check your credits or refresh to review the current price.')} <Link to="/wallet" className="underline">{t('wallet.title','Wallet')}</Link> · <Link to="/gifts" className="underline">{t('nav.gifts','Gifts')}</Link> · <Link to="/quests" className="underline">{t('nav.quests','Quests')}</Link></p>}
         {isArticle && (
           <div className="mt-4 flex items-center gap-3">
             <button

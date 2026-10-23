@@ -1,3 +1,4 @@
+import { renderHelpText } from "@/lib/help/variables";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -38,8 +39,8 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
-export type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games" | "portals";
-const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games", "portals"];
+export type SearchContentType = "people" | "blogs" | "wikis" | "answers" | "games" | "portals" | "help";
+const ALL_TYPES: SearchContentType[] = ["people", "blogs", "wikis", "answers", "games", "portals", "help"];
 
 export type SearchDateRange = "week" | "month" | "quarter" | "year" | "all";
 const RANGE_DAYS: Record<Exclude<SearchDateRange, "all">, number> = {
@@ -158,6 +159,17 @@ function branchFor(type: SearchContentType, likePattern: string, since: Date | n
                ${ftsOr(sql`g.search_vector`)})
           AND (${since}::timestamptz IS NULL OR g.created_at >= ${since})
         ORDER BY rank DESC, g.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
+    case "help":
+      return sql`
+        (SELECT 'help' AS type, d.id::text AS id, d.title AS title,
+               left(d.body_markdown, 220) AS snippet, NULL::text AS thumbnail_url,
+               ('/help/' || c.slug || '/' || d.slug) AS url, d.updated_at AS published_at,
+               ${rankExpr(sql`d.search_vector`)} AS rank
+         FROM help_docs d JOIN help_categories c ON c.id = d.category_id
+         WHERE d.published = TRUE AND c.published = TRUE AND d.deleted_at IS NULL
+           AND (d.title ILIKE ${likePattern} OR d.body_markdown ILIKE ${likePattern} ${ftsOr(sql`d.search_vector`)})
+           AND (${since}::timestamptz IS NULL OR d.updated_at >= ${since})
+         ORDER BY rank DESC, d.updated_at DESC LIMIT ${PER_BRANCH_CAP})`;
     case "portals": {
       // Hashtag Portals (/h/<slug>). A leading "#" in the query is dropped so
       // "#lagos" finds the lagos portal, and an exact tag match outranks
@@ -225,10 +237,10 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const hasMore = rows.length > PAGE_SIZE;
     // `rank` only exists to drive the SQL ORDER BY above — not part of the
     // public response shape.
-    const results = rows.slice(0, PAGE_SIZE).map((row) => {
+    const results = await Promise.all(rows.slice(0, PAGE_SIZE).map(async (row) => {
       const { type, id, title, snippet, thumbnail_url, url, published_at } = row;
-      return { type, id, title, snippet, thumbnail_url, url, published_at };
-    });
+      return { type, id, title, snippet: type === "help" && snippet ? await renderHelpText(snippet) : snippet, thumbnail_url, url, published_at };
+    }));
 
     return NextResponse.json({
       success: true,

@@ -1,3 +1,4 @@
+import { SUPPORTED_LOCALES } from "@zobia/shared/i18n";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -134,13 +135,7 @@ const updateProfileSchema = z.object({
     .max(300, "Bio cannot exceed 300 characters")
     .nullable()
     .optional(),
-  locale: z
-    .string()
-    .regex(
-      /^[a-z]{2}(-[A-Z]{2})?$/,
-      "locale must be a valid BCP-47 language tag (e.g. 'en' or 'en-US')"
-    )
-    .optional(),
+  locale: z.enum(SUPPORTED_LOCALES).optional(),
   avatar_emoji: z
     .string()
     .min(1)

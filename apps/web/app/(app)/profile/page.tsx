@@ -12,6 +12,7 @@
  * All data is real — no hardcoded placeholders.
  */
 
+import { LanguageSelector } from "@/components/settings/LanguageSelector";
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
@@ -255,6 +256,7 @@ export default function MyProfilePage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
+      <LanguageSelector />
       {/* ── Header card ─────────────────────────────────────────────── */}
       {/* Theme tokens applied as inline style on this load-bearing card only
           (background + accent-colored top border) — mirrors the blog theme

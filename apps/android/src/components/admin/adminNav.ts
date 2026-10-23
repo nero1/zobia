@@ -15,6 +15,7 @@ export interface AdminNavItem {
 }
 
 export const adminNavItems: AdminNavItem[] = [
+  { href: '/admin/auto-content', labelKey: 'admin.nav.autoContent', labelDefault: 'Official Content Studio', icon: 'Ⓩ' },
   { href: '/admin', labelKey: 'admin.nav.dashboard', labelDefault: 'Dashboard', icon: '◼' },
   { href: '/admin/users', labelKey: 'admin.nav.users', labelDefault: 'Users', icon: '👥' },
   { href: '/admin/moderation', labelKey: 'admin.nav.moderation', labelDefault: 'Moderation', icon: '🚩' },
@@ -64,6 +65,7 @@ export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/ads', labelKey: 'admin.nav.ads', labelDefault: 'Ads', icon: '🖼️' },
   { href: '/admin/ads-moderation-queue', labelKey: 'admin.nav.adModerationQueue', labelDefault: 'Ad Moderation Queue', icon: '🕵️' },
   { href: '/admin/games', labelKey: 'admin.nav.games', labelDefault: 'Games', icon: '🎮' },
+  { href: '/admin/tales', labelKey: 'admin.nav.tales', labelDefault: 'Tales Moderation', icon: '📚' },
   { href: '/admin/blogs', labelKey: 'admin.nav.blogs', labelDefault: 'Blogs', icon: '✍️' },
   { href: '/admin/wiki', labelKey: 'admin.nav.wiki', labelDefault: 'Wiki', icon: '📖' },
   { href: '/admin/support', labelKey: 'admin.nav.support', labelDefault: 'Support Tickets', icon: '🎫' },

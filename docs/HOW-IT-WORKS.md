@@ -4340,3 +4340,63 @@ Vercel Hobby crons run at most once a day, so `vercel.json` only holds the 7 sta
 
 The admin action first pulls `ends_at` forward to now, so profile and stats Season History (which lists archived seasons by `ends_at`) shows when the season actually ended.
 
+
+## October 2026 reliability and content changes
+
+### Private messages and classroom access
+
+Message pages persist at most 50 messages under a versioned account/conversation key. Legacy unscoped caches are never read. Logout and session expiry clear private messages and personalized feed snapshots. Classroom content is never restored from this cache before an authorization check. The expiry screen covers protected content and clears cookies before navigating to login.
+
+Room polling uses a separate REST watermark, advanced only by successful polling responses. Realtime echoes and locally sent messages cannot jump over messages missing from an earlier poll. Composite timestamp/UUID cursors preserve PostgreSQL microseconds; initial scroll runs after the message container mounts.
+
+Classroom messages, room details, presence and subscription authorizers enforce enrolment. The Supabase public Broadcast adapter refuses protected room, direct-message, group and user topics; those conversations use authenticated polling. Ably/Pusher retain server authorization. Enabling a private Supabase transport later requires both authenticated private channels and matching database policies.
+
+### Challenges and reciprocal presence
+
+Invitations default to 48 hours and senders have a configurable daily cap (10 by default). Eligible opponents are friends or opted-in recent players within a configurable seven-day window. Disabling presence also disables browsing other users’ presence. Hidden activity cannot produce a recent badge or inactive-friend warning.
+
+Acceptance locks wallets in a stable order and creates escrow/rounds in the same transaction. Cancellation, expiry and settlement atomically update escrow and balances; repeated expiry does not refund twice. Archive timestamps belong to each participant separately. The games cron also prunes terminal, unfunded challenges older than 90 days. Expiry is checked during acceptance/play independently of cron timing.
+
+### Bookmarks
+
+`/bookmarks` exists on web/PWA and Capacitor. Folders belong to an account, and moving an item validates folder ownership. Removing a folder keeps its items in Unfiled. Paid plans permanently unlock folder allowances (Plus 5, Pro 15, Max/Business 30 by default); downgrading retains these allowances. Extra slots cost 100 Credits initially and 50 thereafter, with admin settings. Explicit current-price confirmation and a request UUID prevent duplicate charges.
+
+### Blog revisions, discovery and purchases
+
+Saving an edited published article/page stores a private revision; readers continue to see the last published content until Publish. Unpublish makes it a draft. Editor recovery keys include account, blog and post. The dashboard offers published View links and a one-visit first-publish success marker.
+
+Blog and post discovery use compound sort cursors; post pages contain six items and never return article bodies or private revisions. Random ordering uses a seed retained across pages. Trending uses a cursor snapshot time so time decay alone does not reorder later pages.
+
+Paywall unlocks require the price displayed in the confirmation. Buyer debit, unlock, statistics, creator earnings ledger and earnings balance commit together, with wallet locks in UUID order. Retries do not increment earnings or statistics again. Extra-post bundles add permanent article/page capacity to one blog and support Credits/Stars, current-price confirmation and idempotent UUID requests. Creating a post checks quota while holding the blog row lock.
+
+### Help, AI and progress tips
+
+Beginner help guides include bookmarks, classroom chat, challenges, credits and blogging. Only allowlisted public setting tokens are interpolated, then rendered HTML is sanitized; arbitrary manifest keys cannot be read through help templates. Published help documents appear in unified search.
+
+Help AI reserves weekly allowance before contacting a provider. The default free allowance is 20 questions per UTC week; the UI warns after 11 and shows the reset date. Paid questions require explicit confirmation of the current price. Retries reuse a request ID; failed provider calls restore allowance/refund payment, and abandoned reservations are recovered after ten minutes. The prompt limits answers to Zobia help and treats document content as reference material. Model behavior still requires live evaluation.
+
+Daily quests exclude unavailable actions and link to their destinations. Progress tips reuse the eligible deck and actual XP rewards, and calculate the remaining XP to Level 2 from the central rank thresholds.
+
+### Localization
+
+Web and Capacitor share locale identifiers, native display names and flags. Locale changes update HTML direction immediately; saved profile selections use the same canonical registry. `node scripts/audit-i18n.mjs --check` detects missing keys and interpolation drift. Hindi currently has a scaffold; non-English catalog coverage is incomplete. English fallback is not evidence of a completed translation.
+
+
+### Tales
+
+Tales uses `/t/` story slugs; legacy `/t/<UUID>` Tweet previews keep working. Chapter one is public/free, later chapters require login, and locked bodies are omitted from responses. Author tools cover drafts, chapters, cover uploads, individual/all-at-once publishing, paid-plan schedules, comments, subscriber notifications and pots. Saves use content versions to reject stale edits. Text/cover moderation fails into a human queue rather than public approval. Stories, chapters and account penalties have bounded appeals. Global author bans/suspensions and Tales restrictions affect content availability and purchasing.
+
+Paid chapter unlocks serialize buyer/author balances and commit access, reader debit and author Credit share together. Scheduled work pauses after a paid subscription expires. Notifications commit with chapter-notified state. The first-chapter guest continuation and Google sign-in paths preserve reading destinations through onboarding; Capacitor retains its pending Tales destination through native OAuth and onboarding.
+
+### Official content studio
+
+Private operator jobs bind a no-login official account to an eligible public destination, provider selection, editorial direction and schedule. Jobs start disabled and default to review mode. Provider calls run outside database transactions. One cron invocation leases one job; a replaced lease cannot publish stale output. Exact normalized fingerprints and indexed trigram similarity reject duplicate contributions across official accounts. Generated drafts remain private until auto-review clears a high confidence threshold or an administrator edits/approves them.
+
+Publication, counters, wiki revisions, hashtags, relevant blog subscriber notices and generation state commit in one transaction. Official accounts receive no posting XP/quest rewards. Account and destination authorization are checked again while publishing; a disabled/restricted account, inactive destination or exhausted quota cannot be bypassed by an old generation. The public Ⓩ marker survives profile-name edits. These safeguards constrain the workflow but do not establish live model factual accuracy; operator and provider evaluation remain required.
+
+### Shared notification and reward-pot repairs
+
+Notification events have explicit references. Separate events of the same type can coexist, and retries with the same event reference deduplicate. Reward pots use a funding generation in claim uniqueness and ledger references, retaining prior-cycle claim records. Initial funding serializes even when no treasury row exists. Existing active pots require Edit or Close; creating again cannot overwrite funded balances. Closing room pots refunds remaining Credits or Stars exactly once. Opening a new cycle permits a previous claimant to earn again, once in that cycle.
+
+
+Wallet row locks use `FOR NO KEY UPDATE`: balance changes still serialize, while unrelated content/notification foreign-key checks can proceed. Blog creation takes the author lock before the blog lock, and financial operations lock participants consistently. This avoids lock-order deadlocks without weakening the balance checks or ledger transaction boundary.

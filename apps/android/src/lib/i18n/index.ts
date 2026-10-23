@@ -23,10 +23,11 @@ import sw from '@zobia/shared/i18n/locales/sw';
 import am from '@zobia/shared/i18n/locales/am';
 import zu from '@zobia/shared/i18n/locales/zu';
 import pt from '@zobia/shared/i18n/locales/pt';
+import hi from '@zobia/shared/i18n/locales/hi';
 import pidgin from '@zobia/shared/i18n/locales/pidgin';
 
-export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt' | 'pidgin';
-const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin'];
+export type SupportedLocale = 'en' | 'fr' | 'ar' | 'ha' | 'sw' | 'am' | 'zu' | 'pt' | 'pidgin' | 'hi';
+const SUPPORTED_LOCALES: SupportedLocale[] = ['en', 'fr', 'ar', 'ha', 'sw', 'am', 'zu', 'pt', 'pidgin', 'hi'];
 
 function applyRTL(lng: string): void {
   if (typeof document !== 'undefined') {
@@ -40,6 +41,7 @@ try {
     .use(initReactI18next)
     .init({
       resources: {
+        hi: { translation: hi },
         en: { translation: en },
         fr: { translation: fr },
         ar: { translation: ar },

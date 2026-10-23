@@ -48,6 +48,8 @@ const ReportBodySchema = z.object({
   reportedBbThreadId: z.string().uuid().optional(),
   /** UUID of the old-school BB-forum post being reported. */
   reportedBbPostId: z.string().uuid().optional(),
+  reportedTaleId: z.string().uuid().optional(),
+  reportedTaleChapterId: z.string().uuid().optional(),
   /** Category selected by the reporter. */
   reportType: z.enum([
     "spam",
@@ -101,7 +103,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       !data.reportedForumQuestionId &&
       !data.reportedForumAnswerId &&
       !data.reportedBbThreadId &&
-      !data.reportedBbPostId
+      !data.reportedBbPostId &&
+      !data.reportedTaleId &&
+      !data.reportedTaleChapterId
     ) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
@@ -158,6 +162,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         reportedForumAnswerId: data.reportedForumAnswerId ?? null,
         reportedBbThreadId: data.reportedBbThreadId ?? null,
         reportedBbPostId: data.reportedBbPostId ?? null,
+        reportedTaleId: data.reportedTaleId ?? null,
+        reportedTaleChapterId: data.reportedTaleChapterId ?? null,
         reportType: data.reportType,
         description: data.description ?? null,
         status: "pending",

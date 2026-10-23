@@ -1239,11 +1239,11 @@ export default function RoomPage() {
   const [room, setRoom] = useState<RoomInfo | null>(null);
   // Hydrate from the persisted cache for an instant first paint (and offline view).
   const [messages, setMessages] = useState<Message[]>(
-    () => readCachedMessages<Message>(`room:${roomId}`) ?? []
+    []
   );
   const [loadingRoom, setLoadingRoom] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(
-    () => (readCachedMessages<Message>(`room:${roomId}`)?.length ?? 0) === 0
+    true
   );
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -1253,6 +1253,7 @@ export default function RoomPage() {
   const [momentError, setMomentError] = useState<{ message: string; costCredits?: number; costStars?: number } | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [enrolmentRequired, setEnrolmentRequired] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [topGifter, setTopGifter] = useState<TopGifterRow | null>(null);
   // Gift spectacle overlay state (null = hidden)
@@ -1271,6 +1272,7 @@ export default function RoomPage() {
   const lastMessageIdRef = useRef<string | undefined>(undefined);
   // Newest message timestamp seen — drives delta polling (?after=).
   const latestCreatedAtRef = useRef<string | undefined>(undefined);
+  const pollCursorRef = useRef<{ after: string; afterId: string } | null>(null);
   const minGiftSpectacleCoinRef = useRef<number | null | undefined>(undefined);
   // Becomes true after the first message snapshot loads, so the gift spectacle
   // overlay only fires for genuinely-new gifts and not for the initial backlog.
@@ -1296,12 +1298,18 @@ export default function RoomPage() {
     if (feedRef.current) {
       feedRef.current.scrollTop = feedRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, loadingRoom, loadingMessages]);
+
+  useEffect(() => {
+    if (!currentUserId || !room || room.type === "classroom") return;
+    const cached = readCachedMessages<Message>(`room:${roomId}`, currentUserId);
+    if (cached?.length) setMessages((current) => current.length ? current : cached);
+  }, [currentUserId, roomId, room]);
 
   // Persist the latest messages so reopening the room paints instantly.
   useEffect(() => {
-    if (messages.length) writeCachedMessages(`room:${roomId}`, messages);
-  }, [messages, roomId]);
+    if (messages.length) writeCachedMessages(`room:${roomId}`, messages, currentUserId);
+  }, [messages, roomId, currentUserId]);
 
   // Poll top gifters every 30 seconds
   useEffect(() => {
@@ -1455,17 +1463,27 @@ export default function RoomPage() {
     try {
       // After the first load, request only messages newer than the latest one
       // we have (delta fetch) — far cheaper than re-pulling the whole snapshot.
-      const after = latestCreatedAtRef.current;
-      const url = after
-        ? `/api/rooms/${roomId}/messages?after=${encodeURIComponent(after)}`
-        : `/api/rooms/${roomId}/messages`;
+      // Only REST responses advance this cursor. Realtime and local echoes
+      // can arrive out of order and must never skip another sender's messages.
+      const cursor = pollCursorRef.current;
+      const query = new URLSearchParams({ limit: "100" });
+      if (cursor) { query.set("after", cursor.after); query.set("afterId", cursor.afterId); }
+      const url = `/api/rooms/${roomId}/messages?${query}`;
       // authFetch silently refreshes on 401 and, if the session is truly gone,
       // raises the app-wide "signed out" notice instead of failing silently.
       const res = await authFetch(url);
-      if (!res.ok) return false;
-      const data = (await res.json()) as { items: Message[] };
+      if (!res.ok) {
+        if (res.status === 403) {
+          const failure = await res.json().catch(() => null);
+          if (failure?.error?.code === "CLASSROOM_ENROLMENT_REQUIRED") { setMessages([]); setEnrolmentRequired(true); }
+        }
+        return false;
+      }
+      setEnrolmentRequired(false);
+      const data = (await res.json()) as { items: Message[]; deltaCursor?: { after: string; afterId: string } | null };
       const items = (data.items ?? []).slice().sort(sortByCreatedAtAsc);
       for (const m of items) handleIncomingMessage(m);
+      if (data.deltaCursor) pollCursorRef.current = data.deltaCursor;
       // Backlog seeded — from here on, gift messages may trigger the spectacle.
       initializedRef.current = true;
       // Signal activity (new messages applied) so the poll cadence stays fast
@@ -1515,7 +1533,7 @@ export default function RoomPage() {
 
   const isMember = room?.isSubscribed ?? false;
   const realtimeConnected = useRealtimeChannel(
-    REALTIME_PROVIDER && presenceAdmitted && isMember ? `room:${roomId}:messages` : null,
+    REALTIME_PROVIDER && presenceAdmitted && isMember && !enrolmentRequired ? `room:${roomId}:messages` : null,
     onRealtimeEvent
   );
 
@@ -1582,8 +1600,9 @@ export default function RoomPage() {
       // Snap the baseline poll back to the fast cadence so a reply to the
       // message we just sent is picked up immediately even if it had idled.
       pokePoll();
-    } catch { /* ignore */ }
-    setSending(false);
+    } catch (error) {
+      setMomentError({ message: error instanceof Error ? error.message : "Unable to send this message." });
+    } finally { setSending(false); }
   }
 
   // Fetch Drop Room replay (for drop rooms only)
@@ -1696,6 +1715,11 @@ export default function RoomPage() {
     );
   }
 
+  if (enrolmentRequired) return <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+    <p>{t("classroom.chat.enrolRequired", "Enrol in this classroom before opening its chatroom.")}</p>
+    <Link href={`/c/${roomId}`} className="rounded-full bg-primary-600 px-4 py-2 text-white">{t("classroom.chat.openClassroom", "View classroom and enrol")}</Link>
+  </div>;
+
   // In-stream native ads (PRD §17 Pillar 3): free_open Rooms only, every N messages.
   const showInstreamAds = adsConfig.instreamAdsEnabled && room.type === "free_open";
   const instreamInterval = Math.max(1, adsConfig.roomInstreamInterval || 10);
@@ -1730,7 +1754,7 @@ export default function RoomPage() {
               </span>
             </div>
           )}
-          <Link href="/rooms" className="flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"><Icon emoji="←" size={12} /> Rooms</Link>
+          <Link href={room.type === "classroom" ? `/c/${roomId}` : "/rooms"} className="flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"><Icon emoji="←" size={12} /> {room.type === "classroom" ? "Classroom" : "Chatrooms"}</Link>
           <button
             onClick={() => setShowSidebar((v) => !v)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 lg:hidden"

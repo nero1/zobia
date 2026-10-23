@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
@@ -35,6 +35,9 @@ interface UserSuggestion {
   username: string;
   displayName: string;
   avatarEmoji: string;
+  isFriend?: boolean;
+  recentlyActive?: boolean;
+  activityVisible?: boolean;
 }
 
 async function fetchGames(): Promise<GameSummary[]> {
@@ -42,14 +45,10 @@ async function fetchGames(): Promise<GameSummary[]> {
   return data?.games ?? [];
 }
 
-async function fetchChallenges(): Promise<GameChallengeSummary[]> {
-  const { data } = await apiClient.get<ChallengesPage>('/games/challenges');
-  return data?.challenges ?? [];
-}
 
 async function searchOpponents(q: string): Promise<UserSuggestion[]> {
   const { data } = await apiClient.get<{ users: UserSuggestion[] }>(
-    `/users/search?q=${encodeURIComponent(q)}&limit=6`
+    `/users/search?purpose=challenge&q=${encodeURIComponent(q)}&limit=6`
   );
   return data?.users ?? [];
 }
@@ -178,6 +177,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
 <Icon emoji="✓" size={12} /> {opponentSelected.displayName}
           </span>
         )}
+        {opponentSelected?.isFriend && opponentSelected.activityVisible && !opponentSelected.recentlyActive && <p role="status" className="mt-2 text-xs text-amber-600">{t('games.challenges.inactiveFriend','This friend has not been active recently and may not respond before the invitation expires.')}</p>}
         {!opponentSelected && opponentSuggestions.length > 0 && (
           <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
             {opponentSuggestions.map((u) => (
@@ -190,7 +190,7 @@ function NewChallengeForm({ games, onCreated }: { games: GameSummary[]; onCreate
                 <span className="text-lg">{u.avatarEmoji}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-neutral-900 dark:text-neutral-100">{u.displayName}</span>
-                  <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">@{u.username}</span>
+                  <span className="block truncate text-xs text-neutral-400 dark:text-neutral-500">@{u.username}{u.recentlyActive ? ` · ${t("games.challenges.recentBadge","Recent")}` : ""}</span>
                 </span>
               </button>
             ))}
@@ -359,9 +359,21 @@ function ChallengesPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'active' | 'expired' | 'archived' | 'completed'>('active');
 
   const { data: games } = useQuery({ queryKey: ['games', 'all'], queryFn: fetchGames, staleTime: 5 * 60_000 });
-  const { data: challenges, status } = useQuery({ queryKey: ['games', 'challenges'], queryFn: fetchChallenges });
+  const { data: pages, status, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['games', 'challenges', statusFilter],
+    initialPageParam: '',
+    queryFn: async ({ pageParam }) => {
+      const query = new URLSearchParams({ status: statusFilter, limit: '20' });
+      if (pageParam) query.set('cursor', pageParam);
+      const { data } = await apiClient.get<ChallengesPage>(`/games/challenges?${query}`);
+      return data;
+    },
+    getNextPageParam: (page) => page?.nextCursor ?? undefined,
+  });
+  const challenges = useMemo(() => pages?.pages.flatMap((p) => p?.challenges ?? []) ?? [], [pages]);
 
   const filtered = useMemo(() => {
     const list = challenges ?? [];
@@ -392,6 +404,9 @@ function ChallengesPage() {
         className="mb-3 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
       />
 
+      <div className="mb-4 flex gap-2" role="tablist" aria-label={t('challengeInbox.tabs', 'Challenge status')}>
+        {(['active', 'completed', 'expired', 'archived'] as const).map((tab) => <button key={tab} role="tab" aria-selected={tab === statusFilter} onClick={() => setStatusFilter(tab)} className={`rounded-full px-4 py-2 text-sm ${statusFilter === tab ? 'bg-primary-600 text-white' : 'bg-white dark:bg-neutral-900'}`}>{t(`challengeInbox.${tab}`)}</button>)}
+      </div>
       {status === 'pending' && (
         <div className="space-y-3 animate-pulse">
           {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-20 rounded-xl bg-white dark:bg-neutral-800" />)}
@@ -407,6 +422,7 @@ function ChallengesPage() {
       <div className="flex flex-col gap-3">
         {filtered.map((c) => <ChallengeCard key={c.id} c={c} me={user?.id ?? null} />)}
       </div>
+      {hasNextPage && <button disabled={isFetchingNextPage} onClick={() => void fetchNextPage()} className="mt-4 rounded-full border px-4 py-2 text-sm">{t('common.loadMore', 'Load more')}</button>}
     </div>
   );
 }

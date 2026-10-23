@@ -14,6 +14,7 @@ import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { feedItemPath } from '@/lib/feed/deeplink';
 import type { FeedContentType, FeedItem } from '@/lib/feed/types';
+import { BookmarkButton } from "@/components/bookmarks/BookmarkButton";
 import { Icon } from '@/components/ui/Icon';
 
 const CONTENT_TYPE_ICON: Record<FeedContentType, string> = {
@@ -47,12 +48,13 @@ export function FeedItemCard({ item }: { item: FeedItem }) {
   const to = feedItemPath(item.contentType, item.contentId, item.url);
 
   return (
+    <article className="space-y-2">
     <Link
       to={to as never}
-      className="flex gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800"
+      className={`${item.imageUrl ? "flex flex-col" : "flex"} gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800`}
     >
       {item.imageUrl ? (
-        <img src={item.imageUrl} alt="" className="h-16 w-16 shrink-0 rounded-lg object-cover" />
+        <img src={item.imageUrl} alt="" className="aspect-[16/9] max-h-96 w-full rounded-lg object-cover" />
       ) : (
         <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 text-2xl">
           <Icon emoji={CONTENT_TYPE_ICON[item.contentType] ?? '📄'} size={28} />
@@ -70,7 +72,7 @@ export function FeedItemCard({ item }: { item: FeedItem }) {
           )}
           <span className="ml-auto shrink-0 text-[11px] text-neutral-400 dark:text-neutral-500">{timeAgo(item.createdAt)}</span>
         </div>
-        {item.title && <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{item.title}</p>}
+        {item.title && <p className={`${item.imageUrl ? "text-lg leading-snug" : "truncate text-sm"} font-semibold text-neutral-900 dark:text-neutral-100`}>{item.title}</p>}
         {item.excerpt && <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{item.excerpt}</p>}
         {metricEntries.length > 0 && (
           <div className="mt-1.5 flex gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
@@ -83,6 +85,8 @@ export function FeedItemCard({ item }: { item: FeedItem }) {
         )}
       </div>
     </Link>
+    <div className="px-3 pb-1"><BookmarkButton contentType={item.contentType} contentId={item.contentId} title={item.title || item.excerpt || item.contentType} /></div>
+    </article>
   );
 }
 

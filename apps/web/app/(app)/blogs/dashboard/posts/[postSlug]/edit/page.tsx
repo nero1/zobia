@@ -22,15 +22,20 @@ export default function EditBlogPostPage() {
       const meRes = await fetch("/api/blogs/me", { credentials: "include" });
       const meJson = await meRes.json().catch(() => null);
       const blogs = meJson?.data?.blogs ?? [];
-      if (blogs.length === 0) { router.replace("/blogs/new"); return; }
-      const blog = blogs.length === 1 ? blogs[0] : (blogParam ? blogs.find((b: { slug: string }) => b.slug === blogParam) : undefined);
+      if (blogs.length === 0 && !blogParam) { router.replace("/blogs/new"); return; }
+      let blog = blogParam ? blogs.find((b: { slug: string }) => b.slug === blogParam) : blogs.length === 1 ? blogs[0] : undefined;
+      if (!blog && blogParam) {
+        const response = await fetch(`/api/blogs/${encodeURIComponent(blogParam)}`, { credentials: "include" });
+        const result = response.ok ? await response.json() : null;
+        blog = result?.data?.blog;
+      }
       if (!blog) { router.replace("/blogs/dashboard"); return; }
       setBlogSlug(blog.slug);
 
       const postRes = await fetch(`/api/blogs/${blog.slug}/posts/${params?.postSlug}`, { credentials: "include" });
       const postJson = await postRes.json().catch(() => null);
       const post = postJson?.data?.post;
-      if (!post) { router.replace("/blogs/dashboard"); return; }
+      if (!post || !postJson?.data?.canEdit) { router.replace("/blogs/dashboard"); return; }
 
       setInitial({
         type: post.type,
@@ -43,6 +48,7 @@ export default function EditBlogPostPage() {
         isPaywalled: post.is_paywalled,
         paywallCreditsCost: post.paywall_credits_cost,
         status: post.status,
+        ...(postJson?.data?.draft ?? {}),
       });
       setPageKey(post.page_key ?? null);
     })().catch(() => router.replace("/blogs/dashboard"));

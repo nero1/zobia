@@ -17,6 +17,7 @@
  * notification payload from routing into an arbitrary path.
  */
 export const VALID_PUSH_ROUTES: RegExp[] = [
+  /^\/t\/[a-z0-9-]+(?:\/[1-9][0-9]*)?$/i,
   /^\/rooms\/[a-f0-9-]+$/i,
   /^\/rooms$/i,
   /^\/messages\/[a-f0-9-]+$/i,
@@ -102,6 +103,7 @@ export function isAllowedRoute(path: string): boolean {
  */
 export function resolveNotificationRoute(action: string | null | undefined): string | null {
   if (!action) return null;
-  const route = ACTION_ALIASES[action] ?? action;
+  const canonical = /^\/b\/[^/]+\/[^/]+$/.test(action) ? action.replace(/^\/b\//, '/blogs/') : action;
+  const route = ACTION_ALIASES[canonical] ?? canonical;
   return isAllowedRoute(route) ? route : null;
 }

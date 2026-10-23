@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "sync": "cap sync android",
     "open": "cap open android",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -b --pretty false",
     "test": "vitest run",
     "lint": "eslint ."
   },

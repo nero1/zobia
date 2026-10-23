@@ -26,7 +26,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const { searchParams } = new URL(req.url);
     const cursor = searchParams.get("cursor") ?? undefined;
     const limit = Math.min(Math.max(1, parseInt(searchParams.get("limit") ?? "20")), 100);
-    const page = await listUserChallenges(auth.user.sub, cursor, limit);
+    const filter = z.enum(["active", "expired", "archived", "completed"]).optional().parse(searchParams.get("status") ?? undefined);
+    const page = await listUserChallenges(auth.user.sub, cursor, limit, filter === "archived", filter);
     return NextResponse.json({ success: true, data: page, error: null });
   } catch (err) {
     return handleApiError(err);

@@ -15,19 +15,7 @@
  *
  * Wager escrow and all payouts/refunds are idempotent via reference_id.
  *
- * NOTE ON ATOMICITY: lib/economy/coins.ts (creditCoins/debitCoins) and
- * lib/games/rewards.ts (grantGamingReward) are out of scope for this Drizzle
- * migration and still take a raw `TransactionClient`, which a Drizzle
- * transaction handle is not. Money movement calls below therefore run as
- * their own standalone transactions (via coins.ts's internal db.transaction)
- * rather than being nested inside this file's Drizzle transaction that locks
- * and updates game_challenges/game_challenge_rounds. Each function still
- * uses a Drizzle transaction with `.for('update')` to serialize concurrent
- * state transitions on the challenge row, and compensating refunds are
- * issued if a debit succeeds but the subsequent state transition fails —
- * but the escrow debit(s) and the challenge-row state change are no longer
- * guaranteed atomic as a single DB transaction the way they were before.
- * See migration report for detail.
+ * Acceptance debits both participants and opens escrow in one Drizzle transaction.
  */
 
 import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
@@ -39,6 +27,8 @@ import { getGamesConfig } from "@/lib/games/config";
 import { getGameById, type GameConfigRow } from "@/lib/games/repo";
 import { grantGamingReward } from "@/lib/games/rewards";
 import { computeWagerPayout, requiredWins } from "@/lib/games/wager";
+import { getManifestValue } from "@/lib/manifest";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { logger } from "@/lib/logger";
 
 interface ChallengeRow {
@@ -119,6 +109,14 @@ export async function createChallenge(params: {
     .limit(1);
   if (!opp) throw notFound("Opponent not found.");
 
+  const recentDaysRaw = Number(await getManifestValue("game_challenge_recent_days") ?? 7);
+  const recentDays = Number.isFinite(recentDaysRaw) ? Math.max(1, Math.min(365,recentDaysRaw)) : 7;
+  const eligible = await db.execute(sql`SELECT 1 FROM users target,users viewer WHERE target.id=${opponentId} AND viewer.id=${challengerId} AND (
+    EXISTS(SELECT 1 FROM friendships f WHERE f.status='accepted' AND ((f.requester_id=viewer.id AND f.addressee_id=target.id) OR (f.addressee_id=viewer.id AND f.requester_id=target.id)))
+    OR (viewer.show_online_status=TRUE AND target.show_online_status=TRUE AND target.last_active_at>NOW()-(${recentDays}*INTERVAL '1 day'))
+  )`);
+  if(!eligible.rows.length) throw forbidden('Choose a friend or an available recent player.','CHALLENGE_OPPONENT_UNAVAILABLE');
+
   // Affordability is re-checked atomically at accept time; this is a fast UX guard.
   if (wagerCredits > 0 && !(await canAfford(challengerId, wagerCredits))) {
     throw badRequest("You do not have enough credits for this wager.", "INSUFFICIENT_BALANCE");
@@ -134,18 +132,21 @@ export async function createChallenge(params: {
     throw badRequest("Invalid challenge expiry configuration.");
   }
 
-  const [{ id: challengeId }] = await db
-    .insert(schema.gameChallenges)
-    .values({
-      gameId,
-      challengerId,
-      opponentId,
-      status: "pending",
-      rounds,
-      wagerCredits,
+  const dailyLimitRaw = Number(await getManifestValue("game_challenge_daily_limit") ?? 10);
+  const dailyLimit = Number.isFinite(dailyLimitRaw) ? Math.max(0, Math.floor(dailyLimitRaw)) : 10;
+  const challengeId = await db.transaction(async (tx) => {
+    // Serialize creation for a single sender across tabs/workers; no Redis call.
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, challengerId)).for("update");
+    const [usage] = await tx.select({ count: sql<number>`count(*)::int` }).from(schema.gameChallenges)
+      .where(and(eq(schema.gameChallenges.challengerId, challengerId), sql`${schema.gameChallenges.createdAt} >= date_trunc('day', NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`));
+    if (usage.count >= dailyLimit) throw forbidden("You have reached your daily challenge limit.", "CHALLENGE_DAILY_LIMIT");
+    const [created] = await tx.insert(schema.gameChallenges).values({
+      gameId, challengerId, opponentId, status: "pending", rounds, wagerCredits,
       expiresAt: sql`NOW() + (${expiryHours} * INTERVAL '1 hour')`,
-    })
-    .returning({ id: schema.gameChallenges.id });
+    }).returning({ id: schema.gameChallenges.id });
+    return created.id;
+  });
+  void triggerActivityQuestProgress(challengerId, "challenge_send", db).catch((err) => logger.warn({ err }, "Challenge quest progress failed"));
 
   await notify(opponentId, "game_challenge_received", {
     challengeId,
@@ -163,69 +164,28 @@ export async function createChallenge(params: {
 
 export async function acceptChallenge(challengeId: string, userId: string): Promise<void> {
   const orm = await getDb();
-
-  // Validate + lock first (no money movement yet), so an invalid accept
-  // attempt never charges anyone.
-  const c = await orm.transaction(async (tx) => {
+  await orm.transaction(async (tx) => {
     const row = await lockChallenge(tx, challengeId);
     if (row.opponent_id !== userId) throw forbidden("Only the challenged player can accept.");
-    if (row.status !== "pending") throw conflict("This challenge can no longer be accepted.");
-    return row;
-  });
-
-  let escrow = 0;
-  let challengerDebited = false;
-  if (c.wager_credits > 0) {
-    const game = await getGameById(c.game_id);
-    const stakeDescription = game ? `Challenge wager stake: ${game.name}` : "Challenge wager stake";
-    try {
-      await debitCoins(c.challenger_id, c.wager_credits, "game_wager",
-        `chal:${c.id}:stake:${c.challenger_id}`, stakeDescription, { challengeId: c.id });
-      challengerDebited = true;
-      await debitCoins(c.opponent_id, c.wager_credits, "game_wager",
-        `chal:${c.id}:stake:${c.opponent_id}`, stakeDescription, { challengeId: c.id });
-    } catch (err) {
-      // Compensate: refund the challenger's stake if only they were debited.
-      if (challengerDebited) {
-        await creditCoins(c.challenger_id, c.wager_credits, "game_refund",
-          `chal:${c.id}:stake:${c.challenger_id}:comp`, "Challenge wager stake refund (accept failed)", { challengeId: c.id })
-          .catch((refundErr) => logger.error({ refundErr, challengeId: c.id }, "[games] Failed to compensate challenger stake"));
+    if (row.status !== "pending" || new Date(row.expires_at).getTime() <= Date.now()) {
+      throw conflict("This challenge has expired or can no longer be accepted.");
+    }
+    // Ledger debits and escrow transition share the row lock and transaction.
+    // Deterministic account ordering prevents reciprocal challenges deadlocking.
+    if (row.wager_credits > 0) {
+      for (const participant of [row.challenger_id, row.opponent_id].sort()) {
+        await debitCoins(participant, row.wager_credits, "game_wager",
+          `chal:${row.id}:stake:${participant}`, "Challenge wager stake", { challengeId: row.id }, tx);
       }
-      throw err;
     }
-    escrow = c.wager_credits * 2;
-  }
-
-  try {
-    await orm.transaction(async (tx) => {
-      const row = await lockChallenge(tx, challengeId);
-      if (row.status !== "pending") throw conflict("This challenge can no longer be accepted.");
-
-      await tx
-        .update(schema.gameChallenges)
-        .set({ status: "active", escrowCredits: escrow })
-        .where(eq(schema.gameChallenges.id, row.id));
-      // Create round 1.
-      await tx
-        .insert(schema.gameChallengeRounds)
-        .values({ challengeId: row.id, roundNo: 1, status: "pending" })
-        .onConflictDoNothing({
-          target: [schema.gameChallengeRounds.challengeId, schema.gameChallengeRounds.roundNo],
-        });
-    });
-  } catch (err) {
-    // Compensate: refund both stakes since the state transition failed.
-    if (c.wager_credits > 0) {
-      await creditCoins(c.challenger_id, c.wager_credits, "game_refund",
-        `chal:${c.id}:stake:${c.challenger_id}:comp`, "Challenge wager stake refund (accept failed)", { challengeId: c.id })
-        .catch((refundErr) => logger.error({ refundErr, challengeId: c.id }, "[games] Failed to compensate challenger stake"));
-      await creditCoins(c.opponent_id, c.wager_credits, "game_refund",
-        `chal:${c.id}:stake:${c.opponent_id}:comp`, "Challenge wager stake refund (accept failed)", { challengeId: c.id })
-        .catch((refundErr) => logger.error({ refundErr, challengeId: c.id }, "[games] Failed to compensate opponent stake"));
-    }
-    throw err;
-  }
-
+    await tx.update(schema.gameChallenges)
+      .set({ status: "active", escrowCredits: row.wager_credits * 2 })
+      .where(eq(schema.gameChallenges.id, row.id));
+    await tx.insert(schema.gameChallengeRounds)
+      .values({ challengeId: row.id, roundNo: 1, status: "pending" })
+      .onConflictDoNothing({ target: [schema.gameChallengeRounds.challengeId, schema.gameChallengeRounds.roundNo] });
+  });
+  await triggerActivityQuestProgress(userId, "challenge_accept", orm).catch((err) => logger.warn({ err }, "Challenge quest progress failed"));
   await notifyChallengeParticipants(challengeId, "game_challenge_accepted");
 }
 
@@ -256,16 +216,13 @@ export async function cancelChallenge(challengeId: string, userId: string): Prom
     if (row.status !== "pending" && row.status !== "active") {
       throw conflict("This challenge can no longer be cancelled.");
     }
+    if (row.status === "active" && row.escrow_credits > 0) escrowResult = await cancelEscrow(row, tx);
     await tx.update(schema.gameChallenges).set({ status: "cancelled" }).where(eq(schema.gameChallenges.id, row.id));
     return row;
   });
   challengerIdForNotify = c.challenger_id;
   opponentIdForNotify = c.opponent_id;
 
-  if (c.status === "active" && c.escrow_credits > 0) {
-    // BUG-CHALLENGE-01: capture refund amounts so they can be included in notifications
-    escrowResult = await cancelEscrow(c);
-  }
 
   // Include forfeiture breakdown in cancellation notification metadata (BUG-CHALLENGE-01)
   const cancelPayload = {
@@ -293,7 +250,7 @@ export async function deletePendingChallenge(challengeId: string, userId: string
     if (c.status !== "pending") {
       throw conflict("Only a challenge the opponent hasn't responded to yet can be deleted.");
     }
-    await tx.delete(schema.gameChallenges).where(eq(schema.gameChallenges.id, c.id));
+    await tx.update(schema.gameChallenges).set({ status: "cancelled", challengerArchivedAt: new Date() }).where(eq(schema.gameChallenges.id, c.id));
   });
 }
 
@@ -312,7 +269,7 @@ export async function archiveChallenge(challengeId: string, userId: string): Pro
     if (c.status !== "completed") {
       throw conflict("Only a completed challenge can be archived.");
     }
-    await tx.update(schema.gameChallenges).set({ archivedAt: new Date() }).where(eq(schema.gameChallenges.id, c.id));
+    await tx.update(schema.gameChallenges).set(c.challenger_id === userId ? { challengerArchivedAt: new Date() } : { opponentArchivedAt: new Date() }).where(eq(schema.gameChallenges.id, c.id));
   });
 }
 
@@ -466,27 +423,33 @@ async function maybeSettleSeries(
 }
 
 async function settleSeries(
-  c: ChallengeRow,
+  pending: ChallengeRow,
   winnerId: string | null
 ): Promise<void> {
+  const game = await getGameById(pending.game_id);
+  const cfg = await getGamesConfig();
+  const orm = await getDb();
+  const settled = await orm.transaction(async (tx) => {
+  const c = await lockChallenge(tx, pending.id);
+  if (c.status !== "active") return false;
+  // Serialize wallet locks in the same order as acceptance/cancellation.
+  for (const participant of [c.challenger_id, c.opponent_id].sort()) await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, participant)).for("update");
   let prizeCredits = 0;
   let prizeXp = 0;
   let prizeStars = 0;
 
-  const game = await getGameById(c.game_id);
 
   if (winnerId && c.escrow_credits > 0) {
-    const cfg = await getGamesConfig();
     const payout = computeWagerPayout(c.escrow_credits, cfg.wagerRakePct);
     if (payout > 0) {
       const payoutDescription = game ? `Challenge wager payout: ${game.name}` : "Challenge wager payout";
       await creditCoins(winnerId, payout, "game_payout", `chal:${c.id}:payout`,
-        payoutDescription, { challengeId: c.id });
+        payoutDescription, { challengeId: c.id }, tx);
       prizeCredits += payout;
     }
   } else if (!winnerId && c.escrow_credits > 0) {
     // Draw: refund both stakes.
-    await refundEscrow(c);
+    await refundEscrow(c, tx);
   }
 
   // Award the game's per-win reward bundle to the series winner as the prize.
@@ -500,7 +463,7 @@ async function settleSeries(
       },
       "game_challenge_win",
       `chal:${c.id}:prize`,
-      undefined,
+      tx,
       game.name
     );
     prizeCredits += bundle.credits;
@@ -508,11 +471,11 @@ async function settleSeries(
     prizeStars += bundle.stars;
   }
 
-  const orm = await getDb();
-  await orm
+  await tx
     .update(schema.gameChallenges)
     .set({
       status: "completed",
+      escrowCredits: 0,
       winnerId,
       completedAt: new Date(),
       prizeCredits,
@@ -521,9 +484,14 @@ async function settleSeries(
     })
     .where(eq(schema.gameChallenges.id, c.id));
 
+  return true;
+  });
+  if (!settled) return;
+  if (winnerId) await triggerActivityQuestProgress(winnerId, "challenge_win", orm);
+
   // Notify both participants outside the lock (best-effort).
-  notify(c.challenger_id, "game_challenge_completed", { challengeId: c.id, winnerId }).catch(() => {});
-  notify(c.opponent_id, "game_challenge_completed", { challengeId: c.id, winnerId }).catch(() => {});
+  notify(pending.challenger_id, "game_challenge_completed", { challengeId: pending.id, winnerId }).catch(() => {});
+  notify(pending.opponent_id, "game_challenge_completed", { challengeId: pending.id, winnerId }).catch(() => {});
 }
 
 // ─── Expiry sweep (cron) ─────────────────────────────────────────────────────
@@ -534,7 +502,7 @@ export async function expireChallenges(): Promise<number> {
   const rows = await orm
     .select({ id: schema.gameChallenges.id })
     .from(schema.gameChallenges)
-    .where(and(inArray(schema.gameChallenges.status, ["pending", "active"]), lt(schema.gameChallenges.expiresAt, sql`NOW()`)))
+    .where(and(or(inArray(schema.gameChallenges.status, ["pending", "active"]), and(eq(schema.gameChallenges.status, "expired"), sql`${schema.gameChallenges.escrowCredits} > 0`)), lt(schema.gameChallenges.expiresAt, sql`NOW()`)))
     .limit(200);
 
   let count = 0;
@@ -542,12 +510,12 @@ export async function expireChallenges(): Promise<number> {
     try {
       const c = await orm.transaction(async (tx) => {
         const row = await lockChallenge(tx, id);
-        if (row.status !== "pending" && row.status !== "active") return null;
+        if (row.status !== "pending" && row.status !== "active" && !(row.status === "expired" && row.escrow_credits > 0)) return null;
+        if (row.escrow_credits > 0) await refundEscrow(row, tx);
         await tx.update(schema.gameChallenges).set({ status: "expired" }).where(eq(schema.gameChallenges.id, row.id));
         return row;
       });
       if (!c) continue;
-      if (c.status === "active" && c.escrow_credits > 0) await refundEscrow(c);
       count++;
     } catch (err) {
       logger.warn({ challengeId: id }, `[games] expireChallenges failed: ${err}`);
@@ -602,13 +570,14 @@ async function getActiveRoundForUser(
   return row ?? null;
 }
 
-async function refundEscrow(c: ChallengeRow): Promise<void> {
+async function refundEscrow(c: ChallengeRow, tx?: DbOrTx): Promise<void> {
   if (c.wager_credits <= 0) return;
+  if (tx) for (const id of [c.challenger_id, c.opponent_id].sort()) await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, id)).for("update");
   await creditCoins(c.challenger_id, c.wager_credits, "game_refund",
-    `chal:${c.id}:refund:${c.challenger_id}`, "Challenge wager refund", { challengeId: c.id });
+    `chal:${c.id}:refund:${c.challenger_id}`, "Challenge wager refund", { challengeId: c.id }, tx);
   await creditCoins(c.opponent_id, c.wager_credits, "game_refund",
-    `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund", { challengeId: c.id });
-  const orm = await getDb();
+    `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund", { challengeId: c.id }, tx);
+  const orm = tx ?? await getDb();
   await orm.update(schema.gameChallenges).set({ escrowCredits: 0 }).where(eq(schema.gameChallenges.id, c.id));
 }
 
@@ -625,10 +594,11 @@ interface CancelEscrowResult {
   challForfeitCoins: number;
 }
 
-async function cancelEscrow(c: ChallengeRow): Promise<CancelEscrowResult> {
+async function cancelEscrow(c: ChallengeRow, tx?: DbOrTx): Promise<CancelEscrowResult> {
   if (c.wager_credits <= 0) return { challRefund: 0, oppRefund: 0, challForfeitCoins: 0 };
 
-  const orm = await getDb();
+  const orm = tx ?? await getDb();
+  if (tx) for (const id of [c.challenger_id, c.opponent_id].sort()) await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, id)).for("update");
   const [tally] = await orm
     .select({
       roundsPlayed: sql<number>`COUNT(*) FILTER (WHERE ${schema.gameChallengeRounds.status} = 'complete')::int`,
@@ -643,7 +613,7 @@ async function cancelEscrow(c: ChallengeRow): Promise<CancelEscrowResult> {
 
   // No rounds played or all draws — full refund, no penalty
   if (roundsPlayed === 0 || decisiveRounds === 0) {
-    await refundEscrow(c);
+    await refundEscrow(c, tx);
     return { challRefund: c.wager_credits, oppRefund: c.wager_credits, challForfeitCoins: 0 };
   }
 
@@ -655,11 +625,11 @@ async function cancelEscrow(c: ChallengeRow): Promise<CancelEscrowResult> {
 
   if (challRefund > 0) {
     await creditCoins(c.challenger_id, challRefund, "game_refund",
-      `chal:${c.id}:refund:${c.challenger_id}`, "Challenge wager partial refund (cancelled)", { challengeId: c.id });
+      `chal:${c.id}:refund:${c.challenger_id}`, "Challenge wager partial refund (cancelled)", { challengeId: c.id }, tx);
   }
   if (oppRefund > 0) {
     await creditCoins(c.opponent_id, oppRefund, "game_refund",
-      `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund + cancellation penalty", { challengeId: c.id });
+      `chal:${c.id}:refund:${c.opponent_id}`, "Challenge wager refund + cancellation penalty", { challengeId: c.id }, tx);
   }
   await orm.update(schema.gameChallenges).set({ escrowCredits: 0 }).where(eq(schema.gameChallenges.id, c.id));
 
@@ -740,16 +710,21 @@ export async function listUserChallenges(
   userId: string,
   cursor?: string | null,
   limit = 20,
-  includeArchived = false
+  includeArchived = false,
+  statusFilter?: "active" | "expired" | "archived" | "completed"
 ): Promise<ChallengesPage> {
-  const pageSize = Math.min(Math.max(1, limit), 100);
+  const pageSize = Math.min(Math.max(1, Number.isFinite(limit) ? limit : 20), 100);
   const db = await getDb();
 
   const conditions = [
     or(eq(schema.gameChallenges.challengerId, userId), eq(schema.gameChallenges.opponentId, userId)),
   ];
-  if (!includeArchived) {
-    conditions.push(sql`${schema.gameChallenges.archivedAt} IS NULL`);
+  if (statusFilter === "archived") conditions.push(sql`(CASE WHEN ${schema.gameChallenges.challengerId} = ${userId} THEN ${schema.gameChallenges.challengerArchivedAt} ELSE ${schema.gameChallenges.opponentArchivedAt} END) IS NOT NULL`);
+  if (statusFilter === "completed") conditions.push(eq(schema.gameChallenges.status, "completed"));
+  if (statusFilter === "active") conditions.push(sql`${schema.gameChallenges.status} IN ('pending', 'active') AND ${schema.gameChallenges.expiresAt} > NOW()`);
+  if (statusFilter === "expired") conditions.push(sql`(${schema.gameChallenges.status} = 'expired' OR (${schema.gameChallenges.status} IN ('pending', 'active') AND ${schema.gameChallenges.expiresAt} <= NOW()))`);
+  if (!includeArchived && statusFilter !== "archived") {
+    conditions.push(sql`(CASE WHEN ${schema.gameChallenges.challengerId} = ${userId} THEN ${schema.gameChallenges.challengerArchivedAt} ELSE ${schema.gameChallenges.opponentArchivedAt} END) IS NULL`);
   }
   if (cursor) {
     const [cursorTs, cursorId] = cursor.split("|");
@@ -785,9 +760,10 @@ export async function listUserChallenges(
       prizeXp: schema.gameChallenges.prizeXp,
       prizeStars: schema.gameChallenges.prizeStars,
       createdAt: schema.gameChallenges.createdAt,
+      cursorTime: sql<string>`to_char(${schema.gameChallenges.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
       expiresAt: schema.gameChallenges.expiresAt,
       completedAt: schema.gameChallenges.completedAt,
-      archivedAt: schema.gameChallenges.archivedAt,
+      archivedAt: sql<Date | string | null>`CASE WHEN ${schema.gameChallenges.challengerId} = ${userId} THEN ${schema.gameChallenges.challengerArchivedAt} ELSE ${schema.gameChallenges.opponentArchivedAt} END`,
       challengerUsername: cu.username,
       opponentUsername: ou.username,
     })
@@ -801,9 +777,9 @@ export async function listUserChallenges(
 
   const hasMore = rows.length > pageSize;
   const page = rows.slice(0, pageSize).map(mapChallengeRow);
-  const lastItem = page[page.length - 1];
+  const lastItem = rows.slice(0, pageSize).at(-1);
   const nextCursor = hasMore && lastItem
-    ? `${lastItem.createdAt}|${lastItem.id}`
+    ? `${lastItem.cursorTime}|${lastItem.id}`
     : null;
 
   return { challenges: page, nextCursor, hasMore };
@@ -834,7 +810,7 @@ export async function getChallengeDetail(
       createdAt: schema.gameChallenges.createdAt,
       expiresAt: schema.gameChallenges.expiresAt,
       completedAt: schema.gameChallenges.completedAt,
-      archivedAt: schema.gameChallenges.archivedAt,
+      archivedAt: sql<Date | string | null>`CASE WHEN ${schema.gameChallenges.challengerId} = ${userId} THEN ${schema.gameChallenges.challengerArchivedAt} ELSE ${schema.gameChallenges.opponentArchivedAt} END`,
       challengerUsername: cu.username,
       opponentUsername: ou.username,
     })
@@ -892,7 +868,7 @@ function mapChallengeRow(c: {
     challengerUsername: c.challengerUsername,
     opponentId: c.opponentId,
     opponentUsername: c.opponentUsername,
-    status: c.status,
+    status: ["pending", "active"].includes(c.status) && new Date(c.expiresAt).getTime() <= Date.now() ? "expired" : c.status,
     rounds: c.rounds,
     wagerCredits: c.wagerCredits,
     winnerId: c.winnerId ?? null,
@@ -908,3 +884,14 @@ function mapChallengeRow(c: {
 
 // re-export for callers that import the GameConfigRow type alongside challenges
 export type { GameConfigRow };
+
+/** Only terminal challenges with no escrow may be permanently pruned. */
+export async function pruneChallenges(): Promise<number> {
+  const orm = await getDb();
+  const removed = await orm.delete(schema.gameChallenges).where(and(
+    sql`${schema.gameChallenges.status} IN ('completed', 'declined', 'cancelled', 'expired')`,
+    eq(schema.gameChallenges.escrowCredits, 0),
+    sql`COALESCE(${schema.gameChallenges.archivedAt}, ${schema.gameChallenges.completedAt}, ${schema.gameChallenges.expiresAt}) < NOW() - INTERVAL '90 days'`
+  )).returning({ id: schema.gameChallenges.id });
+  return removed.length;
+}

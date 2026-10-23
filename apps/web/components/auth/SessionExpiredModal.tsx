@@ -44,7 +44,11 @@ export function SessionExpiredModal() {
     // already shows its own expired banner via the redirect reason).
     const onAuthRoute = pathname?.startsWith("/auth");
     const unsubscribe = onSessionExpired(() => {
-      if (!onAuthRoute) setOpen(true);
+      if (!onAuthRoute) {
+        setOpen(true);
+        const login = pathname?.startsWith("/gate44") ? "/gate44/login" : "/auth/login";
+        void clearAuthCookies().finally(() => window.location.replace(`${login}?reason=session_expired&redirect=${encodeURIComponent(pathname || "/home")}`));
+      }
     });
     return unsubscribe;
   }, [pathname]);
@@ -71,7 +75,7 @@ export function SessionExpiredModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-white p-4 dark:bg-neutral-950"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="session-expired-title"

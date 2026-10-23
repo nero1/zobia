@@ -4080,6 +4080,8 @@ export const gameChallenges = pgTable("game_challenges", {
   // participant may archive their own completed history; the wager/prize
   // ledger rows are untouched). Added in migration 0036.
   archivedAt: timestamp("archived_at", { withTimezone: true }),
+  challengerArchivedAt: timestamp("challenger_archived_at", { withTimezone: true }),
+  opponentArchivedAt: timestamp("opponent_archived_at", { withTimezone: true }),
 });
 
 export const gameChallengeRounds = pgTable(
@@ -5095,6 +5097,8 @@ export const moderationReports = pgTable("moderation_reports", {
   // 0001_consolidated_schema.sql
   reportedBbThreadId: uuid("reported_bb_thread_id"),
   reportedBbPostId: uuid("reported_bb_post_id"),
+  reportedTaleId: uuid("reported_tale_id"),
+  reportedTaleChapterId: uuid("reported_tale_chapter_id"),
   reportType: text("report_type").notNull().default("other"),
   description: text("description"),
   status: text("status").notNull().default("pending"),
@@ -5456,6 +5460,7 @@ export const forumModerationLog = pgTable("forum_moderation_log", {
 // unique; businessAccountId/slot* below track scope and how the slot backing
 // this blog was acquired.
 export const blogs = pgTable("blogs", {
+  extraPostSlots: integer("extra_post_slots").notNull().default(0),
   id: uuidPk(),
   ownerId: uuid("owner_id")
     .notNull()
@@ -5517,6 +5522,7 @@ export const blogPosts = pgTable("blog_posts", {
   slug: text("slug").notNull(),
   excerpt: text("excerpt"),
   bodyMarkdown: text("body_markdown").notNull(),
+  draftContent: jsonb("draft_content"),
   bodyHtml: text("body_html").notNull(),
   featuredImageUrl: text("featured_image_url"),
   status: text("status").notNull().default("draft"),
@@ -5619,6 +5625,7 @@ export const blogPostTreasuries = pgTable(
   "blog_post_treasuries",
   {
     id: uuidPk(),
+    generation: integer("generation").notNull().default(0),
     postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
     ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     fundedAmount: integer("funded_amount").notNull().default(0),
@@ -5638,6 +5645,7 @@ export const blogPostTreasuryClaims = pgTable(
   "blog_post_treasury_claims",
   {
     id: uuidPk(),
+    generation: integer("generation").notNull().default(0),
     treasuryId: uuid("treasury_id").notNull().references(() => blogPostTreasuries.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     claimType: text("claim_type").notNull(),
@@ -5645,7 +5653,7 @@ export const blogPostTreasuryClaims = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("blog_post_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId),
+    unique: uniqueIndex("blog_post_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId, t.generation),
   })
 );
 
@@ -5777,6 +5785,8 @@ export const contentTreasuries = pgTable(
   "content_treasuries",
   {
     id: uuidPk(),
+    rewardAction:text("reward_action").notNull().default("credits"), customInstructions:text("custom_instructions"), title:text("title"),
+    generation: integer("generation").notNull().default(0),
     contentType: text("content_type").notNull(),
     contentId: uuid("content_id").notNull(),
     ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -5797,6 +5807,7 @@ export const contentTreasuryClaims = pgTable(
   "content_treasury_claims",
   {
     id: uuidPk(),
+    generation: integer("generation").notNull().default(0),
     treasuryId: uuid("treasury_id").notNull().references(() => contentTreasuries.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     claimType: text("claim_type").notNull(),
@@ -5804,7 +5815,7 @@ export const contentTreasuryClaims = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    unique: uniqueIndex("content_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId),
+    unique: uniqueIndex("content_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId, t.generation),
   })
 );
 
@@ -6911,6 +6922,7 @@ export const helpDocs = pgTable(
     title: text("title").notNull(),
     bodyMarkdown: text("body_markdown").notNull(),
     bodyHtml: text("body_html").notNull(),
+    searchVector: tsvector("search_vector"),
     difficulty: text("difficulty").notNull().default("first_time"),
     sortOrder: integer("sort_order").notNull().default(0),
     seoTitle: text("seo_title"),
@@ -7144,7 +7156,67 @@ export type Hashtag = typeof hashtags.$inferSelect;
 export type Portal = typeof portals.$inferSelect;
 export type NewPortal = typeof portals.$inferInsert;
 
+export const helpAiRequests = pgTable("help_ai_requests", {
+  id: uuidPk(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  requestId: uuid("request_id").notNull(),
+  question: text("question").notNull(),
+  docId: uuid("doc_id").references(() => helpDocs.id, { onDelete: "set null" }),
+  weekStart: timestamp("week_start", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("pending"),
+  answer: text("answer"),
+  costCredits: integer("cost_credits").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ requestUnique: uniqueIndex("help_ai_requests_user_id_request_id_key").on(t.userId, t.requestId), usageIndex: index("help_ai_requests_usage_idx").on(t.userId, t.weekStart, t.status) }));
+
+export const bookmarkEntitlements = pgTable("bookmark_entitlements", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  includedLimit: integer("included_limit").notNull().default(0), purchasedSlots: integer("purchased_slots").notNull().default(0),
+});
+export const bookmarkFolders = pgTable("bookmark_folders", {
+  id: uuidPk(), userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }), name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const bookmarks = pgTable("bookmarks", {
+  id: uuidPk(), userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  folderId: uuid("folder_id").references(() => bookmarkFolders.id, { onDelete: "set null" }),
+  contentType: text("content_type").notNull(), contentId: uuid("content_id").notNull(), title: text("title").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({ contentUnique: uniqueIndex("bookmarks_user_id_content_type_content_id_key").on(t.userId,t.contentType,t.contentId) }));
+
+export const blogPostBundlePurchases = pgTable("blog_post_bundle_purchases", {
+  id: uuid("id").primaryKey(), userId: uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),
+  blogId: uuid("blog_id").notNull().references(()=>blogs.id,{onDelete:"cascade"}),
+  slots: integer("slots").notNull(), currency: text("currency").notNull(), cost: integer("cost").notNull(),
+  createdAt: timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});
+
+export const tales = pgTable("tales", {
+ id:uuidPk(),authorId:uuid("author_id").notNull().references(()=>users.id,{onDelete:"cascade"}),slug:text("slug").notNull().unique(),title:text("title").notNull(),synopsis:text("synopsis").notNull().default(""),coverUrl:text("cover_url"),
+ status:text("status").notNull().default("draft"),moderation:text("moderation").notNull().default("pending"),moderationReason:text("moderation_reason"),version:integer("version").notNull().default(1),commentsEnabled:boolean("comments_enabled").notNull().default(true),defaultPrice:integer("default_price").notNull().default(0),notifySubscribers:boolean("notify_subscribers").notNull().default(false),votes:integer("votes").notNull().default(0),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),publishedAt:timestamp("published_at",{withTimezone:true}),
+});
+export const taleChapters = pgTable("tale_chapters",{
+ id:uuidPk(),taleId:uuid("tale_id").notNull().references(()=>tales.id,{onDelete:"cascade"}),ordinal:integer("ordinal").notNull(),title:text("title").notNull(),body:text("body").notNull(),price:integer("price"),status:text("status").notNull().default("draft"),publishAt:timestamp("publish_at",{withTimezone:true}),moderation:text("moderation").notNull().default("pending"),moderationReason:text("moderation_reason"),version:integer("version").notNull().default(1),notified:boolean("notified").notNull().default(false),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>({sequence:uniqueIndex("tale_chapters_tale_id_ordinal_key").on(t.taleId,t.ordinal)}));
+export const taleUnlocks = pgTable("tale_unlocks",{userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),chapterId:uuid("chapter_id").notNull().references(()=>taleChapters.id,{onDelete:"cascade"}),cost:integer("cost").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()},t=>({key:primaryKey({columns:[t.userId,t.chapterId]})}));
+export const taleAuthorSubscriptions = pgTable("tale_author_subscriptions",{userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),authorId:uuid("author_id").notNull().references(()=>users.id,{onDelete:"cascade"}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()},t=>({key:primaryKey({columns:[t.userId,t.authorId]})}));
+export const taleVotes = pgTable("tale_votes",{userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),taleId:uuid("tale_id").notNull().references(()=>tales.id,{onDelete:"cascade"})},t=>({key:primaryKey({columns:[t.userId,t.taleId]})}));
+export const taleComments = pgTable("tale_comments",{id:uuidPk(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),taleId:uuid("tale_id").notNull().references(()=>tales.id,{onDelete:"cascade"}),chapterId:uuid("chapter_id").references(()=>taleChapters.id,{onDelete:"cascade"}),body:text("body").notNull(),hidden:boolean("hidden").notNull().default(false),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const taleAccountRestrictions = pgTable("tale_account_restrictions",{userId:uuid("user_id").primaryKey().references(()=>users.id,{onDelete:"cascade"}),state:text("state").notNull(),reason:text("reason").notNull(),expiresAt:timestamp("expires_at",{withTimezone:true}),version:integer("version").notNull().default(1),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow()});
+export const taleAppeals = pgTable("tale_appeals",{id:uuidPk(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),targetVersion:integer("target_version").notNull(),reason:text("reason").notNull(),status:text("status").notNull().default("pending"),decisionReason:text("decision_reason"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+
+export const taleModerationLog=pgTable("tale_moderation_log",{id:uuidPk(),staffId:uuid("staff_id").notNull().references(()=>users.id),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),decision:text("decision").notNull(),reason:text("reason").notNull(),version:integer("version").notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const automationAccounts=pgTable("automation_accounts",{userId:uuid("user_id").primaryKey().references(()=>users.id,{onDelete:"cascade"}),enabled:boolean("enabled").notNull().default(true),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const automationJobs=pgTable("automation_jobs",{id:uuidPk(),accountId:uuid("account_id").notNull().references(()=>automationAccounts.userId),name:text("name").notNull(),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),instructions:text("instructions").notNull().default(""),providers:jsonb("providers").notNull().default(sql`'[]'::jsonb`),intervalHours:integer("interval_hours").notNull().default(24),publicationMode:text("publication_mode").notNull().default("review"),enabled:boolean("enabled").notNull().default(false),nextRunAt:timestamp("next_run_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),leaseUntil:timestamp("lease_until",{withTimezone:true}),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const automationGenerations=pgTable("automation_generations",{id:uuidPk(),jobId:uuid("job_id").references(()=>automationJobs.id,{onDelete:"set null"}),accountId:uuid("account_id").notNull().references(()=>users.id,{onDelete:"cascade"}),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),title:text("title").notNull(),body:text("body").notNull(),normalized:text("normalized").notNull(),fingerprint:text("fingerprint").notNull().unique(),status:text("status").notNull().default("review"),reviewedBy:uuid("reviewed_by").references(()=>users.id,{onDelete:"set null"}),reviewedAt:timestamp("reviewed_at",{withTimezone:true}),reviewReason:text("review_reason").notNull(),provider:text("provider").notNull(),publishedContentId:uuid("published_content_id"),publishedUrl:text("published_url"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),publishedAt:timestamp("published_at",{withTimezone:true})});
+
 export const schema = {
+ automationAccounts,automationJobs,automationGenerations,
+ taleModerationLog,
+ tales, taleChapters, taleUnlocks, taleAuthorSubscriptions, taleVotes, taleComments, taleAccountRestrictions, taleAppeals,
+  blogPostBundlePurchases,
+  bookmarkEntitlements, bookmarkFolders, bookmarks,
+  helpAiRequests,
   // Config
   xManifest,
   appSettings,

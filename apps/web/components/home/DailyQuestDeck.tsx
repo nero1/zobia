@@ -10,6 +10,7 @@
  * GET /api/users/me, exactly as before.
  */
 
+import Link from "@/components/ui/Link";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFloatingNotification } from "@/hooks/useFloatingNotification";
@@ -24,9 +25,11 @@ interface DailyQuest {
   progress: number;
   goal: number;
   completed: boolean;
+  actionUrl: string;
 }
 
 interface DailyQuestApiRow {
+  actionUrl?: unknown;
   id?: unknown;
   title?: unknown;
   description?: unknown;
@@ -75,13 +78,17 @@ export function DailyQuestDeck() {
   const { questUpdateKey } = useFloatingNotification();
   const [quests, setQuests] = useState<DailyQuest[] | undefined>(undefined);
   const [loginStreak, setLoginStreak] = useState(0);
+  const [xpToLevel2, setXpToLevel2] = useState(0);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [tipsHidden, setTipsHidden] = useState(false);
 
   const fetchQuests = useCallback(() => {
     fetch("/api/quests/daily", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((d: { quests?: DailyQuestApiRow[] } | null) => {
+      .then((d: { quests?: DailyQuestApiRow[]; xpToLevel2?: number } | null) => {
         const mapped: DailyQuest[] = (d?.quests ?? []).map((q) => ({
           id: String(q.id ?? ""),
+          actionUrl: typeof q.actionUrl === "string" ? q.actionUrl : "/quests",
           title: String(q.title ?? ""),
           description: String(q.description ?? ""),
           xpReward: Number(q.xp_reward ?? q.xpReward ?? 0),
@@ -91,6 +98,7 @@ export function DailyQuestDeck() {
           completed: Boolean(q.completed ?? false),
         }));
         setQuests(mapped);
+        setXpToLevel2(d?.xpToLevel2 ?? 0);
       })
       .catch(() => setQuests([]));
   }, []);
@@ -115,8 +123,16 @@ export function DailyQuestDeck() {
 
   if (quests === undefined) return <QuestDeckSkeleton />;
 
+  const tips = quests.filter((q)=>!q.completed && q.xpReward>0);
+  const tip = tips.length ? tips[tipIndex % tips.length] : undefined;
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      {!tipsHidden && (tip || xpToLevel2 > 0) && <aside className="rounded-t-xl bg-blue-50 dark:bg-blue-950 p-4 text-sm">
+        <div className="flex justify-between gap-3"><strong>{t("home.tips.title","Tips for your progress")}</strong><button type="button" onClick={()=>setTipsHidden(true)} aria-label={t("home.tips.dismiss","Dismiss tips")}>×</button></div>
+        {xpToLevel2 > 0 && <p className="mt-2">{t("home.tips.level2","Earn {{xp}} more XP to reach Level 2 and unlock more features and higher limits.",{xp:xpToLevel2})}</p>}
+        {tip && <p className="mt-2"><Link href={tip.actionUrl} className="underline">{t("home.tips.earn","Earn {{xp}} XP by completing: {{action}}",{xp:tip.xpReward,action:tip.title})}</Link></p>}
+        {tips.length > 1 && <button type="button" onClick={()=>setTipIndex((n)=>n+1)} className="mt-2 underline">{t("home.tips.next","Another tip")}</button>}
+      </aside>}
       <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("home.quests.dailyTitle")}</h2>
         {loginStreak > 0 && (
@@ -145,7 +161,7 @@ export function DailyQuestDeck() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm font-semibold ${q.completed ? "text-neutral-400 line-through dark:text-neutral-500" : "text-neutral-900 dark:text-neutral-100"}`}>
-                      {q.title}
+                      <Link href={q.actionUrl} className="hover:underline">{q.title}</Link>
                     </p>
                     {q.description && (
                       <p className="mt-0.5 text-xs text-neutral-500">{q.description}</p>

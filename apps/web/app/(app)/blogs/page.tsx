@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
+import { PostDiscovery } from "@/components/blogs/PostDiscovery";
 import { Icon } from "@/components/ui/Icon";
 
 interface BlogSummary {
@@ -92,7 +93,7 @@ export default function BlogsDiscoveryPage() {
   }, []);
 
   const buildUrl = useCallback((overCursor?: string | null) => {
-    const p = new URLSearchParams({ tab });
+    const p = new URLSearchParams({ tab, limit: "6" });
     if (search.trim()) p.set("q", search.trim());
     if (overCursor) p.set("cursor", overCursor);
     return `/api/blogs?${p.toString()}`;
@@ -196,6 +197,7 @@ export default function BlogsDiscoveryPage() {
           </button>
         </div>
       )}
+      <PostDiscovery search={search} />
     </div>
   );
 }

@@ -419,6 +419,13 @@ export interface Gift {
 // ─── Coin Ledger ──────────────────────────────────────────────────────────────
 
 export type CoinTransactionType =
+  | 'bookmark_folder'
+  | 'blog_post_bundle'
+  | 'tale_unlock'
+  | 'tale_sale'
+  | 'tale_treasury_fund'
+  | 'tale_treasury_refund'
+  | 'tale_treasury_reward'
   | 'purchase'
   | 'quest_reward'
   | 'gift_sent'

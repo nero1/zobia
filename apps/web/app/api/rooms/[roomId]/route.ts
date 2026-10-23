@@ -22,6 +22,7 @@ export const dynamic = 'force-dynamic';
  * tag directly rather than the query builder.
  */
 
+import { loadClassroomContext } from "@/lib/classroom/access";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { eq, and, sql } from "drizzle-orm";
@@ -192,6 +193,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Decide whether to include message previews
     let showMessages = isMember || isCreator;
+    if (room.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, auth.user.sub);
+      showMessages = context.viewer.can.viewMemberContent;
+    }
 
     // VIP: non-subscribers see last 3 public messages
     let messageLimit = 20;

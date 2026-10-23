@@ -343,7 +343,7 @@ export async function processChargeSuccess(
         // Use Decimal.js to avoid IEEE 754 float errors on kobo arithmetic (BUG-FIN-01).
         const netKobo = new Decimal(subGrossKobo).mul(new Decimal(1).minus(feeRate)).floor().toNumber();
         const platformFeeKobo = subGrossKobo - netKobo;
-        await tx
+        const [earning] = await tx
           .insert(schema.creatorEarnings)
           .values({
             creatorId: creator.creatorId,
@@ -356,8 +356,8 @@ export async function processChargeSuccess(
           .onConflictDoNothing({
             target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId],
             where: sql`${schema.creatorEarnings.referenceId} IS NOT NULL`,
-          });
-        await tx
+          }).returning({id:schema.creatorEarnings.id});
+        if (earning) await tx
           .update(schema.users)
           .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo}`, updatedAt: sql`NOW()` })
           .where(eq(schema.users.id, creator.creatorId));

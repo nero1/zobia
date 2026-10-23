@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router';
 /**
  * apps/android/src/routes/quests.tsx
  *
@@ -19,6 +20,7 @@ type QuestDifficulty = 'easy' | 'medium' | 'hard';
 type QuestTrack = 'social' | 'knowledge' | 'wealth' | 'influence' | 'resilience' | 'legacy' | 'main';
 
 interface Quest {
+  actionUrl: string;
   id: string;
   title: string;
   description: string;
@@ -70,6 +72,7 @@ function formatTimeUntilReset(resetAt: string): string {
 
 // Raw quest row shape returned by GET /api/quests/daily (snake_case).
 interface QuestRow {
+  actionUrl?: string;
   id: string;
   title: string;
   name?: string;
@@ -97,6 +100,7 @@ async function fetchDeck(): Promise<QuestDeckResponse> {
 
   const quests: Quest[] = (data.quests ?? []).map((q) => ({
     id: q.id,
+    actionUrl: q.actionUrl ?? "/quests",
     title: q.title ?? q.name ?? '',
     description: q.description ?? '',
     difficulty: (['easy', 'medium', 'hard'].includes(String(q.difficulty)) ? q.difficulty : 'medium') as QuestDifficulty,
@@ -155,7 +159,7 @@ function QuestCard({ quest }: { quest: Quest }) {
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className={`text-sm font-semibold truncate ${quest.isCompleted ? 'line-through text-neutral-400 dark:text-neutral-500' : 'text-neutral-900 dark:text-neutral-100'}`}>
-                {quest.title}
+                <Link to={quest.actionUrl as never} className="hover:underline">{quest.title}</Link>
               </span>
               {quest.isSponsored && (
                 <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">

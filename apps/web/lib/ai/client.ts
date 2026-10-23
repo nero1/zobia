@@ -590,7 +590,8 @@ async function chat(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<CompletionResponse> {
-  const order = await resolveProviderOrder();
+  const configured = await resolveProviderOrder();
+  const order = options.providers ? [...new Set(options.providers)].filter(id=>configured.includes(id)) : configured;
   const errors: string[] = [];
 
   for (const providerId of order) {

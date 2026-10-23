@@ -14,9 +14,13 @@
     "./schemas/notifications": "./schemas/api/notifications.ts",
     "./schemas/economy": "./schemas/api/economy.ts",
     "./i18n": "./i18n/locales.ts",
-    "./i18n/locales/*": "./i18n/locales/*.json"
+    "./i18n/locales/*": "./i18n/locales/*.json",
+    "./ui/Tales": "./ui/Tales.tsx",
+    "./ui/Automation": "./ui/Automation.tsx"
   },
   "peerDependencies": {
+    "react": ">=18.2.0 <19",
+    "react-i18next": ">=14 <16",
     "zod": ">=3.0.0"
   }
 }

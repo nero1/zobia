@@ -26,7 +26,7 @@ import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 const listQuerySchema = z.object({
   tab: z.enum(["popular", "trending", "new", "random", "subscribed"]).default("popular"),
   cursor: z.string().optional(),
-  limit: z.string().optional().transform((v) => (v ? Math.min(parseInt(v, 10), 50) : 20)),
+  limit: z.coerce.number().int().min(1).max(50).default(6),
   q: z.string().optional(),
 });
 

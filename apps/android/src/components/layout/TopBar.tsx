@@ -1,3 +1,4 @@
+import { groupNavigation } from '@zobia/shared/utils';
 /**
  * apps/android/src/components/layout/TopBar.tsx
  *
@@ -53,6 +54,9 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: '/quizzes', labelKey: 'nav.quizzes', icon: 'quizzes', flagKey: 'quizzes' },
   { href: '/quests', labelKey: 'nav.quests', icon: 'quests' },
   { href: '/games', labelKey: 'nav.games', icon: 'games', flagKey: 'games' },
+  { href: '/bookmarks', labelKey: 'nav.bookmarks', icon: 'blogs' },
+  { href: '/games/challenges', labelKey: 'nav.challenges', icon: 'games', flagKey: 'games' },
+  { href: '/t', labelKey: 'nav.tales', icon: 'blogs' },
   { href: '/blogs', labelKey: 'nav.blogs', icon: 'blogs', flagKey: 'blogs' },
   { href: '/business', labelKey: 'nav.business', icon: 'business', flagKey: 'businessAccounts' },
   { href: '/ads', labelKey: 'nav.ads', icon: 'ads', flagKey: 'adsSystem' },
@@ -248,7 +252,8 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 {t('moderation.title', 'Moderation Center')}
               </Link>
             )}
-            {visibleNavItems.map((item) => {
+            {groupNavigation(visibleNavItems).map((group) => <section key={group.key} className="mb-3"><h2 className="px-3 pt-3 pb-1 text-xs font-semibold text-neutral-500 dark:text-neutral-200">{t(group.key, group.label)}</h2>
+            {group.items.map((item) => {
               const isOffForUsers = !!item.flagKey && featureFlags?.[item.flagKey] === false;
               return (
                 <Link
@@ -271,7 +276,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                   )}
                 </Link>
               );
-            })}
+            })}</section>)}
           </nav>
 
           <div className="my-3 border-t border-neutral-200 dark:border-neutral-700" />

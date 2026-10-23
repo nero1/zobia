@@ -39,6 +39,7 @@ import { notifyRoomMentions, parseMentions } from "@/lib/notifications/chatPush"
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
+import { loadClassroomContext } from "@/lib/classroom/access";
 import { createMoment } from "@/lib/moments/service";
 
 // ---------------------------------------------------------------------------
@@ -54,10 +55,12 @@ const listMessagesQuerySchema = z.object({
    * deduped client-side by id.
    */
   after: z.string().datetime().optional(),
+  afterId: z.string().uuid().optional(),
   limit: z
     .string()
     .optional()
-    .transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 30)),
+    .transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 30))
+    .pipe(z.number().int().min(1).max(100)),
 });
 
 const sendMessageSchema = z.object({
@@ -116,7 +119,7 @@ function rowToMessage(row: MessageRow): Message {
     senderPrestigeCount: row.sender_prestige_count ?? 0,
     senderXpTotal: row.sender_xp_total ?? "0",
     content: row.content ?? "",
-    createdAt: row.created_at,
+    createdAt: new Date(row.created_at).toISOString(),
     message_type: row.message_type,
     giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
     giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
@@ -144,6 +147,7 @@ interface MessageRow {
   reply_to_message_id: string | null;
   is_deleted: boolean;
   created_at: string;
+  cursor_created_at: string;
   is_pinned: boolean;
   pinned_at: string | null;
   pin_expires_at: string | null;
@@ -270,9 +274,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
 
+    if (room.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, userId);
+      if (!context.viewer.can.viewMemberContent) {
+        throw forbidden("Enrol in this classroom before opening its chatroom.", "CLASSROOM_ENROLMENT_REQUIRED", { classroomUrl: `/c/${context.classroom.slug || roomId}`, fee: context.classroom.enrolmentFeeNgn });
+      }
+    }
     const isCreator = room.creator_id === userId;
     const membership = await getCallerMembership(roomId, userId);
-    const isMember = membership !== null;
+    const isMember = membership !== null && membership.left_at === null;
 
     // Non-member, non-creator access check (VIP gets 3 messages preview)
     if (!isMember && !isCreator && room.type !== "vip") {
@@ -303,7 +313,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // newer than the client's latest known timestamp, oldest-first.
     const deltaMode = !!queryParams.after;
     if (deltaMode) {
-      conditions.push(sql`m.created_at >= ${queryParams.after}::timestamptz`);
+      conditions.push(queryParams.afterId
+        ? sql`(m.created_at, m.id) > (${queryParams.after}::timestamptz, ${queryParams.afterId}::uuid)`
+        : sql`m.created_at >= ${queryParams.after}::timestamptz`);
     } else if (queryParams.cursor) {
       // Parse compound cursor: "ISO_TIMESTAMP__UUID"
       const parts = queryParams.cursor.split('__');
@@ -315,8 +327,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const orderClause = deltaMode
-      ? sql`m.created_at ASC`
-      : sql`(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC`;
+      ? sql`m.created_at ASC, m.id ASC`
+      : sql`m.created_at DESC, m.id DESC`;
 
     const { rows: messages } = await orm.execute<MessageRow & Record<string, unknown>>(sql`
       SELECT
@@ -341,6 +353,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          m.pinned_at,
          m.pin_expires_at,
          m.created_at,
+         to_char(m.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_created_at,
          rg.label AS sender_reward_label
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
@@ -360,11 +373,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // Cursor pagination only applies to the backlog query, not delta polling.
     const lastMsg = messages[messages.length - 1];
     const nextCursor = !deltaMode && messages.length === limit && lastMsg
-      ? `${lastMsg.created_at}__${lastMsg.id}`
+      ? `${lastMsg.cursor_created_at}__${lastMsg.id}`
       : null;
 
+    const newest = deltaMode ? messages.at(-1) : messages[0];
     return NextResponse.json(
-      { items: messages.map(rowToMessage), nextCursor, hasMore: nextCursor !== null },
+      { items: messages.map(rowToMessage), nextCursor, hasMore: nextCursor !== null,
+        deltaCursor: newest ? { after: newest.cursor_created_at, afterId: newest.id } : null,
+        deltaHasMore: deltaMode && messages.length === limit,
+      },
       { status: 200 }
     );
   } catch (err) {
@@ -414,6 +431,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
 
+    if (room.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, userId);
+      if (!context.viewer.can.viewMemberContent) {
+        throw forbidden("Enrol in this classroom before opening its chatroom.", "CLASSROOM_ENROLMENT_REQUIRED", { classroomUrl: `/c/${context.classroom.slug || roomId}`, fee: context.classroom.enrolmentFeeNgn });
+      }
+    }
     const isCreator = room.creator_id === userId;
 
     // Verify membership

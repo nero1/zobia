@@ -44,6 +44,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
   const { t } = useTranslation();
   const router = useRouter();
   const { code: refCode } = useMyReferralCode();
+  const [canEdit, setCanEdit] = useState(false);
   const [liked, setLiked] = useState<boolean | null>(null);
   const [count, setCount] = useState(initialLikeCount);
   const [busy, setBusy] = useState(false);
@@ -61,7 +62,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
   useEffect(() => {
     fetch(`/api/blogs/${blogSlug}/posts/${postSlug}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((json) => setLiked(!!json?.data?.isLiked))
+      .then((json) => { setLiked(!!json?.data?.isLiked); setCanEdit(Boolean(json?.data?.canEdit)); })
       .catch(() => setLiked(false));
   }, [blogSlug, postSlug]);
 
@@ -108,6 +109,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
 
   return (
     <div className="flex items-center gap-2">
+      {canEdit && <a href={`/blogs/dashboard/posts/${encodeURIComponent(postSlug)}/edit?blog=${encodeURIComponent(blogSlug)}`} className="rounded-full border px-3 py-1 text-sm">{t("common.edit", "Edit")}</a>}
       <button
         type="button"
         onClick={toggleLike}

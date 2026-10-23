@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -40,7 +40,7 @@ const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
 export const GET = withAuth(
   async (
     req: NextRequest,
-    { params }: { params: { userId: string }; auth: { user: { sub: string } } }
+    { params, auth }: { params: { userId: string }; auth: { user: { sub: string } } }
   ) => {
     try {
       const { userId } = await params as { userId: string };
@@ -60,12 +60,14 @@ export const GET = withAuth(
       // already held on its own. See lib/presence/keys.ts.
       const db = await getDb();
       const [row] = await db
-        .select({ lastActiveAt: schema.users.lastActiveAt })
+        .select({ lastActiveAt: schema.users.lastActiveAt, visible: schema.users.showOnlineStatus,
+          viewerVisible: sql<boolean>`COALESCE((SELECT v.show_online_status FROM users v WHERE v.id = ${auth.user.sub}), FALSE)` })
         .from(schema.users)
         .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
         .limit(1);
 
-      const lastActiveAtDate = row?.lastActiveAt ?? null;
+      const maySee = userId === auth.user.sub || Boolean(row?.visible && row?.viewerVisible);
+      const lastActiveAtDate = maySee ? row?.lastActiveAt ?? null : null;
 
       let status: PresenceStatus = "offline";
       if (lastActiveAtDate) {

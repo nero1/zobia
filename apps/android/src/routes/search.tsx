@@ -16,7 +16,7 @@ import { apiClient } from '@/lib/api/client';
 import AdSlot from '@/components/ads/AdSlot';
 import { Icon } from '@/components/ui/Icon';
 
-type SearchContentType = 'people' | 'blogs' | 'wikis' | 'answers' | 'games' | 'portals';
+type SearchContentType = 'people' | 'blogs' | 'wikis' | 'answers' | 'games' | 'portals' | 'help';
 type SearchDateRange = 'week' | 'month' | 'quarter' | 'year' | 'all';
 
 interface SearchResult {
@@ -29,7 +29,7 @@ interface SearchResult {
   published_at: string;
 }
 
-const ALL_TYPES: SearchContentType[] = ['people', 'blogs', 'wikis', 'answers', 'games', 'portals'];
+const ALL_TYPES: SearchContentType[] = ['people', 'blogs', 'wikis', 'answers', 'games', 'portals', 'help'];
 const TYPE_ICON: Record<SearchContentType, string> = {
   people: '👤',
   blogs: '✍️',
@@ -37,6 +37,7 @@ const TYPE_ICON: Record<SearchContentType, string> = {
   answers: '❓',
   games: '🎮',
   portals: '🧭',
+  help: '❔',
 };
 const RANGES: SearchDateRange[] = ['week', 'month', 'quarter', 'year', 'all'];
 
@@ -63,6 +64,10 @@ function resultLinkProps(r: SearchResult): { to: string; params: Record<string, 
       return { to: '/answers/$questionId', params: { questionId: r.id } };
     case 'games':
       return { to: '/games/$slug', params: { slug: lastSegment } };
+    case 'help': {
+      const parts = r.url.split('/');
+      return { to: '/help/$category/$doc', params: { category: parts[2], doc: parts[3] } };
+    }
     case 'portals':
       return { to: '/h/$slug', params: { slug: lastSegment } };
   }

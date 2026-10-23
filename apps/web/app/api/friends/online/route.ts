@@ -33,6 +33,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 20;
 
   const orm = await getDb();
+  const [viewer] = await orm.select({ visible: schema.users.showOnlineStatus }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+  if (!viewer?.visible) return NextResponse.json({ success: true, data: [], friends: [], visibilityDisabled: true, settingsUrl: '/settings#privacy' }, { headers: { 'X-Zobia-Presence-Visibility': 'disabled' } });
   const friendUserId = sql<string>`CASE WHEN ${schema.friendships.requesterId} = ${userId} THEN ${schema.friendships.addresseeId} ELSE ${schema.friendships.requesterId} END`;
   const isOnline = sql<boolean>`(${schema.users.lastActiveAt} > NOW() - INTERVAL '${sql.raw(String(ONLINE_WINDOW_MINUTES))} minutes')`;
   const rows = await orm

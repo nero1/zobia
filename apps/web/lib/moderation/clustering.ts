@@ -39,6 +39,8 @@ export interface ReportTargets {
   reportedForumAnswerId?: string | null;
   reportedBbThreadId?: string | null;
   reportedBbPostId?: string | null;
+  reportedTaleId?: string | null;
+  reportedTaleChapterId?: string | null;
 }
 
 /**
@@ -49,6 +51,8 @@ export interface ReportTargets {
  * room in general does not silently merge into a message-specific report.
  */
 export function computeClusterKey(t: ReportTargets): string | null {
+  if(t.reportedTaleChapterId)return `tale_chapter:${t.reportedTaleChapterId}`;
+  if(t.reportedTaleId)return `tale:${t.reportedTaleId}`;
   if (t.reportedMessageId) return `message:${t.reportedMessageId}`;
   if (t.reportedGuildMessageId) return `guild_message:${t.reportedGuildMessageId}`;
   if (t.reportedBbPostId) return `bb_post:${t.reportedBbPostId}`;
@@ -152,7 +156,11 @@ export async function maybeAutoQuarantine(
   let quarantined = false;
 
   try {
-    if (kind === "message") {
+    if(kind === "tale") {
+      await tx.execute(sql`UPDATE tales SET moderation='pending',moderation_reason='Awaiting human review after reader reports.' WHERE id=${id}`);quarantined=true;
+    } else if(kind === "tale_chapter") {
+      await tx.execute(sql`UPDATE tale_chapters SET moderation='pending',moderation_reason='Awaiting human review after reader reports.' WHERE id=${id}`);quarantined=true;
+    } else if (kind === "message") {
       await tx.execute(sql`UPDATE messages SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`);
       quarantined = true;
     } else if (kind === "guild_message") {

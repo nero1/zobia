@@ -1750,3 +1750,34 @@ Could not resolve project :react-native-iap.
 `defaultConfig` block, telling Gradle to always use the Play Store flavor. It is
 registered in `app.json → plugins` and runs automatically on every EAS build — no
 manual action required.
+
+## October 2026 schema and cloud validation
+
+Apply migrations through `0036_help_directory.sql` with the existing migration command before running the new features. The migrations add challenge defaults/quests, private AI usage, classroom restrictions, help search/guides, private blog revisions, bookmark tables/entitlements, per-participant archives and blog post bundles. New private tables explicitly revoke `anon`/`authenticated` access and grant the server `service_role`; clients use authenticated APIs.
+
+The frozen dependency graph requires Node >=22.12 for current toolchain packages; the cloud workspace uses Node 22.22.0 despite the older `.nvmrc` pin. Install with `npm ci`; do not regenerate the lockfile as an environment workaround.
+
+Checks from the repository root:
+
+```sh
+npm run typecheck
+npm run test:unit -- --maxWorkers=2
+npm run test:android
+TEST_DATABASE_URL=postgres://zobia@127.0.0.1:5432/zobia_test npm run test:integration --workspace=zobia-web
+node scripts/audit-i18n.mjs
+```
+
+`TEST_DATABASE_URL` must be a disposable database: integration setup applies migrations and creates test accounts. Never use a production connection. Native `typecheck` now uses the actual application project with `tsc -b`; the previous root `tsc --noEmit` checked no native source files.
+
+The current cloud checkout has local PostgreSQL/Redis for tests but lacks app runtime secrets and real Supabase project credentials. Environment configuration is saved as an onboarding draft, which does not apply it to a running session. Do not set `SKIP_ENV_VALIDATION` to make runtime readiness appear successful. Production Next builds require access to Google Fonts; GitHub PR automation requires `api.github.com`. Provider integration and APK testing remain separate checks.
+
+
+### Tales and official content jobs
+
+Use `/gate44/tales` (web) or the Tales moderation panel in Capacitor for pending stories/chapters and appeals. Model failures and uncertain cover/text decisions remain private for staff review. `/api/cron/tales` publishes due chapters and sends opted-in subscriber notifications; it requires the existing cron Bearer secret. Configure the operator’s external scheduler at the desired cadence. Expired personal subscription periods pause paid drip even before plan cleanup runs.
+
+Use `/gate44/auto-content` or the matching Capacitor admin panel to create official accounts and jobs. Accounts have no email/password/OAuth login, carry a persistent Ⓩ marker, use the platform’s Max content allowances, and receive no content-creation XP or credits. Assign official blogs/wikis/public rooms to that account before selecting their UUIDs. Forum targets are active public boards. Choose configured providers, editorial direction, interval, review mode and whether to enable the job. Jobs are disabled by default. No generated content is seeded by migrations or setup.
+
+Invoke `/api/cron/auto-content` with the cron Bearer secret to process one due job. Leases last 15 minutes, failed jobs retry after an hour, and successful jobs advance by their configured interval. The generation prompt and a separate reviewer use the selected configured fallback providers. Fuzzy matching uses PostgreSQL `pg_trgm`; migration 0034 creates its extension and index. Ensure the migration role can install this supported extension. Generation/provider failures appear in job status and do not silently publish.
+
+Private automation/Tales tables revoke Data API access from `anon` and `authenticated`. New reward-pot generations preserve historical claims while allowing future funding cycles; apply migration 0033 before deploying that code. Verify actual text/cover moderation and editorial quality with configured providers before enabling unattended publication.

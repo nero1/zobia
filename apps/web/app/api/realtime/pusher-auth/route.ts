@@ -1,3 +1,4 @@
+import { loadClassroomContext } from "@/lib/classroom/access";
 export const runtime = "nodejs";
 
 /**
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
   } else if (roomMatch) {
     const roomId = roomMatch[1];
     const [row] = await orm
-      .select({ id: schema.rooms.id })
+      .select({ id: schema.rooms.id, type: schema.rooms.type })
       .from(schema.rooms)
       .where(
         and(
@@ -126,6 +127,10 @@ export async function POST(req: NextRequest) {
         )
       )
       .limit(1);
+    if (row?.type === "classroom") {
+      const context = await loadClassroomContext({ id: roomId }, userId);
+      if (!context.viewer.can.viewMemberContent) return new Response("Forbidden", { status: 403 });
+    }
     if (!row) {
       return new Response("Forbidden", { status: 403 });
     }

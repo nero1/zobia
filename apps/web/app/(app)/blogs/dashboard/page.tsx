@@ -47,6 +47,8 @@ export default function BlogDashboardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const blogParam = searchParams?.get("blog");
+  const [publishedSlug,setPublishedSlug]=useState<string|null>(null);
+  useEffect(()=>{ const slug=searchParams?.get("published"); if(!slug)return;setPublishedSlug(slug);setType(searchParams?.get("type")==="page"?"page":"article");const params=new URLSearchParams(searchParams?.toString());params.delete("published");params.delete("type");router.replace(`/blogs/dashboard?${params}`,{scroll:false}); },[searchParams,router]);
   const [blogs, setBlogs] = useState<BlogRow[]>([]);
   const [blog, setBlog] = useState<BlogRow | null | undefined>(undefined);
   const [type, setType] = useState<TypeTab>("article");
@@ -88,7 +90,7 @@ export default function BlogDashboardPage() {
 
   async function handleDelete(postSlug: string) {
     if (!blog) return;
-    if (!confirm(t("blogs.dashboard.confirmDelete", "Delete this post?"))) return;
+    if (!confirm(t("blogs.dashboard.confirmDelete", "Delete this post? It will be gone forever and you can’t get it back!"))) return;
     await fetch(`/api/blogs/${blog.slug}/posts/${postSlug}`, { method: "DELETE", credentials: "include" });
     void fetchPosts();
   }
@@ -188,7 +190,7 @@ export default function BlogDashboardPage() {
         </div>
       </div>
 
-      <ArticleQuotaNotice blogSlug={blog.slug} />
+      <ArticleQuotaNotice blogSlug={blog.slug} published={!!publishedSlug} />
 
       <div className="mb-4 flex gap-1 rounded-xl border border-border bg-neutral-900/50 p-1 w-fit">
         {(["article", "page"] as TypeTab[]).map((tKey) => (
@@ -249,7 +251,7 @@ export default function BlogDashboardPage() {
               />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-foreground text-sm truncate">{p.title}</span>
+                  <Link href={p.status === "published" ? `/b/${blog.slug}/${p.slug}` : `/blogs/dashboard/posts/${p.slug}/edit?blog=${encodeURIComponent(blog.slug)}`} className="font-medium text-foreground text-sm truncate hover:underline">{p.title}</Link>{p.slug === publishedSlug && <span className="rounded-full bg-emerald-100 px-2 text-xs font-semibold text-emerald-800">{t("blogs.published.new","New")}</span>}
                   {p.is_paywalled && <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5"><Icon emoji="🔒" className="h-2.5 w-2.5" /> paywalled</span>}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -257,6 +259,14 @@ export default function BlogDashboardPage() {
                 </div>
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
+                {p.status === "published" && <>
+                  <Link href={`/b/${blog.slug}/${p.slug}`} className="rounded-lg border px-2 py-1 text-xs">{t("common.view", "View")}</Link>
+                  <button onClick={async () => {
+                    const response = await fetch(`/api/blogs/${blog.slug}/posts/${p.slug}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "draft" }) });
+                    if (response.ok) void fetchPosts();
+                  }} className="rounded-lg border px-2 py-1 text-xs">{t("blogEditing.unpublish", "Unpublish")}</button>
+                </>}
+
                 {p.status === "published" && (
                   <BoostContentButton
                     contentType="blog_post"
