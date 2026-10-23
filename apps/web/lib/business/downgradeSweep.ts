@@ -38,6 +38,7 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
       businessName: schema.businessAccounts.businessName,
       tier: schema.businessAccounts.tier,
       downgradeToTier: schema.businessAccounts.downgradeToTier,
+      downgradeAccountTypeSlug: schema.businessAccounts.downgradeAccountTypeSlug,
     })
     .from(schema.businessAccounts)
     .where(
@@ -146,7 +147,9 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
         .update(schema.businessAccounts)
         .set({
           tier: newTier,
+          accountTypeSlug: account.downgradeAccountTypeSlug ?? `business_${newTier}`,
           downgradeToTier: null,
+          downgradeAccountTypeSlug: null,
           downgradeEffectiveAt: null,
           tierUpdatedAt: sql`NOW()`,
           updatedAt: sql`NOW()`,

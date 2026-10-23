@@ -36,6 +36,7 @@ import { Route as StickersRouteImport } from './routes/stickers'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as AdminAccountsRouteImport } from './routes/admin/accounts'
 import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
 import { Route as AdminAdsRouteImport } from './routes/admin/ads'
 import { Route as AdminAdsModerationQueueRouteImport } from './routes/admin/ads-moderation-queue'
@@ -330,6 +331,11 @@ const Watch56Route = Watch56RouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAccountsRoute = AdminAccountsRouteImport.update({
+  id: '/admin/accounts',
+  path: '/admin/accounts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminActionsLogRoute = AdminActionsLogRouteImport.update({
@@ -1165,6 +1171,7 @@ export interface FileRoutesByFullPath {
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
+  '/admin/accounts': typeof AdminAccountsRoute
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
@@ -1354,6 +1361,7 @@ export interface FileRoutesByTo {
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
+  '/admin/accounts': typeof AdminAccountsRoute
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
@@ -1544,6 +1552,7 @@ export interface FileRoutesById {
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
+  '/admin/accounts': typeof AdminAccountsRoute
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
@@ -1735,6 +1744,7 @@ export interface FileRouteTypes {
     | '/stickers'
     | '/wallet'
     | '/watch56'
+    | '/admin/accounts'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ads-moderation-queue'
@@ -1924,6 +1934,7 @@ export interface FileRouteTypes {
     | '/stickers'
     | '/wallet'
     | '/watch56'
+    | '/admin/accounts'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ads-moderation-queue'
@@ -2113,6 +2124,7 @@ export interface FileRouteTypes {
     | '/stickers'
     | '/wallet'
     | '/watch56'
+    | '/admin/accounts'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ads-moderation-queue'
@@ -2303,6 +2315,7 @@ export interface RootRouteChildren {
   StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
   Watch56Route: typeof Watch56Route
+  AdminAccountsRoute: typeof AdminAccountsRoute
   AdminActionsLogRoute: typeof AdminActionsLogRoute
   AdminAdsRoute: typeof AdminAdsRoute
   AdminAdsModerationQueueRoute: typeof AdminAdsModerationQueueRoute
@@ -2650,6 +2663,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/accounts': {
+      id: '/admin/accounts'
+      path: '/admin/accounts'
+      fullPath: '/admin/accounts'
+      preLoaderRoute: typeof AdminAccountsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/actions-log': {
@@ -3822,6 +3842,7 @@ const rootRouteChildren: RootRouteChildren = {
   StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,
   Watch56Route: Watch56Route,
+  AdminAccountsRoute: AdminAccountsRoute,
   AdminActionsLogRoute: AdminActionsLogRoute,
   AdminAdsRoute: AdminAdsRoute,
   AdminAdsModerationQueueRoute: AdminAdsModerationQueueRoute,

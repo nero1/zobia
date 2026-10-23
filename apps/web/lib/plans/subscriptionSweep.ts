@@ -16,16 +16,12 @@
  *      expired) grace-gated data is purged (save slots trimmed to the new,
  *      lower plan's limit).
  *
- * Note: `business_accounts.subscription_id` is populated once a business
- * plan is linked to a recurring `subscriptions` row (see PRD §17 / Business
- * Accounts billing). Until that linkage is wired up for a given account,
- * the business half of this sweep simply has nothing to act on for it —
- * it does not invent an expiry timer independent of the subscription record.
+ * Business periods are tracked directly on business_accounts, separately
+ * from the owner's unique personal subscription row.
  */
 
-import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { logger } from "@/lib/logger";
 import {
   PERSONAL_GRACE_PLANS,
   BUSINESS_GRACE_TIERS,
@@ -47,19 +43,6 @@ export interface SubscriptionSweepResult {
   groupChatsDeactivated: number;
 }
 
-async function purgeUnpreservedSaves(userIds: string[]): Promise<number> {
-  let purged = 0;
-  for (const userId of userIds) {
-    try {
-      const deleted = await reconcileSavesForUser(userId, 0);
-      if (deleted.length > 0) purged++;
-    } catch (err) {
-      logger.error({ err, userId }, "[subscriptionSweep] Failed to purge unpreserved saves");
-    }
-  }
-  return purged;
-}
-
 export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   const result: SubscriptionSweepResult = {
     personalLapsedToGrace: 0,
@@ -73,132 +56,81 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
 
   const orm = await getDb();
 
-  // -------------------------------------------------------------------
-  // Personal: active -> grace (subscription did not renew)
-  // -------------------------------------------------------------------
-  for (const plan of PERSONAL_GRACE_PLANS) {
-    const days = await getGracePeriodDays("personal", plan);
-    const rows = await orm
-      .update(schema.subscriptions)
-      .set({
-        status: "grace",
-        gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`,
-        updatedAt: sql`NOW()`,
-      })
-      .where(and(eq(schema.subscriptions.plan, plan), eq(schema.subscriptions.status, "active"), lt(schema.subscriptions.endsAt, sql`NOW()`)))
-      .returning({ userId: schema.subscriptions.userId });
-    if (rows.length === 0) continue;
-
-    const userIds = rows.map((r) => r.userId);
-    result.personalLapsedToGrace += userIds.length;
-
-    await orm
-      .update(schema.users)
-      .set({ plan: "free", updatedAt: sql`NOW()` })
-      .where(and(inArray(schema.users.id, userIds), eq(schema.users.plan, plan)));
-
-    const savedGamesPreserved = await isFeaturePreservedDuringGrace("personal", plan, "saved_games");
-    if (!savedGamesPreserved) {
-      result.personalSavesPurgedImmediately += await purgeUnpreservedSaves(userIds);
+  // Snapshot only candidates. Recheck expiry under the same user-first locks
+  // as activation; renewal must never lose its plan or saves to stale cleanup.
+  const candidates = await orm.select({ userId: schema.subscriptions.userId }).from(schema.subscriptions)
+    .where(sql`(${schema.subscriptions.status} IN ('active','cancelled','trialing') AND ${schema.subscriptions.endsAt} < NOW()) OR (${schema.subscriptions.status} = 'grace' AND ${schema.subscriptions.gracePeriodEndsAt} < NOW())`);
+  for (const candidate of candidates) {
+    const changes = await orm.transaction(async tx => {
+      const [user] = await tx.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, candidate.userId)).for("update");
+      if (!user) return null;
+      const [sub] = await tx.select().from(schema.subscriptions).where(eq(schema.subscriptions.userId, candidate.userId)).for("update");
+      if (!sub || !PERSONAL_GRACE_PLANS.includes(sub.plan as typeof PERSONAL_GRACE_PLANS[number])) return null;
+      const now = new Date();
+      if (["active", "cancelled", "trialing"].includes(sub.status) && sub.endsAt && sub.endsAt < now) {
+        const days = await getGracePeriodDays("personal", sub.plan);
+        await tx.update(schema.subscriptions).set({ status: "grace", gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`, updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, sub.id));
+        const downgraded = user.plan === sub.plan;
+        if (downgraded) await tx.update(schema.users).set({ plan: "free", updatedAt: sql`NOW()` }).where(eq(schema.users.id, candidate.userId));
+        let purged = 0;
+        if ((downgraded || user.plan === "free") && !await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games")) {
+          purged = (await reconcileSavesForUser(candidate.userId, 0, undefined, tx)).length > 0 ? 1 : 0;
+        }
+        return { grace: 1, lapsed: 0, immediate: purged, after: 0, groups: 0 };
+      }
+      if (sub.status === "grace" && sub.gracePeriodEndsAt && sub.gracePeriodEndsAt < now) {
+        await tx.update(schema.subscriptions).set({ status: "lapsed", updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, sub.id));
+        let purged = 0, groups = 0;
+        if (user.plan === "free") {
+          if (await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games")) {
+            purged = (await reconcileSavesForUser(candidate.userId, await getSaveSlotLimit("free"), undefined, tx)).length > 0 ? 1 : 0;
+          }
+          if (!await isFeaturePreservedDuringGrace("personal", sub.plan, "group_chats")) groups = await deactivateGroupsForUser(candidate.userId, tx);
+        }
+        return { grace: 0, lapsed: 1, immediate: 0, after: purged, groups };
+      }
+      return null;
+    });
+    if (changes) {
+      result.personalLapsedToGrace += changes.grace;
+      result.personalGraceExpired += changes.lapsed;
+      result.personalSavesPurgedImmediately += changes.immediate;
+      result.personalSavesPurgedAfterGrace += changes.after;
+      result.groupChatsDeactivated += changes.groups;
     }
   }
 
-  // -------------------------------------------------------------------
-  // Personal: grace -> lapsed (grace period elapsed — purge preserved data)
-  // -------------------------------------------------------------------
-  {
-    const rows = await orm
-      .update(schema.subscriptions)
-      .set({ status: "lapsed", updatedAt: sql`NOW()` })
-      .where(and(eq(schema.subscriptions.status, "grace"), lt(schema.subscriptions.gracePeriodEndsAt, sql`NOW()`)))
-      .returning({ userId: schema.subscriptions.userId, plan: schema.subscriptions.plan });
-    result.personalGraceExpired = rows.length;
-
-    const freeLimit = await getSaveSlotLimit("free");
-    for (const row of rows) {
-      try {
-        if (await isFeaturePreservedDuringGrace("personal", row.plan, "saved_games")) {
-          const deleted = await reconcileSavesForUser(row.userId, freeLimit);
-          if (deleted.length > 0) result.personalSavesPurgedAfterGrace++;
-        }
-      } catch (err) {
-        logger.error({ err, userId: row.userId }, "[subscriptionSweep] Failed to purge post-grace saves");
+  // Business expiry uses the directly tracked billing period. Keep destructive
+  // cleanup in the account transaction so renewal and expiry cannot interleave.
+  const businessCandidates = await orm.select({ id: schema.businessAccounts.id, userId: schema.businessAccounts.userId }).from(schema.businessAccounts)
+    .where(sql`(${schema.businessAccounts.status} = 'active' AND ${schema.businessAccounts.currentPeriodEndsAt} < NOW()) OR (${schema.businessAccounts.status} = 'grace' AND ${schema.businessAccounts.gracePeriodEndsAt} < NOW())`);
+  for (const candidate of businessCandidates) {
+    const changes = await orm.transaction(async tx => {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, candidate.userId)).for("update");
+      const [account] = await tx.select().from(schema.businessAccounts).where(eq(schema.businessAccounts.id, candidate.id)).for("update");
+      if (!account || !BUSINESS_GRACE_TIERS.includes(account.tier as typeof BUSINESS_GRACE_TIERS[number])) return null;
+      const now = new Date();
+      if (account.status === "active" && account.currentPeriodEndsAt && account.currentPeriodEndsAt < now) {
+        const days = await getGracePeriodDays("business", account.tier);
+        await tx.update(schema.businessAccounts).set({ status: "grace", gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`, updatedAt: sql`NOW()` }).where(eq(schema.businessAccounts.id, account.id));
+        return { grace: 1, lapsed: 0, groups: 0 };
       }
-
-      try {
-        if (!(await isFeaturePreservedDuringGrace("personal", row.plan, "group_chats"))) {
-          const deactivated = await deactivateGroupsForUser(row.userId);
-          if (deactivated > 0) result.groupChatsDeactivated += deactivated;
-        }
-      } catch (err) {
-        logger.error({ err, userId: row.userId }, "[subscriptionSweep] Failed to deactivate group chats");
+      if (account.status === "grace" && account.gracePeriodEndsAt && account.gracePeriodEndsAt < now) {
+        await tx.update(schema.businessAccounts).set({ status: "lapsed", updatedAt: sql`NOW()` }).where(eq(schema.businessAccounts.id, account.id));
+        let groups = 0;
+        if (!await isFeaturePreservedDuringGrace("business", account.tier, "group_chats")) groups = await deactivateGroupsForUser(account.userId, tx);
+        const quests = await tx.update(schema.sponsoredQuests).set({ isActive: false, autoPaused: true, pauseReason: "Business subscription lapsed", pausedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+          .where(and(eq(schema.sponsoredQuests.businessAccountId, account.id), eq(schema.sponsoredQuests.isActive, true), isNull(schema.sponsoredQuests.deletedAt))).returning({ id: schema.sponsoredQuests.id });
+        for (const quest of quests) await syncSponsoredQuestTemplate(tx, quest.id);
+        return { grace: 0, lapsed: 1, groups };
       }
+      return null;
+    });
+    if (changes) {
+      result.businessLapsedToGrace += changes.grace;
+      result.businessGraceExpired += changes.lapsed;
+      result.groupChatsDeactivated += changes.groups;
     }
   }
-
-  // -------------------------------------------------------------------
-  // Business: active -> grace, keyed off business_accounts.current_period_ends_at
-  // (0001_consolidated_schema.sql — a business owner's checkout is a
-  // one-off charge, so this is tracked directly on business_accounts rather
-  // than the personal `subscriptions` table, which is unique-per-user and
-  // would collide with a business owner's own personal plan row).
-  // -------------------------------------------------------------------
-  // NOTE: `business_accounts.current_period_ends_at` referenced below is not
-  // present on `schema.businessAccounts` in lib/db/schema.ts (schema/DB
-  // mismatch — reported upstream), so this uses Drizzle's `sql` tag directly
-  // rather than the query builder for these two statements.
-  for (const tier of BUSINESS_GRACE_TIERS) {
-    const days = await getGracePeriodDays("business", tier);
-    const updateResult = await orm.execute(sql`
-      UPDATE business_accounts
-      SET status = 'grace', grace_period_ends_at = NOW() + (${String(days)} || ' days')::interval, updated_at = NOW()
-      WHERE tier = ${tier} AND status = 'active'
-        AND current_period_ends_at IS NOT NULL AND current_period_ends_at < NOW()
-    `);
-    result.businessLapsedToGrace += updateResult.rowCount ?? 0;
-  }
-
-  {
-    const graceResult = await orm.execute<{ id: string; user_id: string; tier: string }>(sql`
-      UPDATE business_accounts
-      SET status = 'lapsed', updated_at = NOW()
-      WHERE status = 'grace' AND grace_period_ends_at < NOW()
-      RETURNING id, user_id, tier
-    `);
-    const rows = graceResult.rows;
-    result.businessGraceExpired = rows.length;
-
-    for (const row of rows) {
-      try {
-        if (!(await isFeaturePreservedDuringGrace("business", row.tier, "group_chats"))) {
-          const deactivated = await deactivateGroupsForUser(row.user_id);
-          if (deactivated > 0) result.groupChatsDeactivated += deactivated;
-        }
-      } catch (err) {
-        logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to deactivate business group chats");
-      }
-
-      // Subscription fully lapsed (grace period elapsed without renewal) —
-      // pause running Sponsored Quests, same "must be explicitly restarted"
-      // rule as the tier-downgrade path (lib/business/downgradeSweep.ts).
-      try {
-        // NOTE: `sponsored_quests.updated_at` is not present on
-        // `schema.sponsoredQuests` in lib/db/schema.ts (schema/DB mismatch —
-        // reported upstream), so this uses Drizzle's `sql` tag directly for
-        // this one statement rather than the query builder.
-        const stoppedQuestsResult = await orm.execute<{ id: string }>(sql`
-          UPDATE sponsored_quests
-          SET is_active = FALSE, auto_paused = TRUE,
-              pause_reason = 'Business subscription lapsed', paused_at = NOW(), updated_at = NOW()
-          WHERE business_account_id = ${row.id} AND is_active = TRUE AND deleted_at IS NULL
-          RETURNING id
-        `);
-        for (const q of stoppedQuestsResult.rows) await syncSponsoredQuestTemplate(orm, q.id);
-      } catch (err) {
-        logger.error({ err, businessAccountId: row.id }, "[subscriptionSweep] Failed to pause sponsored quests on lapse");
-      }
-    }
-  }
-
   return result;
 }

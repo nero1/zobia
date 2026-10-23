@@ -23,20 +23,12 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { activatePlayConsumable, activatePlaySubscription } from "@/lib/plans/playSubscription";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
-import { creditCoins } from "@/lib/economy/coins";
-import { creditStars } from "@/lib/economy/stars";
-import { eq, sql } from "drizzle-orm";
-import { getDb, schema } from "@/lib/db/drizzle";
+import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import {
   EXPECTED_PACKAGE_NAME,
-  verifyGooglePlayProductPurchase,
-  consumeGooglePlayPurchase,
-  verifyGooglePlaySubscriptionPurchase,
-  acknowledgeGooglePlaySubscription,
-  cancelGooglePlaySubscription,
 } from "@/lib/payments/googlePlayVerify";
 
 // ---------------------------------------------------------------------------
@@ -85,32 +77,8 @@ const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number
 // ---------------------------------------------------------------------------
 
 const verifyIapSchema = z.object({
-  purchaseToken: z.string().min(1, "purchaseToken is required"),
-  productId: z.enum(
-    [
-      // One-time coin purchases
-      "coins_starter",
-      "coins_regular",
-      "coins_big",
-      "coins_baller",
-      "coins_boss",
-      "coins_legend",
-      // One-time star purchases
-      "stars_starter",
-      "stars_regular",
-      "stars_big",
-      "stars_boss",
-      // Monthly subscription plans
-      "sub_plus_monthly",
-      "sub_pro_monthly",
-      "sub_max_monthly",
-      // Annual subscription plans
-      "sub_plus_annual",
-      "sub_pro_annual",
-      "sub_max_annual",
-    ],
-    { errorMap: () => ({ message: "Unknown productId" }) }
-  ),
+  purchaseToken: z.string().min(1, "purchaseToken is required").max(4096),
+  productId: z.string().regex(/^[a-z0-9][a-z0-9._]{0,147}$/),
   packageName: z.string().min(1, "packageName is required"),
   /** Set to true when productId is a subscription (not a one-time purchase). */
   isSubscription: z.boolean().optional().default(false),
@@ -126,88 +94,6 @@ const verifyIapSchema = z.object({
  * Uses the purchases.subscriptions API (not purchases.products) for subscriptions.
  * Idempotent via coin_ledger reference_id keyed on purchaseToken.
  */
-async function verifyAndActivateSubscription(
-  userId: string,
-  packageName: string,
-  productId: string,
-  purchaseToken: string
-): Promise<{ plan: string; coinsGranted: number }> {
-  const subConfig = SUBSCRIPTION_PRODUCTS[productId];
-  if (!subConfig) throw badRequest(`Unknown subscription productId: ${productId}`);
-
-  const referenceId = `iap:sub:${purchaseToken}`;
-  const orm = await getDb();
-
-  // Idempotency check
-  const [existingRow] = await orm
-    .select({ id: schema.coinLedger.id })
-    .from(schema.coinLedger)
-    .where(eq(schema.coinLedger.referenceId, referenceId))
-    .limit(1);
-  if (existingRow) {
-    // Already processed — return current plan state
-    const [u] = await orm.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
-    return { plan: u?.plan ?? subConfig.plan, coinsGranted: 0 };
-  }
-
-  // Verify with Google Play subscriptions API (different endpoint from products)
-  const sub = await verifyGooglePlaySubscriptionPurchase(packageName, productId, purchaseToken);
-  // paymentState: 1 = payment received, 2 = free trial. cancelReason defined means cancelled.
-  if (sub.paymentState !== 1 && sub.paymentState !== 2) {
-    throw badRequest("Subscription payment not confirmed", "SUBSCRIPTION_NOT_PAID");
-  }
-  // Acknowledge to prevent auto-cancellation after 3 days.
-  await acknowledgeGooglePlaySubscription(packageName, productId, purchaseToken);
-
-  // BUG-CAP-05: find any previously-verified subscription for a *different*
-  // plan tier product so it can be cancelled below — defense in depth against
-  // stacked/double-billed subscriptions, alongside the client-side `group`
-  // registration in apps/android/src/lib/payments/googlePlay.ts that already
-  // tells Play Billing these products are mutually exclusive.
-  const priorSubResult = await orm.execute<{ product_id: string; purchase_token: string } & Record<string, unknown>>(sql`
-    SELECT metadata->>'productId' AS product_id, metadata->>'purchaseToken' AS purchase_token
-    FROM coin_ledger
-    WHERE user_id = ${userId} AND transaction_type = 'subscription_bonus'
-      AND metadata->>'purchaseToken' IS NOT NULL
-      AND metadata->>'productId' IS DISTINCT FROM ${productId}
-    ORDER BY created_at DESC
-    LIMIT 1
-  `);
-  const priorSub = priorSubResult.rows[0];
-
-  // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)
-  await orm.transaction(async (tx) => {
-    await tx
-      .update(schema.users)
-      .set({ plan: subConfig.plan, planActivatedAt: new Date(), updatedAt: new Date() })
-      .where(eq(schema.users.id, userId));
-
-    // Credit the monthly coin bonus only when the configured amount is positive —
-    // a 0-coin bonus config would insert a no-op ledger row and wastes a write.
-    if (subConfig.monthlyCoins > 0) {
-      await creditCoins(
-        userId,
-        subConfig.monthlyCoins,
-        "subscription_bonus",
-        referenceId,
-        `Google Play subscription: ${productId} — monthly coin bonus`,
-        { productId, packageName, purchaseToken },
-        tx
-      );
-    }
-  });
-
-  // Cancel the old subscription on Google Play *after* the new one is
-  // committed, so a cancel-call failure never leaves the user without any
-  // active plan. Non-fatal on failure (logged inside the helper) — the new
-  // plan is already active regardless.
-  if (priorSub?.purchase_token && priorSub.product_id) {
-    await cancelGooglePlaySubscription(packageName, priorSub.product_id, priorSub.purchase_token);
-  }
-
-  return { plan: subConfig.plan, coinsGranted: subConfig.monthlyCoins };
-}
-
 // ---------------------------------------------------------------------------
 // POST /api/economy/iap/verify
 // ---------------------------------------------------------------------------
@@ -239,7 +125,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // Route to subscription handler when productId is a subscription product
     const isSubscription = body.isSubscription || !!SUBSCRIPTION_PRODUCTS[body.productId];
     if (isSubscription) {
-      const result = await verifyAndActivateSubscription(
+      const result = await activatePlaySubscription(
         userId,
         body.packageName,
         body.productId,
@@ -259,80 +145,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");
     }
 
-    // Use a reference key that encodes the purchaseToken for idempotency lookup
-    const referenceId = `iap:${body.purchaseToken}`;
-
-    // 1. Verify the purchase with Google Play Developer API
-    const purchase = await verifyGooglePlayProductPurchase(
-      body.packageName,
-      body.productId,
-      body.purchaseToken
-    );
-
-    // purchaseState: 0 = purchased (valid), anything else = not valid
-    if (purchase.purchaseState !== 0) {
-      throw badRequest(
-        `Purchase is not in a valid state (state=${purchase.purchaseState})`,
-        "PURCHASE_INVALID"
-      );
-    }
-
-    // consumptionState: 0 = not yet consumed. A token that's already consumed
-    // means a prior request already processed it — treat as duplicate.
-    if (purchase.consumptionState !== 0) {
-      throw conflict("This purchase has already been consumed", "PURCHASE_ALREADY_PROCESSED");
-    }
-
-    // 2. Credit coins/stars atomically. coin_ledger has a unique index on
-    //    reference_id which prevents double-credit even under concurrent
-    //    requests — catch 23505 (unique_violation) and surface it as 409.
-    //    creditStars() is idempotent by design (returns the existing entry).
-    if (isStarProduct) {
-      await creditStars(
-        userId,
-        starsToGrant,
-        "purchase",
-        referenceId,
-        `Google Play IAP: ${body.productId}`
-      );
-    } else {
-      try {
-        await creditCoins(
-          userId,
-          coinsToGrant,
-          "iap_purchase",
-          referenceId,
-          `Google Play IAP: ${body.productId}`,
-          {
-            productId: body.productId,
-            packageName: body.packageName,
-            purchaseToken: body.purchaseToken,
-            orderId: purchase.orderId,
-          }
-        );
-      } catch (creditErr) {
-        const pgCode = (creditErr as { code?: string })?.code;
-        if (pgCode === "23505") {
-          throw conflict("This purchase has already been processed", "PURCHASE_ALREADY_PROCESSED");
-        }
-        throw creditErr;
-      }
-    }
-
-    // 3. Consume the purchase on Google Play so the user can buy the pack again.
-    //    Done after crediting so coins/stars are never lost if consume fails.
-    await consumeGooglePlayPurchase(
-      body.packageName,
-      body.productId,
-      body.purchaseToken
-    );
-
-    return NextResponse.json(
-      isStarProduct
-        ? { success: true, coinsGranted: 0, starsGranted: starsToGrant }
-        : { success: true, coinsGranted: coinsToGrant },
-      { status: 200 }
-    );
+    const result = await activatePlayConsumable(userId, body.packageName, body.productId, body.purchaseToken, coinsToGrant ?? 0, starsToGrant ?? 0);
+    return NextResponse.json({ success: true, ...result }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

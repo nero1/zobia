@@ -17,6 +17,8 @@ import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { useFiatCurrency, formatKoboClient, type FiatCurrency } from "@/lib/hooks/useFiatCurrency";
+import { PendingCryptoPayments } from "@/components/wallet/PendingCryptoPayments";
+import { usePaymentCheckout, type CheckoutResult } from "@/hooks/usePaymentCheckout";
 import { CryptoBalancesSection } from "@/components/wallet/CryptoBalancesSection";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
@@ -699,6 +701,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
 function WalletContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { checkout, checkoutDialog } = usePaymentCheckout(() => window.location.reload());
   const { t } = useTranslation();
   const transferRecipientId = searchParams?.get("transfer");
   // "?destination=ad_wallet" (linked from the Ads Wallet panel's "Buy Credits
@@ -906,7 +909,7 @@ function WalletContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId, provider: "paystack", destination: purchaseDestination }),
+        body: JSON.stringify({ packId, destination: purchaseDestination }),
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string; error?: string | { code?: string; message?: string } };
@@ -916,13 +919,8 @@ function WalletContent() {
         err.code = errCode;
         throw err;
       }
-      const result = (await res.json()) as { checkoutUrl?: string; authorization_url?: string };
-      const url = result.checkoutUrl ?? result.authorization_url;
-      if (url) {
-        window.location.href = url;
-      } else {
-        showToast("Purchase initiated — check your email for confirmation.");
-      }
+      const result = (await res.json()) as CheckoutResult;
+      await checkout(result);
     } catch (e) {
       const err = e as Error & { code?: string | null };
       showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Purchase failed") : "Purchase failed");
@@ -959,6 +957,8 @@ function WalletContent() {
         </div>
       )}
 
+      <PendingCryptoPayments />
+      {checkoutDialog}
       <BalanceCard balance={data.balance} activePlan={data.activePlan} currency={currency} />
 
       {rank && statsEnabled && <RankBadgesSummary rank={rank} />}

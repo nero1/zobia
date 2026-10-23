@@ -1,3 +1,4 @@
+const isSecurity = process.argv.some(a => a.includes('security-tests'));
 const isIntegration = process.env.INTEGRATION === '1' ||
   (process.argv.some(a => a.includes('integration')));
 
@@ -6,6 +7,7 @@ const config = {
   preset: 'ts-jest',
   testEnvironment: 'node',
   rootDir: '.',
+  roots: isSecurity ? ['<rootDir>/../../security-tests'] : ['<rootDir>'],
   setupFiles: ['<rootDir>/jest.env.setup.js'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',

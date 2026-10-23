@@ -26,7 +26,7 @@ import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
 import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
-import { getBusinessTierPriceKobo } from "@/lib/business/limits";
+import { requireAccountType } from "@/lib/plans/catalog";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
 import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
@@ -57,7 +57,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const userEmail = userRows[0].email ?? `${userId}@zobia.placeholder`;
 
     const rows = await orm
-      .select({ id: schema.businessAccounts.id, tier: schema.businessAccounts.tier })
+      .select({ id: schema.businessAccounts.id, tier: schema.businessAccounts.tier, accountTypeSlug: schema.businessAccounts.accountTypeSlug })
       .from(schema.businessAccounts)
       .where(eq(schema.businessAccounts.userId, userId))
       .limit(1);
@@ -67,7 +67,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     // Reuse the same pending-payment guard as signup/upgrade (BIZ-SIGNUP-RACE).
     const reference = `biz-renew-${businessAccountId}-${randomUUID().slice(0, 8)}`;
-    const priceKobo = await getBusinessTierPriceKobo(tier);
+    const product = await requireAccountType(rows[0].accountTypeSlug ?? `business_${tier}`, "business");
+    const priceKobo = product.monthlyPriceKobo;
     if (priceKobo <= 0) throw badRequest("Invalid tier price configuration");
 
     const isNigeria = await getUserIsNigeria(userId);
@@ -75,6 +76,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const metadata = {
       userId,
       businessAccountId,
+      accountTypeSlug: product.slug,
       type: "business_renewal",
       itemType: "business_renewal",
       ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),

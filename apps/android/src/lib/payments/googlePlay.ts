@@ -104,12 +104,19 @@ export const BUSINESS_TIER_PRODUCTS: BusinessTierProduct[] = [
 const CONSUMABLE_IDS = [...COIN_PRODUCTS.map((p) => p.id), ...STAR_PRODUCTS.map((p) => p.id)];
 const SUBSCRIPTION_IDS = [...SUBSCRIPTION_PRODUCTS.map((p) => p.id), ...ANNUAL_SUBSCRIPTION_PRODUCTS.map((p) => p.id)];
 const BUSINESS_IDS = BUSINESS_TIER_PRODUCTS.map((p) => p.id);
+interface AccountStoreProduct { id: string; kind: 'personal' | 'business'; basePlan: string; accountTypeSlug: string; interval: 'monthly' | 'annual' }
+const accountStoreProducts = new Map<string, AccountStoreProduct>();
+const registeredAccountProducts = new Set<string>();
+async function loadAccountStoreProducts(): Promise<void> {
+  const response = await apiClient.get<AccountStoreProduct[]>('/accounts/store-products');
+  for (const product of response.data) accountStoreProducts.set(product.id, product);
+}
 
 function isBusinessProductId(productId: string): boolean {
-  return BUSINESS_IDS.includes(productId);
+  return BUSINESS_IDS.includes(productId) || accountStoreProducts.get(productId)?.kind === 'business';
 }
 function isSubscriptionProductId(productId: string): boolean {
-  return SUBSCRIPTION_IDS.includes(productId);
+  return SUBSCRIPTION_IDS.includes(productId) || accountStoreProducts.get(productId)?.kind === 'personal';
 }
 
 // ---------------------------------------------------------------------------
@@ -150,14 +157,14 @@ const pendingBusinessSignup = new Map<string, { businessName?: string; businessT
 async function verifyBusinessPurchase(purchaseToken: string, productId: string): Promise<BusinessVerifyResult | null> {
   try {
     const signupInfo = pendingBusinessSignup.get(productId);
-    const { data } = await apiClient.post<{ success: boolean; tier: string }>('/business/iap/verify', {
+    const { data } = await apiClient.post<{ tier: string }>('/business/iap/verify', {
       purchaseToken,
       productId,
       packageName: APP_PACKAGE_NAME,
       business_name: signupInfo?.businessName,
       business_type: signupInfo?.businessType,
     });
-    if (!data.success) return null;
+    if (!data.tier) return null;
     return { tier: data.tier };
   } catch (err) {
     console.error('[googlePlay] business purchase verification failed:', err);
@@ -247,6 +254,9 @@ export async function initGooglePlayBilling(): Promise<void> {
 
   initPromise = (async () => {
     try {
+      // Historical IDs are included so pending and restored purchases still
+      // reach the correct verifier after a product is removed from sale.
+      await loadAccountStoreProducts().catch(() => {});
       store.register([
         ...CONSUMABLE_IDS.map((id) => ({ id, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY })),
         // BUG-CAP-05 fix: `group: 'plan_tier'` tells Play Billing that Plus/Pro/Max
@@ -259,7 +269,9 @@ export async function initGooglePlayBilling(): Promise<void> {
         // are mutually exclusive tiers of the same product — purchasing one
         // replaces any currently-owned one instead of stacking subscriptions.
         ...BUSINESS_IDS.map((id) => ({ id, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY, group: 'business_tier' })),
+        ...[...accountStoreProducts.values()].filter(p => !SUBSCRIPTION_IDS.includes(p.id) && !BUSINESS_IDS.includes(p.id)).map(p => ({ id: p.id, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY, group: p.kind === 'business' ? 'business_tier' : 'plan_tier' })),
       ]);
+      for (const id of [...SUBSCRIPTION_IDS, ...BUSINESS_IDS, ...accountStoreProducts.keys()]) registeredAccountProducts.add(id);
       setupGlobalPurchaseListeners();
       await store.initialize([Platform.GOOGLE_PLAY]);
       initialized = true;
@@ -271,6 +283,18 @@ export async function initGooglePlayBilling(): Promise<void> {
   return initPromise;
 }
 
+export async function refreshAccountStoreProducts(ids: string[]): Promise<void> {
+  if (ids.every(id => registeredAccountProducts.has(id) && !!getOffer(id))) return;
+  await initGooglePlayBilling();
+  if (ids.some(id => !accountStoreProducts.has(id))) await loadAccountStoreProducts();
+  const added = [...accountStoreProducts.values()].filter(p => !registeredAccountProducts.has(p.id));
+  if (added.length) {
+    store.register(added.map(p => ({ id: p.id, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY, group: p.kind === 'business' ? 'business_tier' : 'plan_tier' })));
+    for (const product of added) registeredAccountProducts.add(product.id);
+  }
+  await store.update();
+}
+
 // ---------------------------------------------------------------------------
 // Purchase flow
 // ---------------------------------------------------------------------------
@@ -279,6 +303,11 @@ const PURCHASE_TIMEOUT_MS = 5 * 60 * 1000;
 
 function getOffer(productId: string): Offer | undefined {
   return store.get(productId, Platform.GOOGLE_PLAY)?.getOffer();
+}
+
+export function getPlayProductPrice(productId: string): string | undefined {
+  const phases = getOffer(productId)?.pricingPhases;
+  return phases?.[phases.length - 1]?.price;
 }
 
 /**
@@ -314,15 +343,16 @@ async function orderAndAwait(productId: string, timeoutMessage: string): Promise
     return { status: 'failed', error: orderError.message || 'Purchase failed' };
   }
 
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<PurchaseOutcome>((resolve) => {
-    setTimeout(() => {
+    timeout = setTimeout(() => {
       // Leave the transaction to the global listener — don't delete the
       // resolver's registration here; it already resolved via race() below.
       resolve({ status: 'failed', error: timeoutMessage });
     }, PURCHASE_TIMEOUT_MS);
   });
 
-  return Promise.race([purchasePromise, timeoutPromise]);
+  return Promise.race([purchasePromise, timeoutPromise]).finally(() => { if (timeout) clearTimeout(timeout); });
 }
 
 export async function purchaseCoins(productId: string): Promise<{ success: boolean; coins: number; error?: string }> {
@@ -344,11 +374,14 @@ export async function purchaseStars(productId: string): Promise<{ success: boole
 }
 
 export async function purchaseSubscription(productId: string): Promise<{ success: boolean; plan?: string; error?: string }> {
+  try { await initGooglePlayBilling(); await refreshAccountStoreProducts([productId]); }
+  catch (error) { return { success: false, error: error instanceof Error ? error.message : 'Store is unavailable' }; }
   const product = SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId) ?? ANNUAL_SUBSCRIPTION_PRODUCTS.find((p) => p.id === productId);
-  if (!product) return { success: false, error: 'Unknown subscription product ID' };
+  const dynamic = accountStoreProducts.get(productId);
+  if (!product && dynamic?.kind !== 'personal') return { success: false, error: 'Unknown subscription product ID' };
 
   const outcome = await orderAndAwait(productId, 'Your purchase is still processing — please wait before trying again');
-  if (outcome.status === 'success') return { success: true, plan: outcome.plan ?? product.plan };
+  if (outcome.status === 'success') return { success: true, plan: outcome.plan ?? product?.plan ?? dynamic?.basePlan };
   return { success: false, error: outcome.error };
 }
 
@@ -362,12 +395,15 @@ export async function purchaseBusinessTier(
   businessName?: string,
   businessType?: string
 ): Promise<{ success: boolean; tier?: string; error?: string }> {
+  try { await initGooglePlayBilling(); await refreshAccountStoreProducts([productId]); }
+  catch (error) { return { success: false, error: error instanceof Error ? error.message : 'Store is unavailable' }; }
   const product = BUSINESS_TIER_PRODUCTS.find((p) => p.id === productId);
-  if (!product) return { success: false, error: 'Unknown business tier product ID' };
+  const dynamic = accountStoreProducts.get(productId);
+  if (!product && dynamic?.kind !== 'business') return { success: false, error: 'Unknown business tier product ID' };
 
   pendingBusinessSignup.set(productId, { businessName, businessType });
   const outcome = await orderAndAwait(productId, 'Your purchase is still processing — please wait before trying again');
-  if (outcome.status === 'success') return { success: true, tier: outcome.tier ?? product.tier };
+  if (outcome.status === 'success') return { success: true, tier: outcome.tier ?? product?.tier ?? dynamic?.basePlan };
   return { success: false, error: outcome.error };
 }
 

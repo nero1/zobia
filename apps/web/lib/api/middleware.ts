@@ -201,7 +201,7 @@ async function runGeoAnomalyCheck(
  * the next refresh — and every sensitive request in between — fails closed.
  */
 const SENSITIVE_PATH_PATTERN =
-  /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/coins\/purchase|economy\/stars\/purchase|economy\/coins\/withdraw|kyc|auth\/2fa|auth\/pin|auth\/sessions|creator\/bank-account)/;
+  /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/(iap|subscriptions|crypto)|business(?:\/|$)|accounts\/select|economy\/coins\/purchase|economy\/stars\/purchase|economy\/coins\/withdraw|kyc|auth\/2fa|auth\/pin|auth\/sessions|creator\/bank-account)/;
 
 /**
  * Decide whether this request needs live Redis/DB verification.

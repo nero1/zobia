@@ -16,6 +16,9 @@ import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { Icon } from "@/components/ui/Icon";
+import { BusinessAccountProducts } from "@/components/accounts/AccountCatalog";
+import { usePaymentCheckout, type CheckoutResult } from "@/hooks/usePaymentCheckout";
+import { useAccountCatalog } from "@/hooks/useAccountCatalog";
 
 // ---------------------------------------------------------------------------
 // BusinessTierCard
@@ -23,11 +26,7 @@ import { Icon } from "@/components/ui/Icon";
 
 type TierKey = "starter" | "growth" | "enterprise";
 
-const TIERS: { key: TierKey; label: string; price: string }[] = [
-  { key: "starter", label: "Starter", price: "₦5,000/mo" },
-  { key: "growth", label: "Growth", price: "₦15,000/mo" },
-  { key: "enterprise", label: "Enterprise", price: "₦50,000+/mo" },
-];
+type TierOption = { key: TierKey; label: string; price: string };
 
 const TIER_ORDER: Record<TierKey, number> = { starter: 0, growth: 1, enterprise: 2 };
 
@@ -43,12 +42,14 @@ const FEATURES: { label: string; tiers: Record<TierKey, boolean> }[] = [
 ];
 
 function BusinessTierCard({
+  tiers,
   currentTier,
   downgradeToTier,
   downgradeEffectiveAt,
   onUpgraded,
   onDowngradeChanged,
 }: {
+  tiers: TierOption[];
   currentTier: string;
   downgradeToTier: string | null;
   downgradeEffectiveAt: string | null;
@@ -60,6 +61,7 @@ function BusinessTierCard({
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
   const [pendingConflict, setPendingConflict] = useState<{ expiresAt: string | null } | null>(null);
   const [cancellingPending, setCancellingPending] = useState(false);
+  const { checkout, checkoutDialog } = usePaymentCheckout();
 
   const current = (currentTier.toLowerCase() as TierKey) in TIER_ORDER
     ? (currentTier.toLowerCase() as TierKey)
@@ -78,7 +80,7 @@ function BusinessTierCard({
       });
       const body = await res.json() as {
         success?: boolean;
-        data?: { paymentUrl?: string; downgradeToTier?: string; downgradeEffectiveAt?: string; downgradeCancelled?: boolean };
+        data?: CheckoutResult & { downgradeToTier?: string; downgradeEffectiveAt?: string; downgradeCancelled?: boolean };
         error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
       };
       if (!res.ok) {
@@ -89,14 +91,12 @@ function BusinessTierCard({
         }
         throw err;
       }
-      if (body.data?.paymentUrl) {
-        window.location.href = body.data.paymentUrl;
-      } else if (body.data?.downgradeCancelled) {
+      if (body.data?.downgradeCancelled) {
         onDowngradeChanged(null, null);
       } else if (body.data?.downgradeToTier) {
         onDowngradeChanged(body.data.downgradeToTier as TierKey, body.data.downgradeEffectiveAt ?? null);
       } else {
-        onUpgraded(tier);
+        await checkout(body.data ?? {}, () => onUpgraded(tier));
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
@@ -121,6 +121,7 @@ function BusinessTierCard({
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      {checkoutDialog}
       <h2 className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-100">
         Business Tiers
       </h2>
@@ -164,7 +165,7 @@ function BusinessTierCard({
       )}
 
       <div className="grid grid-cols-3 gap-3">
-        {TIERS.map(({ key, label, price }) => {
+        {tiers.map(({ key, label, price }) => {
           const isCurrent = key === current;
           const isUpgradable = TIER_ORDER[key] > TIER_ORDER[current];
           const isEnterprise = key === "enterprise";
@@ -254,6 +255,7 @@ type BusinessType = "retail" | "service" | "media" | "other";
 type VerificationStatus = "unverified" | "pending" | "verified" | "rejected";
 
 interface BusinessAccount {
+  account_type_name?: string;
   id: string;
   user_id: string;
   business_name: string;
@@ -306,6 +308,8 @@ function fmtKobo(kobo: number) {
 
 export default function BusinessSettingsPage() {
   const { t } = useTranslation();
+  const catalog = useAccountCatalog();
+  const tiers: TierOption[] = (catalog.data ?? []).filter(p => p.kind === "business" && p.builtIn && ["starter","growth","enterprise"].includes(p.basePlan)).map(p => ({ key: p.basePlan as TierKey, label: p.name, price: new Intl.NumberFormat(undefined, { style: "currency", currency: "NGN" }).format(p.monthlyPriceKobo / 100) + t("subscription.perMonth", "/mo") }));
   const searchParams = useSearchParams();
   const preselectedTier = searchParams?.get("tier");
   const tRef = useRef(t);
@@ -357,6 +361,8 @@ export default function BusinessSettingsPage() {
       setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
     }
   }, []);
+
+  const { checkout, checkoutDialog } = usePaymentCheckout(loadBusiness);
 
   const loadAnalytics = useCallback(async () => {
     try {
@@ -430,7 +436,7 @@ export default function BusinessSettingsPage() {
       });
       const json = await res.json() as {
         success: boolean;
-        data?: { paymentUrl?: string };
+        data?: CheckoutResult;
         error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
       };
       if (!res.ok) {
@@ -443,10 +449,7 @@ export default function BusinessSettingsPage() {
       }
       // Business account creation is a paid tier (PRD §17) — redirect to checkout.
       // The business_accounts row is only created once the webhook fires.
-      if (json.data?.paymentUrl) {
-        window.location.href = json.data.paymentUrl;
-        return;
-      }
+      await checkout(json.data ?? {});
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to start signup") : "Failed to start signup");
@@ -531,7 +534,7 @@ export default function BusinessSettingsPage() {
       });
       const json = await res.json() as {
         success: boolean;
-        data?: { paymentUrl?: string };
+        data?: CheckoutResult;
         error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
       };
       if (!res.ok) {
@@ -542,10 +545,7 @@ export default function BusinessSettingsPage() {
         }
         throw err;
       }
-      if (json.data?.paymentUrl) {
-        window.location.href = json.data.paymentUrl;
-        return;
-      }
+      await checkout(json.data ?? {});
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to start renewal") : "Failed to start renewal");
@@ -568,6 +568,8 @@ export default function BusinessSettingsPage() {
 
   return (
     <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-6">
+      {checkoutDialog}
+      <BusinessAccountProducts exists={!!business} businessName={businessName} businessType={businessType} onChanged={loadBusiness} />
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link href="/settings" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={12} /> Settings</Link>
@@ -617,6 +619,7 @@ export default function BusinessSettingsPage() {
           <div className="mb-4 flex items-start justify-between">
             <div>
               <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{business.business_name}</h2>
+              {business.account_type_name && <p className="text-sm text-neutral-500">{business.account_type_name}</p>}
               {business.business_type && (
                 <p className="text-sm text-neutral-500 capitalize">{business.business_type}</p>
               )}
@@ -712,6 +715,7 @@ export default function BusinessSettingsPage() {
       {/* Tier comparison */}
       {business && !editing && (
         <BusinessTierCard
+          tiers={tiers}
           currentTier={business.tier}
           downgradeToTier={business.downgrade_to_tier}
           downgradeEffectiveAt={business.downgrade_effective_at}
@@ -809,7 +813,7 @@ export default function BusinessSettingsPage() {
           {/* Plan picker — one button per tier (not just Starter). PRD §17. */}
           {!business && (
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {TIERS.map(({ key, label, price }) => (
+              {tiers.map(({ key, label, price }) => (
                 <div
                   key={key}
                   className={`flex flex-col rounded-xl border p-3 ${

@@ -32,9 +32,9 @@ import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
 import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
-import { getBusinessTierPriceKobo } from "@/lib/business/limits";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
 import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
+import { requireAccountType } from "@/lib/plans/catalog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,6 +54,7 @@ const PENDING_PAYMENT_TTL_MINUTES = 30;
 // ---------------------------------------------------------------------------
 
 const createBusinessSchema = z.object({
+  accountTypeSlug: z.string().regex(/^[a-z][a-z0-9_]{1,47}$/).optional(),
   business_name: z.string().min(2).max(120),
   business_type: z.string().max(80).optional(),
   paymentProvider: z.enum(["paystack", "crypto"]).optional(),
@@ -91,16 +92,13 @@ interface BusinessAccountRow {
   updated_at: string;
 }
 
-// NOTE (schema mismatch): `current_period_ends_at` exists on the real
-// business_accounts table (db/migrations/0001_consolidated_schema.sql) but
-// is missing from the Drizzle table definition in lib/db/schema.ts — it is
-// selected here via a raw `sql` template until that's added upstream.
 const businessAccountSelection = {
   id: schema.businessAccounts.id,
   userId: schema.businessAccounts.userId,
   businessName: schema.businessAccounts.businessName,
   businessType: schema.businessAccounts.businessType,
   tier: schema.businessAccounts.tier,
+  accountTypeSlug: schema.businessAccounts.accountTypeSlug,
   verified: schema.businessAccounts.verified,
   status: schema.businessAccounts.status,
   verificationStatus: schema.businessAccounts.verificationStatus,
@@ -110,7 +108,7 @@ const businessAccountSelection = {
   subscriptionId: schema.businessAccounts.subscriptionId,
   downgradeToTier: schema.businessAccounts.downgradeToTier,
   downgradeEffectiveAt: schema.businessAccounts.downgradeEffectiveAt,
-  currentPeriodEndsAt: sql<string | null>`current_period_ends_at`.as("current_period_ends_at"),
+  currentPeriodEndsAt: schema.businessAccounts.currentPeriodEndsAt,
   createdAt: schema.businessAccounts.createdAt,
   updatedAt: schema.businessAccounts.updatedAt,
 };
@@ -130,7 +128,7 @@ function toBusinessAccountRow(row: {
   subscriptionId: string | null;
   downgradeToTier: string | null;
   downgradeEffectiveAt: Date | null;
-  currentPeriodEndsAt: string | null;
+  currentPeriodEndsAt: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
 }): BusinessAccountRow {
@@ -149,7 +147,7 @@ function toBusinessAccountRow(row: {
     subscription_id: row.subscriptionId,
     downgrade_to_tier: row.downgradeToTier,
     downgrade_effective_at: row.downgradeEffectiveAt ? row.downgradeEffectiveAt.toISOString() : null,
-    current_period_ends_at: row.currentPeriodEndsAt,
+    current_period_ends_at: row.currentPeriodEndsAt?.toISOString() ?? null,
     created_at: row.createdAt ? row.createdAt.toISOString() : "",
     updated_at: row.updatedAt ? row.updatedAt.toISOString() : "",
   };
@@ -171,10 +169,11 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       .limit(1);
 
     if (!rows[0]) throw notFound("Business account not found");
+    const product = await requireAccountType(rows[0].accountTypeSlug ?? `business_${rows[0].tier}`, "business", undefined, false);
 
     return NextResponse.json({
       success: true,
-      data: { business: toBusinessAccountRow(rows[0]) },
+      data: { business: { ...toBusinessAccountRow(rows[0]), account_type_slug: product.slug, account_type_name: product.name } },
       error: null,
     });
   } catch (err) {
@@ -216,8 +215,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const userEmail = userRows[0].email ?? `${userRows[0].username}@zobia.placeholder`;
 
     // Resolve the chosen tier's price from x_manifest (admin-configurable)
-    const tier = body.tier ?? "starter";
-    const priceKobo = await getBusinessTierPriceKobo(tier);
+    const product = await requireAccountType(body.accountTypeSlug ?? `business_${body.tier}`, "business");
+    const tier = product.basePlan;
+    const priceKobo = product.monthlyPriceKobo;
 
     if (priceKobo <= 0) {
       throw badRequest("Invalid tier price configuration");
@@ -230,6 +230,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const metadata = {
       userId,
       businessName: body.business_name,
+      accountTypeSlug: product.slug,
       businessType: body.business_type ?? null,
       tier,
       type: "business_signup",

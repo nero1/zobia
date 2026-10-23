@@ -14,8 +14,9 @@ import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
-import { getDb, schema } from "@/lib/db/drizzle";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
+import { requireAccountType } from "@/lib/plans/catalog";
 
 // ---------------------------------------------------------------------------
 // Shared: load and authorize subscription
@@ -25,13 +26,15 @@ interface SubscriptionRow {
   id: string;
   userId: string;
   plan: string;
+  accountTypeSlug: string | null;
+  provider: string | null;
   status: string;
   endsAt: Date | null;
   cancelledAt: Date | null;
 }
 
 async function loadOwnSubscription(
-  orm: Awaited<ReturnType<typeof getDb>>,
+  orm: DbOrTx,
   subscriptionId: string,
   userId: string
 ): Promise<SubscriptionRow> {
@@ -40,6 +43,8 @@ async function loadOwnSubscription(
       id: schema.subscriptions.id,
       userId: schema.subscriptions.userId,
       plan: schema.subscriptions.plan,
+      accountTypeSlug: schema.subscriptions.accountTypeSlug,
+      provider: schema.subscriptions.provider,
       status: schema.subscriptions.status,
       endsAt: schema.subscriptions.endsAt,
       cancelledAt: schema.subscriptions.cancelledAt,
@@ -81,15 +86,21 @@ export const DELETE = withAuth(
 
       const subscription = await loadOwnSubscription(orm, subscriptionId, userId);
 
+      if (subscription.provider === "google_play") throw badRequest("Manage or cancel this subscription in Google Play", "PLAY_BILLING_REQUIRED");
+
       if (subscription.status === "cancelled") {
         throw badRequest("Subscription is already cancelled");
       }
 
-      // Mark as cancelled — access continues until current_period_end
-      await orm
-        .update(schema.subscriptions)
-        .set({ status: "cancelled", cancelledAt: sql`NOW()`, updatedAt: sql`NOW()` })
-        .where(eq(schema.subscriptions.id, subscriptionId));
+      await orm.transaction(async tx => {
+        await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+        const current = await loadOwnSubscription(tx, subscriptionId, userId);
+        if (current.provider === "google_play") throw badRequest("Manage this subscription in Google Play", "PLAY_BILLING_REQUIRED");
+        if (!["active", "trialing"].includes(current.status)) throw badRequest("Can only cancel an active subscription");
+        await tx.update(schema.subscriptions)
+          .set({ status: "cancelled", autoRenew: false, cancelledAt: sql`NOW()`, updatedAt: sql`NOW()` })
+          .where(eq(schema.subscriptions.id, subscriptionId));
+      });
 
       logger.info(
         { userId, subscriptionId, plan: subscription.plan, endsAt: subscription.endsAt },
@@ -156,22 +167,28 @@ export const PUT = withAuth(
       }
 
       const newPlan = planRows[0];
+      const product = await requireAccountType(newPlan.plan, "personal");
+      if (subscription.provider === "google_play") throw badRequest("Change a Play-billed subscription through Google Play", "PLAY_BILLING_REQUIRED");
 
-      if (newPlan.plan === subscription.plan) {
+      if (product.slug === (subscription.accountTypeSlug ?? subscription.plan)) {
         throw badRequest("Already on this plan");
       }
 
       await orm.transaction(async (tx) => {
+        await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+        const current = await loadOwnSubscription(tx, subscriptionId, userId);
+        if (current.provider === "google_play") throw badRequest("Change this subscription through Google Play", "PLAY_BILLING_REQUIRED");
+        if (!["active", "trialing"].includes(current.status) || (current.endsAt && current.endsAt <= new Date())) throw badRequest("Can only change an active subscription");
         // Update the subscription plan
         await tx
           .update(schema.subscriptions)
-          .set({ plan: newPlan.plan, updatedAt: sql`NOW()` })
+          .set({ plan: product.basePlan, accountTypeSlug: product.slug, updatedAt: sql`NOW()` })
           .where(eq(schema.subscriptions.id, subscriptionId));
 
         // Update user's plan column
         await tx
           .update(schema.users)
-          .set({ plan: newPlan.plan, updatedAt: sql`NOW()` })
+          .set({ plan: product.basePlan, accountTypeSlug: product.slug, updatedAt: sql`NOW()` })
           .where(eq(schema.users.id, userId));
       });
 
@@ -179,7 +196,8 @@ export const PUT = withAuth(
         success: true,
         subscription: {
           id: subscriptionId,
-          plan: newPlan.plan,
+          plan: product.basePlan,
+          accountTypeSlug: product.slug,
           planName: newPlan.name,
         },
       });

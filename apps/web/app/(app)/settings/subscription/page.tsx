@@ -11,6 +11,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { PersonalAccountProducts } from "@/components/accounts/AccountCatalog";
+import { usePaymentCheckout, type CheckoutResult } from "@/hooks/usePaymentCheckout";
+import { useAccountCatalog } from "@/hooks/useAccountCatalog";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { CancelPlanModal } from "@/components/settings/CancelPlanModal";
@@ -23,9 +26,11 @@ type PlanId = "free" | "plus" | "pro" | "max";
 type BillingInterval = "monthly" | "annual";
 
 interface CurrentPlanData {
+  accountTypeName?: string;
   plan: PlanId;
   subscriptionId?: string | null;
   subscription?: {
+    provider?: string | null;
     interval?: BillingInterval;
     currentPeriodEnd?: string;
     cancelAtPeriodEnd?: boolean;
@@ -39,17 +44,20 @@ interface MeResponse {
 
 /** Matches GET /api/economy/subscriptions's actual response shape (app/api/economy/subscriptions/route.ts). */
 interface SubscriptionsGetResponse {
+  currentAccountType?: { name: string; slug: string } | null;
   currentSubscription?: {
     id: string;
     plan: PlanId;
     status: string;
     currentPeriodEnd?: string | null;
     cancelledAt?: string | null;
+    provider?: string | null;
   } | null;
   availablePlans?: {
     id: string;
     plan: PlanId;
     interval: BillingInterval;
+    builtIn?: boolean;
   }[];
 }
 
@@ -302,6 +310,7 @@ export default function SubscriptionPage() {
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
   const router = useRouter();
+  const catalog = useAccountCatalog();
   const [planData, setPlanData] = useState<CurrentPlanData | null>(null);
   // Maps "plan:interval" -> subscription_plans.id, from GET's availablePlans —
   // needed to resolve the newPlanId a plan-change (PUT) or new subscription
@@ -334,20 +343,23 @@ export default function SubscriptionPage() {
     // A subscription row can linger with status='cancelled' until its period
     // actually ends (see DELETE handler) — only treat it as "active paid plan
     // benefits, ending soon" if it's still that user's current plan.
-    const isCancelled = sub?.status === "cancelled" && sub.plan === planId;
+    const isCancelled = (sub?.status === "cancelled" || !!sub?.cancelledAt) && sub?.plan === planId;
     const data: CurrentPlanData = {
+      accountTypeName: subJson?.currentAccountType?.name,
       plan: planId,
       subscriptionId: sub && sub.plan === planId ? sub.id : null,
       subscription: sub && sub.plan === planId ? {
+        provider: sub.provider,
         currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
         cancelAtPeriodEnd: isCancelled,
       } : null,
     };
     setPlanData(data);
     setPlanIdsByPlanInterval(
-      Object.fromEntries((subJson?.availablePlans ?? []).map((p) => [`${p.plan}:${p.interval}`, p.id]))
+      Object.fromEntries((subJson?.availablePlans ?? []).filter(p => p.builtIn !== false).map((p) => [`${p.plan}:${p.interval}`, p.id]))
     );
   }, [router]);
+  const { checkout, checkoutDialog } = usePaymentCheckout(loadPlanData);
 
   useEffect(() => {
     (async () => {
@@ -380,6 +392,10 @@ export default function SubscriptionPage() {
   }
 
   async function handleUpgrade(targetPlan: PlanId) {
+    if (planData?.subscription?.provider === "google_play") {
+      window.open("https://play.google.com/store/account/subscriptions", "_blank", "noopener,noreferrer");
+      return;
+    }
     const currentPlanAtTime = (planData?.plan ?? "free") as PlanId;
     const isUpgrading = planRank(targetPlan) > planRank(currentPlanAtTime);
 
@@ -447,13 +463,10 @@ export default function SubscriptionPage() {
         err.code = d.error?.code ?? null;
         throw err;
       }
-      const d = (await res.json()) as { paymentUrl?: string; checkoutUrl?: string; redirectUrl?: string };
-      const url = d.paymentUrl ?? d.checkoutUrl ?? d.redirectUrl;
-      if (url) {
-        window.location.href = url;
-      } else {
+      const d = (await res.json()) as CheckoutResult;
+      await checkout(d);
+      if (d.free) {
         showToast(t(isUpgrading ? 'subscription.upgradedSuccess' : 'subscription.downgradedSuccess', { plan: targetPlan }));
-        await loadPlanData();
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
@@ -514,9 +527,16 @@ export default function SubscriptionPage() {
   const isCancelled = subscription?.cancelAtPeriodEnd === true;
   const currentPeriodEnd = subscription?.currentPeriodEnd;
   const currentRank = planRank(currentPlan);
+  const availablePlans = PLANS.flatMap(plan => {
+    const product = catalog.data?.find(p => p.kind === "personal" && p.builtIn && p.basePlan === plan.id);
+    return product ? [{ ...plan, name: product.name, monthlyPrice: product.monthlyPriceKobo / 100, annualPrice: product.annualPriceKobo / 100 }] : [];
+  }).sort((a,b) => interval === "annual" ? a.annualPrice - b.annualPrice : a.monthlyPrice - b.monthlyPrice);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6">
+      <PersonalAccountProducts onChanged={loadPlanData} />
+      {checkoutDialog}
+      {catalog.isError && <p role="alert">{t("accountCatalog.failed", "Unable to load account settings")} <button type="button" className="underline" onClick={() => void catalog.refetch()}>{t("common.retry", "Retry")}</button></p>}
       {/* Toast */}
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
@@ -548,7 +568,7 @@ export default function SubscriptionPage() {
             <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('subscription.currentPlan')}</p>
             <div className="mt-1.5 flex items-center gap-2">
               <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold capitalize ${PLANS.find((p) => p.id === currentPlan)?.badgeClass ?? ""}`}>
-                {currentPlan}
+                {planData?.accountTypeName ?? currentPlan}
               </span>
               {isCancelled && (
                 <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600 dark:bg-red-900 dark:text-red-300">
@@ -565,7 +585,7 @@ export default function SubscriptionPage() {
 
           {isPaidPlan && !isCancelled && (
             <button
-              onClick={() => setShowCancelModal(true)}
+              onClick={() => planData?.subscription?.provider === "google_play" ? window.open("https://play.google.com/store/account/subscriptions", "_blank", "noopener,noreferrer") : setShowCancelModal(true)}
               className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
             >
               {t('subscription.cancelSubscription')}
@@ -592,16 +612,16 @@ export default function SubscriptionPage() {
             className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${interval === "annual" ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
           >
             {t('subscription.annual')}
-            <span className="rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+            {availablePlans.filter(p => p.id !== "free").length > 0 && availablePlans.filter(p => p.id !== "free").every(p => p.annualPrice === p.monthlyPrice * 10) && <span className="rounded-full bg-teal-100 px-1.5 py-0.5 text-xs font-bold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
               {t('subscription.monthsFree')}
-            </span>
+            </span>}
           </button>
         </div>
       </div>
 
       {/* Plan cards */}
       <div id="plan-comparison" className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        {PLANS.map((plan) => (
+        {availablePlans.map((plan) => (
           <PlanCard
             key={plan.id}
             plan={plan}

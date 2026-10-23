@@ -27,14 +27,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { BUSINESS_TIER_PRODUCTS, purchaseBusinessTier } from '@/lib/payments/googlePlay';
+import { purchaseBusinessTier } from '@/lib/payments/googlePlay';
+import { useAccountCatalog } from '@/lib/payments/useAccountCatalog';
 import { Icon } from '@/components/ui/Icon';
+import { AccountProducts } from '@/components/accounts/AccountProducts';
 
 type BusinessType = 'retail' | 'service' | 'media' | 'other';
 type VerificationStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
 type TierKey = 'starter' | 'growth' | 'enterprise';
 
 interface BusinessAccount {
+  account_type_name?: string;
   id: string;
   business_name: string;
   business_type: BusinessType | null;
@@ -76,6 +79,8 @@ function fmtKobo(kobo: number): string {
 
 function BusinessPage() {
   const { t } = useTranslation();
+  const catalog = useAccountCatalog();
+  const businessProducts = (catalog.data ?? []).filter(p => p.kind === 'business' && p.builtIn && ['starter','growth','enterprise'].includes(p.basePlan)).map(p => ({ id: p.playMonthlyProductId ?? '', tier: p.basePlan as TierKey, label: p.name, price: p.playMonthlyProductId && catalog.price(p.playMonthlyProductId) || t('accountCatalog.storePrice', 'Review the price in Google Play before confirming') }));
   const [business, setBusiness] = useState<BusinessAccount | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,8 +99,8 @@ function BusinessPage() {
 
   const loadBusiness = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ data: { business: BusinessAccount } }>('/business');
-      const biz = res.data.data.business;
+      const res = await apiClient.get<{ business: BusinessAccount }>('/business');
+      const biz = res.data.business;
       setBusiness(biz);
       setBusinessName(biz.business_name);
       setBusinessType((biz.business_type as BusinessType) ?? 'retail');
@@ -107,8 +112,8 @@ function BusinessPage() {
 
   const loadAnalytics = useCallback(async () => {
     try {
-      const res = await apiClient.get<{ data: { analytics: Analytics } }>('/business/analytics');
-      setAnalytics(res.data.data.analytics);
+      const res = await apiClient.get<{ analytics: Analytics }>('/business/analytics');
+      setAnalytics(res.data.analytics);
     } catch { /* non-critical */ }
   }, []);
 
@@ -119,11 +124,11 @@ function BusinessPage() {
     if (!business) return;
     setSubmitting(true);
     try {
-      const res = await apiClient.patch<{ data?: { business: BusinessAccount } }>('/business', {
+      const res = await apiClient.patch<{ business?: BusinessAccount }>('/business', {
         business_name: businessName.trim(),
         business_type: businessType,
       });
-      if (res.data.data?.business) setBusiness(res.data.data.business);
+      if (res.data.business) setBusiness(res.data.business);
       setEditing(false);
       showToast(t('business.updateSuccess', 'Business info updated!'));
     } catch {
@@ -135,8 +140,8 @@ function BusinessPage() {
 
   /** Create the account, or change its tier, via Google Play Billing (Android IAP policy — see file header). */
   async function handleTierAction(tier: TierKey) {
-    const product = BUSINESS_TIER_PRODUCTS.find((p) => p.tier === tier);
-    if (!product) return;
+    const product = businessProducts.find((p) => p.tier === tier);
+    if (!product?.id) return;
     if (!business && !businessName.trim()) {
       showToast(t('business.error.nameRequired', 'Business name is required'), 'error');
       return;
@@ -195,6 +200,7 @@ function BusinessPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
+      <AccountProducts kind="business" businessName={businessName.trim() || undefined} businessType={businessType} onChanged={loadBusiness} />
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
@@ -213,6 +219,7 @@ function BusinessPage() {
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{business.business_name}</h2>
+              {business.account_type_name && <p className="text-sm text-neutral-500">{business.account_type_name}</p>}
               {business.business_type && <p className="text-sm capitalize text-neutral-500 dark:text-neutral-400">{business.business_type}</p>}
             </div>
             <span className={`inline-flex flex-shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${badge.classes}`}>
@@ -293,7 +300,7 @@ function BusinessPage() {
         <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
           <h3 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('business.tiers.title', 'Business Tiers')}</h3>
           <div className="space-y-2">
-            {BUSINESS_TIER_PRODUCTS.map((product) => {
+            {businessProducts.map((product) => {
               const isCurrent = product.tier === currentTierKey;
               const isUpgrade = TIER_ORDER[product.tier] > TIER_ORDER[currentTierKey];
               return (
@@ -307,7 +314,7 @@ function BusinessPage() {
                   ) : (
                     <button
                       onClick={() => void handleTierAction(product.tier)}
-                      disabled={tierBusy !== null}
+                      disabled={tierBusy !== null || !product.id}
                       className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${isUpgrade ? 'bg-blue-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                     >
                       {tierBusy === product.tier ? t('subscription.redirecting', 'Redirecting…') : isUpgrade ? t('business.tier.upgrade', 'Upgrade') : t('business.downgrade.button', 'Downgrade')}
@@ -368,11 +375,11 @@ function BusinessPage() {
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {t('business.createHint', "Fill in your business details, then pick a plan below — you'll be charged via Google Play.")}
                 </p>
-                {BUSINESS_TIER_PRODUCTS.map((product) => (
+                {businessProducts.map((product) => (
                   <button
                     key={product.id}
                     onClick={() => void handleTierAction(product.tier)}
-                    disabled={tierBusy !== null || !businessName.trim()}
+                    disabled={tierBusy !== null || !businessName.trim() || !product.id}
                     className="flex w-full items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 disabled:opacity-50"
                   >
                     <span>{product.label} — {product.price}</span>

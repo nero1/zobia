@@ -13,7 +13,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 /**
@@ -25,9 +25,9 @@ import { logger } from "@/lib/logger";
  * mismatch — reported upstream), so this uses Drizzle's `sql` tag directly
  * rather than the query builder.
  */
-export async function deactivateGroupsForUser(userId: string): Promise<number> {
+export async function deactivateGroupsForUser(userId: string, transaction?: DbOrTx): Promise<number> {
   try {
-    const orm = await getDb();
+    const orm = transaction ?? await getDb();
     const result = await orm.execute(sql`
       UPDATE group_chats
       SET is_deactivated = TRUE, deactivated_at = NOW(),

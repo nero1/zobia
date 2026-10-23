@@ -165,7 +165,7 @@ const updateProfileSchema = z.object({
 
 const SELECT_COLUMNS = `
   id, email, username, display_name, bio, avatar_url, avatar_emoji,
-  city, country, locale, plan, is_admin, COALESCE(is_moderator, false) AS is_moderator,
+  city, country, locale, plan, account_type_slug, is_admin, COALESCE(is_moderator, false) AS is_moderator,
   COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support,
   is_creator, is_verified,
   EXISTS(SELECT 1 FROM platform_council_members pcm WHERE pcm.user_id = users.id AND pcm.left_at IS NULL) AS is_council_member,

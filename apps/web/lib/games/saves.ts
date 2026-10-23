@@ -14,7 +14,7 @@
  */
 
 import { sql } from "drizzle-orm";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { conflict, notFound, badRequest } from "@/lib/api/errors";
 import { getSaveSlotLimit } from "@/lib/plans/saveSlots";
 
@@ -165,9 +165,10 @@ export async function deleteSaveForUser(userId: string, saveId: string): Promise
 export async function reconcileSavesForUser(
   userId: string,
   limit: number,
-  deleteIds?: string[]
+  deleteIds?: string[],
+  transaction?: DbOrTx
 ): Promise<string[]> {
-  const db = await getDb();
+  const db = transaction ?? await getDb();
   if (deleteIds && deleteIds.length > 0) {
     const result = await db.execute<{ id: string }>(
       sql`DELETE FROM game_saves WHERE id = ANY(${sql.param(deleteIds)}::uuid[]) AND user_id = ${userId} RETURNING id`

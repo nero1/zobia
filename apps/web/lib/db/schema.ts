@@ -92,6 +92,41 @@ export const cronState = pgTable("cron_state", {
 // SECTION 2: Users & Auth
 // ---------------------------------------------------------------------------
 
+/** Account products inherit an established entitlement tier; billing identity
+ * stays separate from the tier so custom products cannot bypass feature gates. */
+export const accountTypes = pgTable("account_types", {
+  slug: text("slug").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull().default(""),
+  kind: text("kind").notNull(),
+  basePlan: text("base_plan").notNull(),
+  monthlyPriceKobo: bigint("monthly_price_kobo", { mode: "bigint" }).notNull(),
+  annualPriceKobo: bigint("annual_price_kobo", { mode: "bigint" }).notNull(),
+  playMonthlyProductId: text("play_monthly_product_id"),
+  playAnnualProductId: text("play_annual_product_id"),
+  isActive: boolean("is_active").notNull().default(true),
+  builtIn: boolean("built_in").notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const playPurchaseReceipts = pgTable("play_purchase_receipts", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  productId: text("product_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const accountTypePlayProducts = pgTable("account_type_play_products", {
+  productId: text("product_id").primaryKey(),
+  accountTypeSlug: text("account_type_slug").notNull().references(() => accountTypes.slug),
+  interval: text("interval").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const users = pgTable("users", {
   id: uuidPk(),
   username: text("username").notNull().unique(),
@@ -126,6 +161,7 @@ export const users = pgTable("users", {
 
   // Status
   plan: text("plan").notNull().default("free"),
+  accountTypeSlug: text("account_type_slug").references(() => accountTypes.slug),
   isAdmin: boolean("is_admin").notNull().default(false),
   isModerator: boolean("is_moderator").notNull().default(false),
   isCreator: boolean("is_creator").notNull().default(false),
@@ -3327,6 +3363,7 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   maxCreators: integer("max_creators").default(10),
   maxApplications: integer("max_applications"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   // Migration 0003 (db): business self-service submission + moderation.
   // business_account_id IS NULL for the pre-existing admin-published flow
   // (moderation_status defaults to 'approved' for those); business-submitted
@@ -4534,6 +4571,7 @@ export const subscriptions = pgTable(
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   plan: text("plan").notNull(),
+  accountTypeSlug: text("account_type_slug").references(() => accountTypes.slug),
   billingPeriod: text("billing_period").notNull().default("monthly"),
   // 'active' | 'cancelled' | 'grace' (lapsed but within the plan's grace
   // period — perks selected by admin are preserved) | 'lapsed' (grace
@@ -4641,9 +4679,13 @@ export const businessAccounts = pgTable("business_accounts", {
   businessName: text("business_name").notNull(),
   businessType: text("business_type"),
   tier: text("tier").notNull().default("starter"),
+  accountTypeSlug: text("account_type_slug").references(() => accountTypes.slug),
+  pendingAccountTypeSlug: text("pending_account_type_slug").references(() => accountTypes.slug),
+  downgradeAccountTypeSlug: text("downgrade_account_type_slug").references(() => accountTypes.slug),
   pendingTier: text("pending_tier"),
   pendingPaymentRef: text("pending_payment_ref"),
   tierUpdatedAt: timestamp("tier_updated_at", { withTimezone: true }),
+  currentPeriodEndsAt: timestamp("current_period_ends_at", { withTimezone: true }),
   verified: boolean("verified").default(false),
   status: text("status").notNull().default("active"),
   subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
@@ -7211,6 +7253,9 @@ export const automationJobs=pgTable("automation_jobs",{id:uuidPk(),accountId:uui
 export const automationGenerations=pgTable("automation_generations",{id:uuidPk(),jobId:uuid("job_id").references(()=>automationJobs.id,{onDelete:"set null"}),accountId:uuid("account_id").notNull().references(()=>users.id,{onDelete:"cascade"}),targetType:text("target_type").notNull(),targetId:uuid("target_id").notNull(),title:text("title").notNull(),body:text("body").notNull(),normalized:text("normalized").notNull(),fingerprint:text("fingerprint").notNull().unique(),status:text("status").notNull().default("review"),reviewedBy:uuid("reviewed_by").references(()=>users.id,{onDelete:"set null"}),reviewedAt:timestamp("reviewed_at",{withTimezone:true}),reviewReason:text("review_reason").notNull(),provider:text("provider").notNull(),publishedContentId:uuid("published_content_id"),publishedUrl:text("published_url"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),publishedAt:timestamp("published_at",{withTimezone:true})});
 
 export const schema = {
+  accountTypePlayProducts,
+  playPurchaseReceipts,
+  accountTypes,
  automationAccounts,automationJobs,automationGenerations,
  taleModerationLog,
  tales, taleChapters, taleUnlocks, taleAuthorSubscriptions, taleVotes, taleComments, taleAccountRestrictions, taleAppeals,

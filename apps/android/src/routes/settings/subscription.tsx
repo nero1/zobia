@@ -23,10 +23,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { AccountProducts } from '@/components/accounts/AccountProducts';
+import { useAccountCatalog } from '@/lib/payments/useAccountCatalog';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   SUBSCRIPTION_PRODUCTS,
-  ANNUAL_SUBSCRIPTION_PRODUCTS,
   purchaseSubscription,
   type SubscriptionProduct,
 } from '@/lib/payments/googlePlay';
@@ -83,9 +84,11 @@ interface CurrentSubscription {
   status: string;
   currentPeriodEnd?: string | null;
   cancelledAt?: string | null;
+  provider?: string | null;
 }
 
 interface SubscriptionsGetResponse {
+  currentAccountType?: { name: string; slug: string } | null;
   currentSubscription?: CurrentSubscription | null;
 }
 
@@ -96,7 +99,9 @@ function formatDate(iso: string): string {
 function SubscriptionPage() {
   const { t } = useTranslation();
   const currency = useCurrency();
+  const catalog = useAccountCatalog();
   const [plan, setPlan] = useState<PlanId>('free');
+  const [accountTypeName, setAccountTypeName] = useState<string>();
   const [sub, setSub] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +124,7 @@ function SubscriptionPage() {
       const planId = (meRes.data.user?.plan ?? 'free') as PlanId;
       const current = subRes.data.currentSubscription;
       setPlan(planId);
+      setAccountTypeName(subRes.data.currentAccountType?.name);
       setSub(current && current.plan === planId ? current : null);
     } catch {
       setError(t('subscription.loadError', 'Failed to load subscription info'));
@@ -130,8 +136,10 @@ function SubscriptionPage() {
   useEffect(() => { void load(); }, [load]);
 
   function productFor(targetPlan: 'plus' | 'pro' | 'max'): SubscriptionProduct | undefined {
-    const list = interval === 'annual' ? ANNUAL_SUBSCRIPTION_PRODUCTS : SUBSCRIPTION_PRODUCTS;
-    return list.find((p) => p.plan === targetPlan);
+    const product = catalog.data?.find(p => p.kind === 'personal' && p.builtIn && p.basePlan === targetPlan);
+    const id = interval === 'annual' ? product?.playAnnualProductId : product?.playMonthlyProductId;
+    if (!product || !id) return undefined;
+    return { id, plan: targetPlan, label: product.name, monthlyPrice: catalog.price(id) ?? t('accountCatalog.storePrice', 'Review the price in Google Play before confirming'), monthlyCoins: SUBSCRIPTION_PRODUCTS.find(p => p.plan === targetPlan)?.monthlyCoins ?? 0 };
   }
 
   async function handleUpgrade(targetPlan: 'plus' | 'pro' | 'max') {
@@ -171,14 +179,15 @@ function SubscriptionPage() {
 
   const currentRank = planRank(plan);
   const isPaid = plan !== 'free';
-  const isCancelled = sub?.status === 'cancelled';
+  const isCancelled = sub?.status === 'cancelled' || !!sub?.cancelledAt;
   // Paid plan but no Paystack-tracked subscription row => was purchased via
   // Google Play Billing (see the module docstring) and can only actually be
   // stopped through the Play Store.
-  const managedByPlayStore = isPaid && !sub;
+  const managedByPlayStore = isPaid && (!sub || sub.provider === 'google_play');
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
+      <AccountProducts onChanged={load} />
       {showCancelModal && (
         <CancelPlanModal
           planName={plan}
@@ -206,7 +215,7 @@ function SubscriptionPage() {
       <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
         <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('subscription.currentPlan', 'Current Plan')}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold capitalize ${PLAN_BADGE[plan]}`}>{plan}</span>
+          <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold capitalize ${PLAN_BADGE[plan]}`}>{accountTypeName ?? plan}</span>
           {isCancelled && sub?.currentPeriodEnd && (
             <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-300">
               {t('subscription.cancels', { date: formatDate(sub.currentPeriodEnd) })}
@@ -244,7 +253,7 @@ function SubscriptionPage() {
 
       {/* Upgrade tiers */}
       <div className="space-y-2">
-        {(['plus', 'pro', 'max'] as const).map((tierPlan) => {
+        {(catalog.data ?? []).filter(p => p.kind === 'personal' && p.builtIn && ['plus','pro','max'].includes(p.basePlan)).sort((a,b) => interval === 'annual' ? a.annualPriceKobo - b.annualPriceKobo : a.monthlyPriceKobo - b.monthlyPriceKobo).map(p => p.basePlan as 'plus' | 'pro' | 'max').map((tierPlan) => {
           const product = productFor(tierPlan);
           const isCurrent = tierPlan === plan;
           const isUpgrade = planRank(tierPlan) > currentRank;
@@ -266,7 +275,7 @@ function SubscriptionPage() {
               ) : isUpgrade ? (
                 <button
                   onClick={() => void handleUpgrade(tierPlan)}
-                  disabled={busy !== null}
+                  disabled={busy !== null || !product}
                   className="flex-shrink-0 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white disabled:opacity-60"
                 >
                   {busy === tierPlan ? t('subscription.redirecting', 'Redirecting…') : t('subscription.upgradeTo', { plan: tierPlan })}
@@ -274,7 +283,7 @@ function SubscriptionPage() {
               ) : (
                 <button
                   onClick={() => void handleUpgrade(tierPlan)}
-                  disabled={busy !== null}
+                  disabled={busy !== null || !product}
                   className="flex-shrink-0 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400 disabled:opacity-60"
                 >
                   {busy === tierPlan ? t('subscription.redirecting', 'Redirecting…') : t('subscription.switchTo', { plan: tierPlan })}

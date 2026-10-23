@@ -157,6 +157,10 @@ export async function consumeGooglePlayPurchase(
 export interface GooglePlaySubscriptionPurchase {
   paymentState?: number; // 1 = payment received, 2 = free trial
   cancelReason?: number;
+  expiryTimeMillis?: string;
+  startTimeMillis?: string;
+  autoRenewing?: boolean;
+  obfuscatedExternalAccountId?: string;
 }
 
 /**
@@ -177,7 +181,7 @@ export async function verifyGooglePlaySubscriptionPurchase(
       );
     }
     logger.warn("[googlePlayVerify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
-    return { paymentState: 1 };
+    return { paymentState: 1, startTimeMillis: String(Date.now()), expiryTimeMillis: String(Date.now() + 30 * 86400_000), autoRenewing: false };
   }
 
   const accessToken = await getGoogleAccessToken(sa);

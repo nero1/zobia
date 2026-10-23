@@ -63,6 +63,7 @@ export interface PaystackChargeEvent {
       tier?: string;
       /** Set on POST /api/economy/subscriptions payments — see the itemType === "subscription" branch below. */
       planName?: string;
+      accountTypeSlug?: string;
       interval?: "monthly" | "annual";
       /** "ad_wallet" routes a coin_pack credit to the Ad Wallet instead of coin_balance. */
       destination?: "main_wallet" | "ad_wallet";
@@ -181,6 +182,11 @@ export async function processChargeSuccess(
       return;
     }
 
+    if (["business_signup", "business_upgrade", "business_renewal"].includes(itemType ?? "")) {
+      // Match expiry/Play lock order, including notification foreign-key locks.
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+    }
+
     // Subscription charges — plan activation.
     //
     // This used to defer activation to a Paystack `subscription.create` event
@@ -195,6 +201,7 @@ export async function processChargeSuccess(
     // Subscription object anyway. Mirrors the `itemType === "subscription"`
     // branch handling used by other provider integrations.
     if (itemType === "subscription") {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
       const VALID_PLANS = ["plus", "pro", "max"] as const;
       const rawPlanName = metadata.planName ?? "";
       if (!VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])) {
@@ -228,6 +235,7 @@ export async function processChargeSuccess(
         .values({
           userId,
           plan: planName,
+          accountTypeSlug: metadata.accountTypeSlug ?? planName,
           billingPeriod,
           status: "active",
           provider: "paystack",
@@ -240,6 +248,7 @@ export async function processChargeSuccess(
           target: schema.subscriptions.userId,
           set: {
             plan: planName,
+            accountTypeSlug: metadata.accountTypeSlug ?? planName,
             billingPeriod,
             status: "active",
             provider: "paystack",
@@ -250,7 +259,7 @@ export async function processChargeSuccess(
           },
         });
 
-      await tx.update(schema.users).set({ plan: planName, updatedAt: sql`NOW()` }).where(eq(schema.users.id, userId));
+      await tx.update(schema.users).set({ plan: planName, accountTypeSlug: metadata.accountTypeSlug ?? planName, updatedAt: sql`NOW()` }).where(eq(schema.users.id, userId));
 
       // Award monthly subscription bonus coins (PRD §3) — dedup key scoped to
       // plan + user + calendar month so a re-delivered webhook (or the
@@ -417,22 +426,12 @@ export async function processChargeSuccess(
       }
       const tier = ["starter", "growth", "enterprise"].includes(signupTier as string) ? (signupTier as string) : "starter";
 
-      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
-      // modeled in lib/db/schema.ts — this insert therefore goes through
-      // Drizzle's `sql` tagged template via `.execute()` (still the shared
-      // Drizzle-wrapped pg.Pool, still fully parameterised) instead of the
-      // query builder. Report this gap — do not edit schema.ts here.
-      //
-      // Idempotent: business_accounts.user_id is UNIQUE, so a replayed webhook
-      // (or a race with a second signup attempt) simply no-ops here.
-      const createdResult = await tx.execute<{ id: string }>(sql`
-        INSERT INTO business_accounts
-           (user_id, business_name, business_type, tier, verified, status, current_period_ends_at, created_at, updated_at)
-         VALUES (${userId}, ${businessName}, ${businessType ?? null}, ${tier}, FALSE, 'active', NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval, NOW(), NOW())
-         ON CONFLICT (user_id) DO NOTHING
-         RETURNING id
-      `);
-      const createdRows = createdResult.rows;
+      const createdRows = await tx.insert(schema.businessAccounts).values({
+        userId, businessName, businessType: businessType ?? null, tier,
+        accountTypeSlug: metadata.accountTypeSlug ?? `business_${tier}`,
+        verified: false, status: "active",
+        currentPeriodEndsAt: sql`NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval`,
+      }).onConflictDoNothing({ target: schema.businessAccounts.userId }).returning({ id: schema.businessAccounts.id });
 
       if (!createdRows[0]) {
         // The idempotency guard above (top of this function) only short-circuits
@@ -472,27 +471,19 @@ export async function processChargeSuccess(
         return;
       }
 
-      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
-      // modeled in lib/db/schema.ts — see the business_signup branch above.
-      const activationResult = await tx.execute(sql`
-        UPDATE business_accounts
-         SET tier = ${newTier},
-             pending_tier = NULL,
-             pending_payment_ref = NULL,
-             tier_updated_at = NOW(),
-             status = 'active',
-             grace_period_ends_at = NULL,
-             current_period_ends_at = NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval,
-             updated_at = NOW()
-         WHERE id = ${businessAccountId} AND pending_payment_ref = ${reference}
-      `);
+      const activationResult = await tx.update(schema.businessAccounts).set({
+        tier: newTier, accountTypeSlug: metadata.accountTypeSlug ?? `business_${newTier}`,
+        pendingTier: null, pendingAccountTypeSlug: null, pendingPaymentRef: null,
+        tierUpdatedAt: sql`NOW()`, status: "active", gracePeriodEndsAt: null,
+        currentPeriodEndsAt: sql`NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval`, updatedAt: sql`NOW()`,
+      }).where(and(eq(schema.businessAccounts.id, businessAccountId), eq(schema.businessAccounts.userId, userId), eq(schema.businessAccounts.pendingPaymentRef, reference))).returning({ id: schema.businessAccounts.id });
 
       // BIZ-TIER-RACE: if pending_payment_ref no longer matches (e.g. a newer
       // upgrade request overwrote it, or it was already activated by a prior
       // webhook delivery), the activation UPDATE matches zero rows. Sending
       // the "upgraded" notification anyway would be a false success — raise
       // a system_alert for manual reconciliation instead.
-      if (activationResult.rowCount === 0) {
+      if (activationResult.length === 0) {
         logger.error({ reference, businessAccountId, newTier }, "[webhook/paystack] business_upgrade activation matched 0 rows (stale or already-applied reference)");
         await raiseAlert(tx, {
           type: "business_upgrade_activation_mismatch",
@@ -536,16 +527,10 @@ export async function processChargeSuccess(
         return;
       }
 
-      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
-      // modeled in lib/db/schema.ts — see the business_signup branch above.
-      await tx.execute(sql`
-        UPDATE business_accounts
-         SET status = 'active',
-             grace_period_ends_at = NULL,
-             current_period_ends_at = GREATEST(COALESCE(current_period_ends_at, NOW()), NOW()) + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval,
-             updated_at = NOW()
-         WHERE id = ${businessAccountId}
-      `);
+      await tx.update(schema.businessAccounts).set({
+        status: "active", gracePeriodEndsAt: null,
+        currentPeriodEndsAt: sql`GREATEST(COALESCE(${schema.businessAccounts.currentPeriodEndsAt}, NOW()), NOW()) + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval`, updatedAt: sql`NOW()`,
+      }).where(and(eq(schema.businessAccounts.id, businessAccountId), eq(schema.businessAccounts.userId, userId)));
 
       const renewedAccount = await tx
         .select({ userId: schema.businessAccounts.userId })
@@ -903,6 +888,7 @@ export async function processSubscriptionEvent(
   const isCancelled = status === "cancelled" || status === "completed";
 
   if (event.event === "subscription.create") {
+    if (!isActive && !isNonRenewing) return;
     // Derive plan tier first so it can be included in the subscription upsert (B-11)
     const planNameLower = (event.data.plan?.name ?? "").toLowerCase();
     const planCodeLower = (event.data.plan?.plan_code ?? "").toLowerCase();
@@ -939,33 +925,38 @@ export async function processSubscriptionEvent(
       ? new Date(next_payment_date).toISOString()
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Upsert canonical subscription record (B-11)
-    await orm
-      .insert(schema.subscriptions)
-      .values({
-        userId: resolvedUserId,
-        plan: derivedPlan,
-        provider: "paystack",
-        providerSubscriptionId: subscription_code,
-        status: isActive ? "active" : "inactive",
-        startsAt: sql`NOW()`,
-        endsAt: new Date(endsAt),
-        updatedAt: sql`NOW()`,
-      })
-      .onConflictDoUpdate({
-        target: schema.subscriptions.userId,
-        set: {
+    await orm.transaction(async (tx) => {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, resolvedUserId!)).for("update");
+      // Upsert canonical subscription record (B-11)
+      await tx
+        .insert(schema.subscriptions)
+        .values({
+          userId: resolvedUserId,
           plan: derivedPlan,
+          provider: "paystack",
           providerSubscriptionId: subscription_code,
-          status: isActive ? "active" : "inactive",
+          status: isActive ? "active" : "cancelled",
+          startsAt: sql`NOW()`,
+          autoRenew: isActive,
+          cancelledAt: isNonRenewing ? new Date() : null,
           endsAt: new Date(endsAt),
           updatedAt: sql`NOW()`,
-        },
-      })
-      .catch((err) => logger.error({ err }, "[webhook/paystack] subscriptions upsert failed"));
+        })
+        .onConflictDoUpdate({
+          target: schema.subscriptions.userId,
+          set: {
+            plan: derivedPlan,
+            provider: "paystack",
+            accountTypeSlug: null,
+            providerSubscriptionId: subscription_code,
+            status: isActive ? "active" : "cancelled",
+            endsAt: new Date(endsAt),
+            autoRenew: isActive,
+            cancelledAt: isNonRenewing ? new Date() : null,
+            updatedAt: sql`NOW()`,
+          },
+        });
 
-    // This inner transaction must stay atomic with `creditCoins`/`creditStars`.
-    await orm.transaction(async (tx) => {
       // Update plan
       await tx.update(schema.users).set({ plan: derivedPlan, updatedAt: sql`NOW()` }).where(eq(schema.users.id, resolvedUserId));
 
@@ -977,18 +968,16 @@ export async function processSubscriptionEvent(
       // Paystack), not from new Date() (server wall-clock). Using new Date() causes a
       // midnight race: a webhook delivered at 23:59 on the 31st and retried at 00:01
       // on the 1st would produce two different monthKeys and double-award the bonus.
-      // Including subscription_code in the key further prevents duplicate awards when
-      // the same subscription fires multiple renewal events within the same month.
+      // Share the calendar-month key with checkout activation and the daily cron.
       const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
       const bonusCoins = MONTHLY_PLAN_BONUS[derivedPlan];
       if (bonusCoins && bonusCoins > 0) {
         const eventMonthKey = new Date(event.data.createdAt ?? Date.now()).toISOString().slice(0, 7); // YYYY-MM
-        const subscriptionCode = event.data.subscription_code;
         await creditCoins(
           resolvedUserId,
           bonusCoins,
           "subscription_bonus",
-          `plan:${resolvedUserId}:${eventMonthKey}:${subscriptionCode}`,
+          `plan:${resolvedUserId}:${eventMonthKey}`,
           `${derivedPlan} plan subscription — monthly coin bonus`,
           { plan: derivedPlan },
           tx
@@ -1021,61 +1010,23 @@ export async function processSubscriptionEvent(
       }
     });
 
-  } else if (event.event === "subscription.disable") {
-    // BUG-05: check subscription.disable BEFORE isNonRenewing / isCancelled.
-    // When Paystack sends subscription.disable with status="cancelled" the isCancelled
-    // flag is true, but we must NOT immediately downgrade — the user paid for the
-    // current period. Treat like non-renewing: mark disabled so the daily CRON
-    // downgrades plan when ends_at (next_payment_date) lapses.
-    const disableEndsAt = next_payment_date
-      ? new Date(next_payment_date).toISOString()
-      : null;
-
-    if (!disableEndsAt) {
-      logger.warn({ userId: resolvedUserId, subscriptionCode: subscription_code }, "[webhook/paystack] subscription.disable received without next_payment_date — falling back to NOW()");
-    }
-
-    // Use next_payment_date when present; fall back to the existing ends_at (if
-    // already set), or NOW() as a last resort so the user never retains premium
-    // indefinitely when both next_payment_date and ends_at are absent.
-    const disableEndsAtDate: Date | null = disableEndsAt ? new Date(disableEndsAt) : null;
-    await orm
-      .update(schema.subscriptions)
-      .set({
-        status: "disabled",
-        autoRenew: false,
-        endsAt: sql`CASE
-          WHEN ${disableEndsAtDate}::timestamptz IS NOT NULL THEN ${disableEndsAtDate}::timestamptz
-          WHEN ${schema.subscriptions.endsAt} IS NOT NULL THEN ${schema.subscriptions.endsAt}
-          ELSE NOW()
-        END`,
-        updatedAt: sql`NOW()`,
-      })
-      .where(eq(schema.subscriptions.userId, resolvedUserId))
-      .catch(() => {});
-
-  } else if (isNonRenewing) {
-    // Subscription will not renew but is still active until period end.
-    // Set auto_renew=false; daily cron downgrades plan when ends_at lapses.
-    await orm
-      .update(schema.subscriptions)
-      .set({ autoRenew: false, updatedAt: sql`NOW()` })
-      .where(eq(schema.subscriptions.userId, resolvedUserId))
-      .catch(() => {});
-
-  } else if (isCancelled) {
-    // Hard cancellation — downgrade immediately
-    await orm
-      .update(schema.subscriptions)
-      .set({ status: "cancelled", updatedAt: sql`NOW()` })
-      .where(eq(schema.subscriptions.userId, resolvedUserId))
-      .catch(() => {});
-
-    await orm
-      .update(schema.users)
-      .set({ plan: "free", updatedAt: sql`NOW()` })
-      .where(eq(schema.users.id, resolvedUserId))
-      .catch(() => {});
+  } else {
+    // Bind lifecycle events to the actual provider subscription. An old
+    // cancellation must never downgrade a newer checkout or Play purchase.
+    const applied = await orm.transaction(async tx => {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, resolvedUserId!)).for("update");
+      const [current] = await tx.select().from(schema.subscriptions).where(eq(schema.subscriptions.userId, resolvedUserId!)).for("update");
+      if (!current || current.provider !== "paystack" || current.providerSubscriptionId !== subscription_code) return false;
+      if (event.event === "subscription.disable" || isNonRenewing) {
+        const endsAt = next_payment_date ? new Date(next_payment_date) : current.endsAt ?? new Date();
+        await tx.update(schema.subscriptions).set({ status: "cancelled", autoRenew: false, cancelledAt: sql`NOW()`, endsAt, updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, current.id));
+      } else if (isCancelled) {
+        await tx.update(schema.subscriptions).set({ status: "cancelled", autoRenew: false, cancelledAt: sql`NOW()`, endsAt: sql`NOW()`, updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, current.id));
+        await tx.update(schema.users).set({ plan: "free", updatedAt: sql`NOW()` }).where(eq(schema.users.id, resolvedUserId!));
+      } else return false;
+      return true;
+    });
+    if (!applied) return;
   }
 
   // Write notification to user using canonical schema (title/body/metadata columns)

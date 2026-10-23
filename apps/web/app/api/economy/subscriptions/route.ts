@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, conflict, handleApiError } from "@/lib/api/errors";
 import { getDb, schema } from "@/lib/db/drizzle";
@@ -25,6 +25,7 @@ import { randomUUID } from "crypto";
 import { env } from "@/lib/env";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
 import { grantFreePayment } from "@/lib/payments/freeGrant";
+import { listAccountTypes, requireAccountType } from "@/lib/plans/catalog";
 
 // ---------------------------------------------------------------------------
 // GET handler
@@ -45,6 +46,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         id: schema.subscriptions.id,
         userId: schema.subscriptions.userId,
         plan: schema.subscriptions.plan,
+        accountTypeSlug: schema.subscriptions.accountTypeSlug,
         billingPeriod: schema.subscriptions.billingPeriod,
         status: schema.subscriptions.status,
         startsAt: schema.subscriptions.startsAt,
@@ -55,7 +57,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         createdAt: schema.subscriptions.createdAt,
       })
       .from(schema.subscriptions)
-      .where(and(eq(schema.subscriptions.userId, userId), inArray(schema.subscriptions.status, ["active", "cancelled"])))
+      .where(and(eq(schema.subscriptions.userId, userId), inArray(schema.subscriptions.status, ["active", "cancelled", "trialing"])))
       .orderBy(desc(schema.subscriptions.createdAt))
       .limit(1);
 
@@ -75,11 +77,17 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       .where(eq(schema.subscriptionPlans.isActive, true))
       .orderBy(schema.subscriptionPlans.priceKobo);
 
+    const allProducts = await listAccountTypes(true);
+    const products = new Map(allProducts.filter(p => p.kind === "personal" && p.isActive).map(p => [p.slug, p]));
+    const [owner] = await orm.select({ plan: schema.users.plan, accountTypeSlug: schema.users.accountTypeSlug }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    const currentProduct = allProducts.find(p => p.slug === (owner?.accountTypeSlug ?? owner?.plan));
     return NextResponse.json({
+      currentAccountType: currentProduct ? { slug: currentProduct.slug, name: currentProduct.name, basePlan: currentProduct.basePlan } : null,
       currentSubscription: subscription
         ? {
             id: subscription.id,
             plan: subscription.plan,
+            accountTypeSlug: subscription.accountTypeSlug ?? subscription.plan,
             interval: subscription.billingPeriod,
             status: subscription.status,
             currentPeriodStart: subscription.startsAt,
@@ -94,9 +102,11 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
             createdAt: subscription.createdAt,
           }
         : null,
-      availablePlans: plans.map((p) => ({
+      availablePlans: plans.filter(p => products.has(p.plan)).map((p) => ({
         id: p.id,
-        plan: p.plan,
+        plan: products.get(p.plan)!.basePlan,
+        accountTypeSlug: p.plan,
+        builtIn: products.get(p.plan)!.builtIn,
         name: p.name,
         priceKobo: Number(p.priceKobo),
         currency: p.currency,
@@ -119,7 +129,7 @@ const SubscribeSchema = z.object({
    */
   planId: z.string().uuid("planId must be a valid UUID").optional(),
   /** PRD §3: alternative to planId — provide plan + billing cycle and we resolve. */
-  plan: z.enum(["plus", "pro", "max"]).optional(),
+  plan: z.string().regex(/^[a-z][a-z0-9_]{1,47}$/).optional(),
   /** PRD §3: 'monthly' or 'annual' (annual = 10×monthly price, 2 months free). */
   billingCycle: z.enum(["monthly", "annual"]).optional(),
   /** Alias for billingCycle — accepted for backwards compatibility with older clients. */
@@ -179,6 +189,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const planRow = planRows[0];
     const plan = { ...planRow, priceKobo: Number(planRow.priceKobo) };
+    const accountType = await requireAccountType(plan.plan, "personal");
+    if (accountType.basePlan === "free") throw badRequest("Use the Free account selection endpoint");
+    const [managed] = await orm.select({ provider: schema.subscriptions.provider, endsAt: schema.subscriptions.endsAt }).from(schema.subscriptions).where(eq(schema.subscriptions.userId, userId)).limit(1);
+    if (managed?.provider === "google_play" && managed.endsAt.getTime() > Date.now()) throw badRequest("Manage this subscription in Google Play", "PLAY_BILLING_REQUIRED");
 
     if (!plan.isActive) {
       throw badRequest("This subscription plan is not currently available");
@@ -191,7 +205,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .where(
         and(
           eq(schema.subscriptions.userId, userId),
-          eq(schema.subscriptions.plan, plan.plan),
+          sql`COALESCE(${schema.subscriptions.accountTypeSlug}, ${schema.subscriptions.plan}) = ${accountType.slug}`,
           eq(schema.subscriptions.status, "active")
         )
       )
@@ -224,7 +238,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const metadata = {
       userId,
       planId: plan.id,
-      planName: plan.plan,
+      planName: accountType.basePlan,
+      accountTypeSlug: accountType.slug,
       interval: plan.interval,
       type: "subscription",
       itemType: "subscription",

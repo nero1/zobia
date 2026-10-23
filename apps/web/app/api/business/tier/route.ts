@@ -44,7 +44,8 @@ import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
 import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
-import { getBusinessDowngradeGraceDays, getBusinessTierPriceKobo } from "@/lib/business/limits";
+import { getBusinessDowngradeGraceDays } from "@/lib/business/limits";
+import { requireAccountType } from "@/lib/plans/catalog";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
 import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
@@ -71,6 +72,7 @@ const PENDING_PAYMENT_TTL_MINUTES = 30;
 // ---------------------------------------------------------------------------
 
 const upgradeTierSchema = z.object({
+  accountTypeSlug: z.string().regex(/^[a-z][a-z0-9_]{1,47}$/).optional(),
   tier: z.enum(["starter", "growth", "enterprise"]),
   paymentProvider: z.enum(["paystack", "crypto"]).optional(),
   cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
@@ -87,7 +89,9 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
     const body = await validateBody(req, upgradeTierSchema);
-    const { tier: newTier, paymentProvider } = body;
+    const { paymentProvider } = body;
+    const product = await requireAccountType(body.accountTypeSlug ?? `business_${body.tier}`, "business");
+    const newTier = product.basePlan;
 
     const orm = await getDb();
 
@@ -106,6 +110,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       .select({
         id: schema.businessAccounts.id,
         tier: schema.businessAccounts.tier,
+        accountTypeSlug: schema.businessAccounts.accountTypeSlug,
         pendingTier: schema.businessAccounts.pendingTier,
         pendingPaymentRef: schema.businessAccounts.pendingPaymentRef,
         downgradeToTier: schema.businessAccounts.downgradeToTier,
@@ -118,13 +123,13 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const currentTier = rows[0].tier.toLowerCase();
 
     // Requesting the current tier again cancels a pending downgrade (no-op otherwise).
-    if (newTier === currentTier) {
+    if (newTier === currentTier && product.slug === (rows[0].accountTypeSlug ?? `business_${currentTier}`)) {
       if (!rows[0].downgradeToTier) {
         throw badRequest(`Your business account is already on the ${currentTier} tier.`);
       }
       await orm
         .update(schema.businessAccounts)
-        .set({ downgradeToTier: null, downgradeEffectiveAt: null, updatedAt: new Date() })
+        .set({ downgradeToTier: null, downgradeAccountTypeSlug: null, downgradeEffectiveAt: null, updatedAt: new Date() })
         .where(eq(schema.businessAccounts.id, rows[0].id));
       return NextResponse.json({
         success: true,
@@ -141,6 +146,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         .update(schema.businessAccounts)
         .set({
           downgradeToTier: newTier,
+          downgradeAccountTypeSlug: product.slug,
           downgradeEffectiveAt: sql`NOW() + (${String(graceDays)} || ' days')::interval`,
           pendingTier: null,
           pendingPaymentRef: null,
@@ -192,7 +198,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Resolve tier price from x_manifest (admin-configurable)
-    const priceKobo = await getBusinessTierPriceKobo(newTier);
+    const priceKobo = product.monthlyPriceKobo;
 
     if (priceKobo <= 0) {
       throw badRequest("Invalid tier price configuration");
@@ -212,6 +218,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       .update(schema.businessAccounts)
       .set({
         pendingTier: newTier,
+        pendingAccountTypeSlug: product.slug,
         pendingPaymentRef: reference,
         downgradeToTier: null,
         downgradeEffectiveAt: null,
@@ -225,6 +232,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       userId,
       type: "business_upgrade",
       businessAccountId: rows[0].id,
+      accountTypeSlug: product.slug,
       newTier,
       itemType: "business_upgrade",
       ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
