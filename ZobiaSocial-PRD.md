@@ -5287,12 +5287,19 @@ Earlier release-note appendices are now [archived](docs/archive/PRD-HISTORICAL-R
 - Vercel Hobby storage/CPU constraints require bounded server bundles, lean function dependencies and reduced polling/request fan-out. Operators may run frequent jobs externally; do not rewrite business expiry rules around the host’s daily-cron limit.
 - Keep migration grants, RLS, schema definitions and integration fixtures synchronized. Test actual application TypeScript projects. Record unresolved provider credentials, configuration and device checks accurately; never turn a failed readiness check into a success by disabling validation.
 
-## Current concise changelog — v2.43 (development)
+## 49. Portable final-state database baseline
 
-- Added private bookmarks, retained folder entitlements, post discovery, private blog revisions, extra-post bundles, beginner help guides, AI usage accounting, quest progress tips, Tales and the official content studio across web/PWA and Capacitor.
-- Fixed wallet dates, challenge escrow/refund atomicity, per-viewer archives, exact timestamp pagination, message polling/scroll state, classroom authorization, session cache privacy, notification URLs, repeated notification events, duplicate blog earnings, reward-pot refills and room reward refunds.
-- Added searchable configuration/navigation, cost-sorted account products with inherited server entitlements, custom checkout/store mappings, and shared locale metadata. All nine non-English catalogs match the 5,537 English keys and interpolation; shared/web catalogs are synchronized.
-- Fixed global Play purchase ownership/idempotency, exact subscription expiry, atomic business activation, cancelled-plan cleanup, renewal/expiry serialization and the database status constraint, native business response parsing, and redirect/crypto wallet checkout. Preserve original crypto quotes when resuming payments.
-- Validation includes TypeScript, unit and disposable-Postgres checks, Next/native production builds, and the merged first batch’s APK CI. Authenticated runtime journeys, live provider credentials and device behavior remain separate. See the implementation ledger for verification boundaries.
+The canonical fresh-install schema is `apps/web/db/migrations/0001_consolidated_schema.sql`, replacing the former 0001–0039 sequence. Declare each table once with its final columns, keys and checks. Include final views/functions/indexes, foreign keys, triggers, RLS and the resulting reference/configuration rows; omit historical alteration/backfill sequences. Optional demo users/content remain separate.
+
+Support PostgreSQL 16+ on Supabase, Railway, DigitalOcean and other PostgreSQL hosts using stock required extensions. Platform grants/policies are conditional on existing role names; never require or create Supabase roles or `auth` functions on another host. Revoke inherited client table grants before restoring the client allowlist, grant trusted service access explicitly, and keep private tables unavailable to public client roles. Monitoring extensions remain optional.
+
+The SQL is an atomic fresh-database baseline, not an in-place rebuild. The runner serializes installs, commits history with schema/data, detects file changes and verifies a complete predecessor schema before adopting its history. Adoption preserves existing data/settings. Refuse partial/mismatching histories, and allow verified registration after manual SQL execution. Future migrations use new files rather than rewriting an applied baseline.
+
+## Current concise changelog — v2.44 (development)
+
+- Consolidated former 0001–0039 into one final-state SQL file: 309 tables and 809 reference/configuration rows, with final constraints, indexes, functions, triggers, RLS and grants.
+- Made platform permissions conditional and explicit, preserving client access while blocking inherited private-table grants. The same SQL installs on ordinary PostgreSQL under a non-superuser owner.
+- Reworked migration history adoption, read-only status, deployment serialization and atomic schema/history recording. Existing data/settings are preserved; partial schemas and file drift are rejected.
+- Verified schema/reference equivalence, provider-role permissions, seven runner scenarios and optional demo seeding. Updated setup/maintainer instructions; no live database was modified.
 
 Future changelogs must be concise, use short subheads or lists, and state the change, reason, important patterns/decisions, validation boundaries and maintainer lessons. Move durable requirements into the relevant specification section. Keep only the latest release changelog in this PRD after historical requirements have been reconciled; Git history retains earlier release notes.

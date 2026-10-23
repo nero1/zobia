@@ -67,6 +67,9 @@ jobs:
           node ../../scripts/audit-i18n.mjs --check
           node ../../scripts/sync-i18n.mjs --check
 
+      - name: Verify PostgreSQL baseline portability and grants
+        run: BASELINE_PORTABILITY_TEST=1 npx tsx db/test-baseline-portability.ts
+
       - name: Run unit tests
         run: npm run test:unit
 
