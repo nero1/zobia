@@ -19,11 +19,12 @@ export function TalesView({
   editor?: boolean;
 }) {
   const { user } = useAuth();
+  const userId = user?.id;
   const router = useRouter();
   const request = useCallback(
     async <T,>(path: string, method = "GET", body?: unknown): Promise<T> => {
       let target = path;
-      if (!user && method === "GET" && path.startsWith("/tales")) {
+      if (!userId && method === "GET" && path.startsWith("/tales")) {
         const match = path.match(/^\/tales\/([^/?]+)\/chapters\/(\d+)$/);
         target = match
           ? `/tales/public/${match[1]}?chapter=${match[2]}`
@@ -44,7 +45,7 @@ export function TalesView({
         ? result.data
         : result;
     },
-    [user?.id],
+    [userId],
   );
   const api = useMemo<TalesTransport>(
     () => ({

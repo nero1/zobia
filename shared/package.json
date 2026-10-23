@@ -19,6 +19,8 @@
     "./ui/Automation": "./ui/Automation.tsx"
   },
   "peerDependencies": {
+    "react": ">=18.2.0 <19",
+    "react-i18next": ">=14 <16",
     "zod": ">=3.0.0"
   }
 }

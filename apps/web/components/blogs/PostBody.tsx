@@ -14,6 +14,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import Link from "next/link";
 
 export function PostBody({
   blogSlug,
@@ -86,7 +87,7 @@ export function PostBody({
           <p className="text-sm text-amber-300 mb-3">
             {t("blogs.post.paywallNotice", "Pay {{cost}} credits to read the rest of the article.", { cost: paywallCreditsCost })}
           </p>
-          {error && <p className="text-xs text-red-400 mb-2">{error} <a href="/wallet" className="underline">{t("blogEditing.getCredits", "Get more credits")}</a> · <a href="/gifts" className="underline">{t("nav.gifts", "Gifts")}</a> · <a href="/quests" className="underline">{t("nav.quests", "Quests")}</a> · <a href="/help/search?q=credits" className="underline">{t("blogEditing.creditHelp", "How to get credits")}</a></p>}
+          {error && <p className="text-xs text-red-400 mb-2">{error} <Link href="/wallet" className="underline">{t("blogEditing.getCredits", "Get more credits")}</Link> · <Link href="/gifts" className="underline">{t("nav.gifts", "Gifts")}</Link> · <Link href="/quests" className="underline">{t("nav.quests", "Quests")}</Link> · <Link href="/help/search?q=credits" className="underline">{t("blogEditing.creditHelp", "How to get credits")}</Link></p>}
           {loggedOut && <p className="mb-3 text-sm">{t("blogEditing.signUpCredits", "Sign up to receive your welcome credits, or log in if you already have an account.")}</p>}
           <button
             type="button"

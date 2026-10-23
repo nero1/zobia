@@ -139,6 +139,9 @@ const nextConfig = {
     // instead of requiring us to install packages we'll never call.
     config.resolve.alias = {
       ...config.resolve.alias,
+      // Shared UI must use this app's translation context, even when the
+      // discontinued Expo workspace installs a different compatible version.
+      "react-i18next$": require.resolve("react-i18next"),
       "@base-org/account": false,
     };
     return config;

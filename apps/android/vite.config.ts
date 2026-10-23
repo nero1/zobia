@@ -9,6 +9,7 @@ export default defineConfig({
     TanStackRouterVite(),
   ],
   resolve: {
+    dedupe: ["react", "react-dom", "i18next", "react-i18next"],
     alias: [
       { find: "@zobia/shared/schemas/auth", replacement: path.resolve(__dirname, "../../shared/schemas/api/auth.ts") },
       { find: "@zobia/shared/schemas/coins", replacement: path.resolve(__dirname, "../../shared/schemas/api/coins.ts") },
