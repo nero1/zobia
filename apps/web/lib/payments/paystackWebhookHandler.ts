@@ -182,6 +182,11 @@ export async function processChargeSuccess(
       return;
     }
 
+    if (["business_signup", "business_upgrade", "business_renewal"].includes(itemType ?? "")) {
+      // Match expiry/Play lock order, including notification foreign-key locks.
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+    }
+
     // Subscription charges — plan activation.
     //
     // This used to defer activation to a Paystack `subscription.create` event
