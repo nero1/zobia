@@ -18,8 +18,9 @@ for (const file of fs.readdirSync(new URL('shared/i18n/locales/', root)).filter(
     obsolete: Object.keys(messages).filter((key) => !(key in english)),
     placeholderMismatch: Object.keys(messages).filter((key) => key in english && placeholders(messages[key]) !== placeholders(english[key])),
     englishFallback: Object.keys(messages).filter((key) => messages[key] === english[key]),
+    unresolvedMarkers: Object.keys(messages).filter((key) => /ZXQ(?:ID|PH)\d+QXZ|\(translate\)/i.test(String(messages[key]))),
   };
 }
 if (process.argv.includes('--json')) console.log(JSON.stringify(report, null, 2));
-else for (const [locale, result] of Object.entries(report)) console.log(`${locale}: ${result.missing.length} missing, ${result.obsolete.length} obsolete, ${result.placeholderMismatch.length} interpolation mismatches, ${result.englishFallback.length} identical to English (review required)`);
-if (process.argv.includes('--check') && Object.values(report).some((r) => r.missing.length || r.placeholderMismatch.length)) process.exitCode = 1;
+else for (const [locale, result] of Object.entries(report)) console.log(`${locale}: ${result.missing.length} missing, ${result.obsolete.length} obsolete, ${result.placeholderMismatch.length} interpolation mismatches, ${result.unresolvedMarkers.length} unresolved translation markers, ${result.englishFallback.length} identical to English (review required)`);
+if (process.argv.includes('--check') && Object.values(report).some((r) => r.missing.length || r.obsolete.length || r.placeholderMismatch.length || r.unresolvedMarkers.length)) process.exitCode = 1;

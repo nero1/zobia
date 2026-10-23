@@ -4400,3 +4400,15 @@ Notification events have explicit references. Separate events of the same type c
 
 
 Wallet row locks use `FOR NO KEY UPDATE`: balance changes still serialize, while unrelated content/notification foreign-key checks can proceed. Blog creation takes the author lock before the blog lock, and financial operations lock participants consistently. This avoids lock-order deadlocks without weakening the balance checks or ledger transaction boundary.
+
+### Account product identity and entitlement tiers
+
+`account_types` is the central product catalog. Its product slug and label are separate from `users.plan` and `business_accounts.tier`, which remain canonical entitlement tiers. This lets a custom product inherit every existing feature gate, quota, XP rule and grace rule without treating arbitrary names as paid plans. Shared tier settings intentionally affect all products inheriting that tier. Database triggers discard stale product identity when a legacy tier update changes the account's entitlement tier.
+
+Catalog edits are serialized and revision checked. Personal product prices update checkout rows in the same transaction; standard business prices also update the existing manifest keys. The public catalog uses a short process cache, while purchase paths check current availability. Historical Google Play product mappings remain reserved so a retired or renamed product can still be restored safely.
+
+`play_purchase_receipts` binds a token hash globally to its owner and product. Verification happens before acquiring database locks. Activation locks the user and receipt, then commits entitlement, ledger/payment and notification effects together. Google expiry is recorded, repeated tokens do not repeat credits, and an older restored subscription cannot overwrite a newer active period. Ledger uniqueness per user alone was insufficient to prevent cross-account token replay.
+
+Web/PWA checkout handles provider redirects, explicit free-context grants and crypto quotes through one hook. Crypto confirmation uses the existing chain-verification endpoints. Pending intents can be recovered from Wallet, and recovery reconstructs the exact original base-unit quote instead of repricing it at the current market rate.
+
+Subscription expiry snapshots candidates, then locks the account and rechecks the current subscription before changing entitlement. Save trimming and business quest pausing commit with the expiry transition; a failure rolls back the transition. Activation and plan changes use the same user-first lock order. Paystack lifecycle updates match provider and subscription ID, so cancellation of an old subscription cannot downgrade a replacement. Checkout, recurring lifecycle and cron bonuses share the user/calendar-month deduplication key.

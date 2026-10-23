@@ -1,6 +1,6 @@
 # Attachment implementation status
 
-This is a verification ledger for the October 2026 request. An implemented item is not a claim of live deployment or device testing. The current work is not the complete requested release.
+This is a verification ledger for the October 2026 request. An implemented item is not a claim of live deployment or device testing. The requested code changes are implemented across web/PWA and Capacitor. Checks requiring live credentials, human language/content review or physical devices remain separate.
 
 | Attachment | Implemented in this checkout | Remaining |
 | --- | --- | --- |
@@ -12,30 +12,41 @@ This is a verification ledger for the October 2026 request. An implemented item 
 | Quests | Eligibility filtering and action links | Runtime review of each action destination |
 | Tips | Quest-based XP suggestions, live progress toward Level 2, dismiss/next controls | Runtime review |
 | Menus | Grouped user navigation and searchable grouped web/Capacitor admin navigation | Runtime navigation review |
-| Admin | Searchable categorized configuration and explicit refresh | Central dynamic account-type catalog and custom plan enforcement |
+| Admin | Searchable categorized configuration, explicit refresh, cost-sorted regular/business account catalog, transactional product editing, checkout/store mapping and inherited entitlement enforcement | Final operator review |
 | AI 2 | Weekly quota, reset notice, request idempotency, paid confirmation, failure refunds, help scope and footer | Live model quality and jailbreak evaluation |
 | MISC6 | Twenty-seven beginner help guides, public setting interpolation, help search | Runtime tutorial and current-catalog review |
-| Blogs | Post discovery, notification routes, published views, private revisions, recoverable editor, discard/save/unpublish, paywall guidance and confirmed prices, atomic unlock earnings, bundles, first-publish notice/badge | Authenticated UI/device review and final parity audit |
+| Blogs | Post discovery, notification routes, published views, private revisions, recoverable editor, discard/save/unpublish, paywall guidance and confirmed prices, atomic unlock earnings, bundles, first-publish notice/badge | Authenticated UI/device review |
 | Bookmarks | Private folders/items, permanent plan entitlements and purchased slots, explicit payment, pagination, web/native management and feed controls | Runtime folder and saved-content review |
-| i18N | Canonical locale registry, Hindi scaffold, flags/native names, RTL updates, profile selector, English synchronization and drift audit | Full translations and interpolation corrections across non-English catalogs |
-| Consolidate PRD | Current feature/maintainer contracts, archived historical notes, one concise current changelog | Final editorial reconciliation against the archive |
-| Tales | Story/chapter primitive, discovery, author tools, paywalls, pots, subscriptions, text/cover moderation, appeals, drip and shared web/native UI | Live model, browser and device evaluation; final author/reader parity review |
+| i18N | Canonical locale registry, flags/native names, RTL, profile selector, full key/interpolation coverage for Arabic, Hindi, French, Hausa, Amharic, Portuguese, Swahili, Zulu and Nigerian Pidgin; shared/web parity tooling | Native-language review |
+| Consolidate PRD | Current feature/maintainer contracts, archived historical notes, one concise current changelog | Maintainer review of the consolidated requirements |
+| Tales | Story/chapter primitive, discovery, author tools, paywalls, pots, subscriptions, text/cover moderation, appeals, drip and shared web/native UI | Live model, browser and device evaluation |
 | Auto Content | Official accounts, leased jobs, provider selection, exact/fuzzy duplicate checks, review/edit queue and transactional forum/wiki/blog/room adapters | Live provider/content-quality evaluation and runtime operator review |
 
 ## Validation boundaries
 
 Postgres integration tests use only `TEST_DATABASE_URL`, a disposable database. Provider, browser, APK, and production checks must be reported separately. A passing TypeScript check or Vite bundle does not prove a running Next application, a built APK, correct translations, or configured external providers.
 
-The cloud setup draft has not been published/applied. Required runtime secrets and project configuration are absent. Next production font downloads and GitHub REST requests currently receive HTTP 403 from the environment network policy. Do not bypass runtime validation or invent credentials.
+The setup draft is separate from running configuration. Live application/provider credentials are absent. GitHub and font access now work: PR #548 is merged, its Android APK and integration CI passed, and a local Next production build passed. The build used `SKIP_ENV_VALIDATION=1` only for compilation; this does not establish runtime/provider readiness. Do not invent credentials.
 
 
-## Latest local verification (2026-10-23)
+## Latest verification (2026-10-23)
 
 - Workspace typecheck passed, including the actual Capacitor application project.
-- Web unit tests: 531 passed in 49 suites.
-- Disposable-Postgres integration tests: 106 passed in 23 suites. Coverage includes escrow rollback, concurrent purchases/unlocks, private revisions, ownership, exact pagination, Tales access/drip/appeals, automation publication/rollback/deduplication, notification references, reward-pot generations and wallet lock compatibility.
-- Android tests: 21 passed in 4 files. Capacitor Vite production bundle passed; this is not an APK/device test.
-- `git diff --check` passed. No Expo source or dependency lockfile changes.
-- Next production/runtime, live AI/storage/realtime/payment providers, browser journeys, APK packaging and device behavior remain unverified here. Runtime secrets and project configuration are absent; Google Fonts/GitHub API policy changes are saved only in an unpublished environment draft.
+- Web unit tests: 547 passed in 50 suites.
+- Disposable-Postgres integration tests: 126 passed in 27 suites, including renewal/expiry serialization, purchase replay ownership, transactional rollback and provider lifecycle handling.
+- Android tests: 25 passed in 5 files. Capacitor Vite production bundle passed.
+- Local Next production build passed with compilation-only environment validation bypass. APK packaging and integration CI passed on merged PR #548; the continuation runs the same CI before merge.
+- All nine non-English catalogs have all 5,537 canonical keys, matching interpolation and no obsolete keys or unresolved translation markers. Shared/Capacitor and web catalogs match. Technical labels, names and natural Pidgin borrowings can match English; language quality still warrants native-speaker review. Eight catalogs used machine-assisted translation; Pidgin messages were authored/reviewed directly.
+- `git diff --check` passed. No discontinued Expo source changes.
+- Authenticated browser/device journeys and live AI/storage/realtime/payment integrations require configured project/provider credentials. They were not exercised by compilation or mocked-provider tests.
 
-The dynamic account-type catalog and full non-English translations are not implemented. The locale audit intentionally reports that remaining translation drift instead of presenting English copies as translations.
+The account catalog keeps product identity separate from canonical entitlement tiers. Custom regular/business products inherit their selected tier across existing feature gates; the central panel edits shared tier settings.
+
+## Account catalog and billing continuation
+
+- `/gate44/accounts` and Capacitor `/admin/accounts` manage Free, paid and business products in price order. Revision checks reject stale edits; product identity and inherited tier are immutable. Custom products use the existing tier checks, not an unknown plan string that could bypass quotas.
+- Google Play product mappings retain retired IDs for purchase restoration. Verified purchase tokens are globally bound to an owner and product before wallet credit or entitlement activation. Personal and business expiry follows Google's verified period; business activation, reporting and notification writes are atomic.
+- Web/PWA checkout handles redirect, free-context and crypto responses. Crypto payments can be resumed from Wallet using the original quoted base units. The wallet now reads the API's actual `paymentUrl` field.
+- Cancelled subscriptions are included in expiry cleanup. Migration 0039 fixes an older database constraint that rejected the sweep's `grace`/`lapsed` states. Invoke `/api/cron/daily-economy` through the existing scheduler for period-end cleanup; not running cron leaves cleanup pending.
+- New migrations in this continuation: 0037 account products/store mappings; 0038 global Play receipts; 0039 subscription lifecycle states.
+- Expiry cleanup rechecks billing state under account locks; renewal cannot lose its new entitlement or saved data to a stale candidate. Cleanup failures roll the transition back. Paystack lifecycle events match the actual provider subscription, preserve period-end access, and share monthly-bonus deduplication with checkout/cron.

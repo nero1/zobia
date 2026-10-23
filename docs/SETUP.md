@@ -95,7 +95,7 @@ The Android app (`apps/android/`) is built with **Capacitor + Vite + React** —
 - **React 18 + TanStack Router** — file-based routing under `src/routes/`
 - **TanStack Query** — data fetching with IndexedDB offline persistence
 - **Tailwind CSS** — shared design tokens from `shared/tailwind-tokens.js`
-- **i18next** — 9 locale files from `shared/i18n/locales/`
+- **i18next** — 10 locale files from `shared/i18n/locales/`
 - **Ably** — optional realtime WebSocket (falls back to adaptive poll when disabled)
 - Target: **Android API 36**, `minSdk 26`
 
@@ -1781,3 +1781,18 @@ Use `/gate44/auto-content` or the matching Capacitor admin panel to create offic
 Invoke `/api/cron/auto-content` with the cron Bearer secret to process one due job. Leases last 15 minutes, failed jobs retry after an hour, and successful jobs advance by their configured interval. The generation prompt and a separate reviewer use the selected configured fallback providers. Fuzzy matching uses PostgreSQL `pg_trgm`; migration 0034 creates its extension and index. Ensure the migration role can install this supported extension. Generation/provider failures appear in job status and do not silently publish.
 
 Private automation/Tales tables revoke Data API access from `anon` and `authenticated`. New reward-pot generations preserve historical claims while allowing future funding cycles; apply migration 0033 before deploying that code. Verify actual text/cover moderation and editorial quality with configured providers before enabling unattended publication.
+
+### Account products and verified billing
+
+Apply migrations 0037–0039 before deploying the account catalog. Use `/gate44/accounts` or native `/admin/accounts` to create regular/business products, choose an inherited entitlement tier, set prices and availability, and edit shared tier limits. Products are ordered by monthly cost. A product's identity/kind/tier cannot be changed after creation; retire it and create another product instead. Existing entitlements keep their tier.
+
+For Android, create matching subscription products in Play Console and enter their IDs in account settings. Play determines the checkout price; web/PWA prices are configured in kobo. Retired product IDs remain mapped for restoring paid purchases and cannot be reassigned to another tier or billing period. Store configuration, credentials and live purchase evaluation require the operator's real project.
+
+Google Play verification now records exact period expiry and a global purchase receipt before granting anything. Apply migration 0039 before running `/api/cron/daily-economy`; the older constraint rejected `grace` and `lapsed`. Cancelled plans keep benefits until expiry and then enter the normal cleanup lifecycle.
+
+Crypto checkout shows the original amount, network, destination and token contract. Users submit their sending address and transaction hash; the existing server-side chain verifier grants the purchase only after confirmation. Wallet lists recent pending intents for recovery after reload. Automatic status polling is bounded; do not increase its frequency to compensate for missing RPC/provider configuration.
+
+
+The localization catalogs contain 5,537 English messages and complete key/interpolation coverage for all nine supported non-English languages, including Hindi and Nigerian Pidgin. Run `node scripts/audit-i18n.mjs --check` and `node scripts/sync-i18n.mjs --check` before release. Technical terms and names may legitimately match English. Native-speaker review is separate from structural validation; eight catalogs used machine-assisted translation, while Pidgin messages were authored/reviewed directly.
+
+Expiry cleanup and personal plan changes serialize with renewals using user-first account locks. Paystack disables use the valid `cancelled` state and retain access until the recorded period ends; stale cancellation events cannot affect a newer provider subscription. Run the existing daily-economy endpoint after applying migration 0039 to exercise overdue cancellation/grace transitions. No cron frequencies were changed.

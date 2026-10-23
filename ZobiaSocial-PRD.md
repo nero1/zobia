@@ -5235,11 +5235,17 @@ The official content studio defaults to disabled jobs and editor review. Officia
 
 Reward pots retain claim history by funding generation. Concurrent initial funding is serialized. Closing refunds the unclaimed remainder; reopening creates a new generation so earlier claimants can participate again without duplicate payment within a generation. Room rewards support Credit, Star and custom-instruction claims.
 
-## 47. Accepted requirements still awaiting implementation
+## 47. Account catalog and localization rollout
 
-### 47.1 Dynamic account catalog and translation completion
+`/gate44/accounts` and Capacitor `/admin/accounts` are the central, searchable account-product settings panel. List regular and business products in ascending monthly cost. Configure availability, names, prices and Google Play IDs; shared tier controls expose the existing granular feature limits. Product revisions reject stale edits. Create new regular or business products by selecting an established entitlement tier.
 
-Provide one central account-type catalog for free, paid and business accounts, sorted by cost, supporting new regular/business types and granular limits. Do not expose new names without integrating actual entitlement enforcement throughout the backend. Complete all supported non-English translations, including Hindi/Arabic/Hausa, and correct interpolation mismatches identified by the locale audit.
+Keep product identity separate from entitlement tier: custom products inherit their selected tier's existing feature gates, quotas, progression, grace and downgrade behavior throughout the backend. Existing purchases retain that immutable tier. A different tier requires a new product. Personal checkout rows and standard business manifest prices change transactionally with catalog edits. Retiring a product removes it from new checkout discovery while preserving its purchased entitlement and historical store mappings. Never reassign an old store product ID to a different entitlement or billing period.
+
+Google Play verification binds each purchase token globally to its owner and product before wallet or account changes. Record Google's exact expiry, persist personal subscriptions and business billing periods, reject unpaid/expired tokens, deduplicate bonuses and purchases, and do not let older restores replace newer active subscriptions. Grant business entitlements, financial records and notifications atomically. Cancellation retains benefits until the period ends, then enters the same grace/expiry lifecycle as other non-renewals.
+
+Web/PWA checkout supports provider redirects, free-context grants and verified crypto payments. Show the exact original amount/network/destination and allow pending intents to be resumed from Wallet. Do not silently reprice a pending intent or grant benefits before chain verification. Google Play remains the native billing path.
+
+English flat dotted message keys are authoritative. Arabic, Hindi, French, Hausa, Amharic, Portuguese, Swahili, Zulu and Nigerian Pidgin have complete key/interpolation coverage. Final native-language review remains a release check. Keep shared and web catalogs synchronized; audit missing/obsolete keys, interpolation, and unresolved translation markers. Language structure checks and machine-assisted translation do not replace native-language review.
 
 ## 48. Consolidated requirements and historical engineering decisions
 
@@ -5285,7 +5291,8 @@ Earlier release-note appendices are now [archived](docs/archive/PRD-HISTORICAL-R
 
 - Added private bookmarks, retained folder entitlements, post discovery, private blog revisions, extra-post bundles, beginner help guides, AI usage accounting, quest progress tips, Tales and the official content studio across web/PWA and Capacitor.
 - Fixed wallet dates, challenge escrow/refund atomicity, per-viewer archives, exact timestamp pagination, message polling/scroll state, classroom authorization, session cache privacy, notification URLs, repeated notification events, duplicate blog earnings, reward-pot refills and room reward refunds.
-- Added searchable configuration/navigation and shared locale metadata. Hindi and full non-English coverage remain unfinished.
-- Validation covers TypeScript, unit and disposable-Postgres integration checks; runtime, APK and external provider validation remain separate. See the implementation ledger for remaining scope.
+- Added searchable configuration/navigation, cost-sorted account products with inherited server entitlements, custom checkout/store mappings, and shared locale metadata. All nine non-English catalogs match the 5,537 English keys and interpolation; shared/web catalogs are synchronized.
+- Fixed global Play purchase ownership/idempotency, exact subscription expiry, atomic business activation, cancelled-plan cleanup, renewal/expiry serialization and the database status constraint, native business response parsing, and redirect/crypto wallet checkout. Preserve original crypto quotes when resuming payments.
+- Validation includes TypeScript, unit and disposable-Postgres checks, Next/native production builds, and the merged first batch’s APK CI. Authenticated runtime journeys, live provider credentials and device behavior remain separate. See the implementation ledger for verification boundaries.
 
 Future changelogs must be concise, use short subheads or lists, and state the change, reason, important patterns/decisions, validation boundaries and maintainer lessons. Move durable requirements into the relevant specification section. Keep only the latest release changelog in this PRD after historical requirements have been reconciled; Git history retains earlier release notes.

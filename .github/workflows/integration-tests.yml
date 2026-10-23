@@ -62,6 +62,11 @@ jobs:
       - name: TypeScript type-check
         run: npm run type-check
 
+      - name: Check localization coverage and client parity
+        run: |
+          node ../../scripts/audit-i18n.mjs --check
+          node ../../scripts/sync-i18n.mjs --check
+
       - name: Run unit tests
         run: npm run test:unit
 

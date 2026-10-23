@@ -16,6 +16,7 @@ export interface AdminNavItem {
 
 export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/auto-content', labelKey: 'admin.nav.autoContent', labelDefault: 'Official Content Studio', icon: 'Ⓩ' },
+  { href: '/admin/accounts', labelKey: 'admin.nav.accountSettings', labelDefault: 'Account Settings', icon: '💼' },
   { href: '/admin', labelKey: 'admin.nav.dashboard', labelDefault: 'Dashboard', icon: '◼' },
   { href: '/admin/users', labelKey: 'admin.nav.users', labelDefault: 'Users', icon: '👥' },
   { href: '/admin/moderation', labelKey: 'admin.nav.moderation', labelDefault: 'Moderation', icon: '🚩' },

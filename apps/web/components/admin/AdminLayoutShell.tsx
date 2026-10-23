@@ -17,6 +17,7 @@ import { Icon } from "@/components/ui/Icon";
 
 const adminNavItems = [
   { href: "/gate44/auto-content", label: "Official Content Studio", icon: "Ⓩ" },
+  { href: "/gate44/accounts", label: "Account Settings", icon: "💼" },
   { href: "/gate44/tales", label: "Tales Moderation", icon: "📚" },
   { href: "/gate44",                    label: "Dashboard",          icon: "◼" },
   { href: "/gate44/users",              label: "Users",              icon: "👥" },

@@ -1,4 +1,5 @@
 export const dynamic = 'force-dynamic';
+import { storedCryptoQuote } from "@/lib/payments/crypto/storedQuote";
 
 /**
  * POST /api/economy/coins/purchase
@@ -134,6 +135,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .select({
         metadata: schema.payments.metadata,
         providerReference: schema.payments.providerReference,
+        tokenSymbol: schema.payments.tokenSymbol,
+        chain: schema.payments.chain,
+        walletAddress: schema.payments.walletAddress,
+        expectedTokenAmount: schema.payments.expectedTokenAmount,
       })
       .from(schema.payments)
       .where(
@@ -152,6 +157,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         paymentUrl: existingMetadata.payment_url,
         paymentReference: existingRows[0].providerReference,
         reused: true,
+        crypto: storedCryptoQuote(existingRows[0]),
       });
     }
 
