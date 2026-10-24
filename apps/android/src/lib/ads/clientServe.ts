@@ -1,3 +1,5 @@
+import {AdViewPool} from "@zobia/shared/utils";
+import {onReadCacheInvalidate} from "@/lib/api/readCache";
 /**
  * apps/android/src/lib/ads/clientServe.ts
  *
@@ -11,6 +13,10 @@
 import { apiClient } from '@/lib/api/client';
 
 const MAX_PER_REQUEST = 10;
+type Ad={receipt:string;viewReceipts?:string[]};
+const cache=new AdViewPool<Ad>();
+let generation=0;
+onReadCacheInvalidate(()=>{generation++;cache.clear();});
 
 type Resolver = { resolve: (ad: unknown) => void; reject: (err: unknown) => void };
 
@@ -19,6 +25,7 @@ let flushScheduled = false;
 
 async function flush(): Promise<void> {
   flushScheduled = false;
+  const startedAt=generation;
   const batch = queue;
   queue = new Map();
   const placements = Array.from(batch.keys());
@@ -29,7 +36,11 @@ async function flush(): Promise<void> {
         `/ads/serve?placements=${encodeURIComponent(chunk.join(','))}`,
       );
       const ads = data?.ads ?? {};
-      for (const p of chunk) for (const w of batch.get(p) ?? []) w.resolve(ads[p] ?? null);
+      if(startedAt===generation)for(const p of chunk)cache.put(p,(ads[p]??null) as Ad|null);
+      for(const p of chunk)for(const w of batch.get(p)??[]){
+        if(startedAt!==generation){w.resolve(null);continue;}
+        const ad=cache.take(p);if(ad===undefined)void requestAd(p).then(w.resolve,w.reject);else w.resolve(ad);
+      }
     } catch (err) {
       for (const p of chunk) for (const w of batch.get(p) ?? []) w.reject(err);
     }
@@ -38,6 +49,7 @@ async function flush(): Promise<void> {
 
 /** The served ad for `placement`, or null. Batched with other slots mounting now. */
 export function requestAd<T>(placement: string): Promise<T | null> {
+  const hit=cache.take(placement);if(hit!==undefined)return Promise.resolve(hit as T|null);
   return new Promise((resolve, reject) => {
     const waiters = queue.get(placement) ?? [];
     waiters.push({ resolve: resolve as (ad: unknown) => void, reject });

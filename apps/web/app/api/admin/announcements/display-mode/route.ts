@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -23,7 +24,7 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const parsed = DisplayModeSchema.safeParse(body);
     if (!parsed.success) {
       throw badRequest("Invalid display mode", parsed.error.flatten());

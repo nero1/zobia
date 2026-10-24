@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -61,10 +61,11 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     // Fetch username for the QR code label
     const orm = await getDb();
     const [userRow] = await orm
-      .select({ username: schema.users.username })
+      .select({ username: schema.users.username, enabled: schema.users.totpEnabled })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1);
+    if (userRow?.enabled) throw badRequest("Disable your current authenticator with its code before setting up another, or use account recovery if unavailable", "TOTP_ALREADY_ENABLED");
     const username = userRow?.username ?? userId;
 
     // Store pending secret in Redis for 10 minutes (600 seconds)
@@ -129,10 +130,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Persist secret and enable TOTP
     const orm = await getDb();
-    await orm
+    const changed = await orm
       .update(schema.users)
       .set({ totpSecret: encryptField(pendingSecret), totpEnabled: true, updatedAt: new Date() })
-      .where(eq(schema.users.id, userId));
+      .where(and(eq(schema.users.id, userId), eq(schema.users.totpEnabled, false)))
+      .returning({ id: schema.users.id });
+    if (!changed.length) throw badRequest("An authenticator is already configured", "TOTP_ALREADY_ENABLED");
 
     // Remove pending key
     await redis.del(pendingTotpKey(userId));

@@ -1,3 +1,5 @@
+import {readBoundedBytes} from "@/lib/security/requestBody";
+import { readBoundedFormData } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -58,7 +60,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     let dedupeStrategy: "skip" | "overwrite" = "skip";
 
     if (contentType.includes("multipart/form-data")) {
-      const form = await req.formData();
+      const form = await readBoundedFormData(req);
       const file = form.get("file");
       if (!(file instanceof File)) throw badRequest("Missing `file` field in form data.");
       if (file.size > MAX_UPLOAD_BYTES) {
@@ -69,7 +71,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       const strategyField = form.get("dedupeStrategy");
       if (strategyField === "overwrite") dedupeStrategy = "overwrite";
     } else {
-      raw = await req.text();
+      raw = new TextDecoder("utf-8",{fatal:true}).decode(await readBoundedBytes(req,MAX_UPLOAD_BYTES));
       if (Buffer.byteLength(raw, "utf8") > MAX_UPLOAD_BYTES) {
         throw badRequest(`Upload too large (max ${MAX_UPLOAD_BYTES / (1024 * 1024)}MB).`);
       }

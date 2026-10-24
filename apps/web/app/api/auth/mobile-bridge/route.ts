@@ -46,7 +46,7 @@ const ALLOWED_BRIDGE_PATHS: RegExp[] = [
   /^\/kyc$/,
   /^\/creator\/bank-account$/,
   /^\/creator\/wallet$/,
-  /^\/admin\/kyc(\?.*)?$/,
+  /^\/(?:gate44|admin)\/kyc(?:\?userId=[0-9a-f-]{36})?$/,
   /^\/g\/[a-zA-Z0-9_-]+\/play$/,
 ];
 
@@ -69,7 +69,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const code = randomBytes(32).toString("hex");
-    await redis.setex(`mobile_bridge:${code}`, BRIDGE_TTL_SECONDS, userId);
+    await redis.setex(`mobile_bridge:${code}`, BRIDGE_TTL_SECONDS, JSON.stringify({userId, sourceSid:auth.user.sid, path}));
 
     return NextResponse.json({ success: true, data: { code }, error: null });
   } catch (err) {

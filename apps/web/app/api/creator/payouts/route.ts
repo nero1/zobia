@@ -457,7 +457,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             updatedAt: new Date(),
           })
           .where(eq(schema.users.id, userId));
-        await tx.insert(schema.creatorPayouts).values({
+        const [created]=await tx.insert(schema.creatorPayouts).values({
           creatorId: userId,
           amountKobo: BigInt(requestedKobo),
           grossKobo: BigInt(requestedKobo),
@@ -466,10 +466,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           payoutMethod: "coins",
           provider: "internal",
           region,
-          status: "completed",
+          status: needsManualApproval ? "awaiting_approval" : "completed",
+          requiresManualApproval:needsManualApproval,
+          bankAccountSnapshot:{coinsToCredit},
           idempotencyKey,
-        });
-        await creditCoins(
+        }).returning({id:schema.creatorPayouts.id});
+        if(!needsManualApproval)await creditCoins(
           userId, coinsToCredit, "creator_coin_conversion", idempotencyKey,
           `Earnings converted to ${coinsToCredit} Coins`,
           { grossKobo: requestedKobo },
@@ -479,11 +481,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         return {
           method: "coins" as const,
           grossKobo: requestedKobo,
-          status: "completed",
-          coinsAwarded: coinsToCredit,
-          requiresManualApproval: false,
-          fraudFlagged: false,
-          id: undefined as string | undefined,
+          status: needsManualApproval ? "awaiting_approval" : "completed",
+          coinsAwarded: needsManualApproval ? 0 : coinsToCredit,
+          requiresManualApproval: needsManualApproval,
+          fraudFlagged: fraudResult.isSuspicious,
+          id: created.id,
         };
       }
 
@@ -531,7 +533,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (payoutResult.method === "coins") {
       return NextResponse.json({
         payout: payoutResult,
-        message: `${(payoutResult.coinsAwarded ?? 0).toLocaleString()} Coins have been added to your wallet.`,
+        message: payoutResult.requiresManualApproval ? "Your conversion is awaiting administrator review. Coins will be credited only after approval." : `${(payoutResult.coinsAwarded ?? 0).toLocaleString()} Coins have been added to your wallet.`,
       });
     }
 

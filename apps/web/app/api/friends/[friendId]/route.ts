@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -21,7 +22,7 @@ export const PUT = withAuth(async (
     const { friendId } = await params;
     const userId = auth.user.sub;
 
-    const body = await req.json();
+    const body = await readBoundedJson(req);
     const action: string | undefined = body?.action; // 'accept' | 'reject' | 'block'
     if (!action || !['accept', 'reject', 'block'].includes(action)) {
       throw badRequest('action must be accept, reject, or block');

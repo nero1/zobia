@@ -1550,6 +1550,7 @@ export default function RoomPage() {
     };
   }, []);
 
+  const pendingSendKey=useRef<{fingerprint:string;key:string}|null>(null);
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || sending) return;
@@ -1558,7 +1559,9 @@ export default function RoomPage() {
     const momentFlag = isMoment;
     const content = input.trim();
     try {
-      const body: Record<string, unknown> = { content };
+      const fingerprint=JSON.stringify([content,momentFlag,momentCurrency]);
+      if(pendingSendKey.current?.fingerprint!==fingerprint)pendingSendKey.current={fingerprint,key:crypto.randomUUID()};
+      const body: Record<string, unknown> = { content,idempotencyKey:pendingSendKey.current.key };
       // BUG FIX: the request schema expects camelCase `messageType`, not
       // `message_type` — the old snake_case key was silently stripped by
       // zod's .parse(), so every "moment" send was stored as a plain text
@@ -1593,6 +1596,7 @@ export default function RoomPage() {
         }
         throw new Error(d.error?.message ?? "Failed to send");
       }
+      pendingSendKey.current=null;
       setInput("");
       if (momentFlag) setIsMoment(false);
       const data = (await res.json()) as { message?: Message };

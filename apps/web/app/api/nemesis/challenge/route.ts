@@ -1,3 +1,4 @@
+import { insertNotification } from "@/lib/notifications/insert";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -72,23 +73,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    await orm.insert(schema.nemesisChallenges).values({
+    const [challenge]=await orm.insert(schema.nemesisChallenges).values({
       challengerId: userId,
       challengedId: nemesisId,
       status: "pending",
       expiresAt,
-    });
+    }).returning({id:schema.nemesisChallenges.id});
 
     // Notify the challenged user (fire-and-forget)
-    orm
-      .insert(schema.notifications)
-      .values({
-        userId: nemesisId,
-        type: "nemesis_challenge",
-        payload: { challenger_id: userId, expires_at: expiresAt.toISOString() },
-        isRead: false,
-      })
-      .catch(() => {});
+    await insertNotification(orm,nemesisId,"nemesis_challenge","New nemesis challenge","Your nemesis sent you a challenge.",{challenger_id:userId,expires_at:expiresAt.toISOString()},`nemesis-challenge:${challenge.id}`);
 
     return NextResponse.json({
       success: true,

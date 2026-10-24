@@ -1,3 +1,4 @@
+import {reserveCommunityReward} from "@/lib/tasks/communityReward";
 /**
  * lib/bbforum/service.ts
  *
@@ -18,7 +19,6 @@ import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
-import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { applyBbforumAutoModeration } from "@/lib/bbforum/moderation";
@@ -104,49 +104,8 @@ async function chargeImageCost(userId: string, config: ZobiaManifest["bbforum"],
 // Reward helpers (best-effort, run after the write transaction commits)
 // ---------------------------------------------------------------------------
 
-async function awardBbforumCreditsCapped(
-  userId: string,
-  amount: number,
-  type: "bbforum_thread_reward" | "bbforum_reply_reward",
-  referenceId: string,
-  description: string,
-  dailyCapCredits: number
-): Promise<void> {
-  if (amount <= 0) return;
-  try {
-    const orm = await getDb();
-    const { rows } = await orm.execute<{ earned: string }>(sql`
-      SELECT COALESCE(SUM(amount), 0)::text AS earned
-      FROM coin_ledger
-      WHERE user_id = ${userId} AND transaction_type LIKE 'bbforum_%' AND amount > 0
-        AND created_at >= NOW() - INTERVAL '24 hours'
-    `);
-    const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
-    const headroom = dailyCapCredits - earnedToday;
-    if (headroom <= 0) return;
-    const capped = Math.min(amount, headroom);
-    await creditCoins(userId, capped, type, referenceId, description);
-  } catch (err) {
-    logger.error({ err, userId, type, amount }, "[bbforum/service] reward credit award failed");
-  }
-}
-
-function awardBbforumRewards(
-  userId: string,
-  xpAmount: number,
-  creditAmount: number,
-  xpSource: string,
-  creditType: "bbforum_thread_reward" | "bbforum_reply_reward",
-  referenceId: string,
-  description: string,
-  dailyCapCredits: number
-): void {
-  if (xpAmount > 0) {
-    safeAwardXPFireAndForget(userId, xpAmount, "social", xpSource, referenceId);
-  }
-  if (creditAmount > 0) {
-    awardBbforumCreditsCapped(userId, creditAmount, creditType, referenceId, description, dailyCapCredits).catch(() => {});
-  }
+async function awardBbforumRewards(tx:DbOrTx,userId:string,xpAmount:number,creditAmount:number,xpSource:string,creditType:"bbforum_thread_reward"|"bbforum_reply_reward",referenceId:string,description:string,dailyCapCredits:number):Promise<void>{
+ await reserveCommunityReward(tx,userId,{family:"bbforum",amount:creditAmount,dailyCap:dailyCapCredits,type:creditType,xp:xpAmount,track:"social",source:xpSource,referenceId,description});
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +161,7 @@ export async function createThread(input: CreateThreadInput): Promise<{ thread: 
     if (input.imageUrl) {
       await chargeImageCost(input.userId, eligibility.config, chargeReference, tx);
     }
-    return repo.createThread(
+    const thread=await repo.createThread(
       {
         boardId: board.id,
         authorId: input.userId,
@@ -215,9 +174,7 @@ export async function createThread(input: CreateThreadInput): Promise<{ thread: 
       },
       tx
     );
-  });
-
-  awardBbforumRewards(
+    await awardBbforumRewards(tx,
     input.userId,
     eligibility.config.rewardXpPerThread,
     eligibility.config.rewardCreditsPerThread,
@@ -227,6 +184,10 @@ export async function createThread(input: CreateThreadInput): Promise<{ thread: 
     "Started a forum thread",
     eligibility.config.dailyRewardCapCredits
   );
+    return thread;
+  });
+
+
 
   return { thread };
 }
@@ -262,37 +223,32 @@ export async function createReply(input: CreateReplyInput): Promise<{ post: repo
     throw badRequest("This reply looks like a duplicate of one you posted recently.", "BBFORUM_CONTENT_BLOCKED");
   }
 
-  if (input.imageUrl) {
-    const chargeReference = `bbforum_charge:${input.userId}:${randomUUID()}`;
-    const orm = await getDb();
-    await orm.transaction((tx) => chargeImageCost(input.userId, eligibility.config, chargeReference, tx));
-  }
-
-  const { post, potClaimedCredits } = await repo.createReply({
+  const {post,potClaimedCredits}=await (await getDb()).transaction(async tx=>{
+    if(input.imageUrl)await chargeImageCost(input.userId,eligibility.config,`bbforum_charge:${input.userId}:${randomUUID()}`,tx);
+    const reply=await repo.createReply({
     threadId: thread.id,
     authorId: input.userId,
     body: mod.filteredBody ?? input.body,
     contentFormat: input.contentFormat,
     imageUrl: input.imageUrl ?? null,
     quotedPostId: input.quotedPostId ?? null,
-  });
-
-  awardBbforumRewards(
+    },tx);
+    await awardBbforumRewards(tx,
     input.userId,
     eligibility.config.rewardXpPerReply,
     eligibility.config.rewardCreditsPerReply,
     "bbforum_reply_posted",
     "bbforum_reply_reward",
-    `bbforum_reply_reward:${post.id}`,
+    `bbforum_reply_reward:${reply.post.id}`,
     "Replied to a forum thread",
     eligibility.config.dailyRewardCapCredits
   );
+    return reply;
 
-  if (potClaimedCredits > 0) {
-    creditCoins(input.userId, potClaimedCredits, "bbforum_pot_claim", `bbforum_pot_claim:${post.id}`, "Claimed a forum thread's reply pot").catch((err) => {
-      logger.error({ err, userId: input.userId, postId: post.id }, "[bbforum/service] pot claim credit failed");
-    });
-  }
+  });
+
+
+
 
   return { post, potClaimedCredits };
 }
@@ -341,20 +297,18 @@ export async function sweepExpiredPots(): Promise<{ refunded: number; totalCredi
   const candidates = await repo.listExpiredUnclaimedPots(manifest.bbforum.potExpiryDays);
   let refunded = 0;
   let totalCreditsRefunded = 0;
-  for (const t of candidates) {
-    const unclaimed = t.pot_total_credits - t.pot_per_claim_credits * t.pot_claims_count;
-    if (unclaimed <= 0) {
-      await repo.markPotRefunded(t.id).catch(() => {});
-      continue;
-    }
-    try {
-      await creditCoins(t.author_id, unclaimed, "bbforum_pot_refund", `bbforum_pot_refund:${t.id}`, "Refund of unclaimed forum thread pot balance");
-      await repo.markPotRefunded(t.id);
-      refunded++;
-      totalCreditsRefunded += unclaimed;
-    } catch (err) {
-      logger.error({ err, threadId: t.id }, "[bbforum/service] pot refund failed");
-    }
+  const db=await getDb();
+  for(const candidate of candidates){
+    try{
+      const amount=await db.transaction(async tx=>{
+        const locked=await tx.execute<{author_id:string;unclaimed:number}>(sql`SELECT author_id,(pot_total_credits-pot_per_claim_credits*pot_claims_count)::int unclaimed FROM bb_threads WHERE id=${candidate.id} AND pot_refunded_at IS NULL AND last_reply_at<NOW()-${manifest.bbforum.potExpiryDays}*INTERVAL '1 day' FOR UPDATE`);
+        const current=locked.rows[0];if(!current)return null;
+        if(current.unclaimed>0)await creditCoins(current.author_id,current.unclaimed,"bbforum_pot_refund",`bbforum_pot_refund:${candidate.id}`,"Refund of unclaimed forum thread pot balance",{},tx);
+        await tx.execute(sql`UPDATE bb_threads SET pot_refunded_at=NOW() WHERE id=${candidate.id}`);
+        return Math.max(0,current.unclaimed);
+      });
+      if(amount!==null){refunded++;totalCreditsRefunded+=amount;}
+    }catch(error){logger.error({error,threadId:candidate.id},"[bbforum/service] pot refund remains retryable");}
   }
   return { refunded, totalCreditsRefunded };
 }

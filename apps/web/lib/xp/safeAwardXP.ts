@@ -343,6 +343,7 @@ export async function retryFailedXPAwards(): Promise<{
     // Process each row inside the same transaction that holds the lock so the
     // lock is held for the full batch-processing duration.
     for (const row of rows) {
+    await lockTx.execute(sql`SAVEPOINT xp_retry_item`);
     try {
       const col = TRACK_COLUMN[row.track] ?? "xp_total";
 
@@ -423,6 +424,7 @@ export async function retryFailedXPAwards(): Promise<{
 
       resolved++;
     } catch (err) {
+      await lockTx.execute(sql`ROLLBACK TO SAVEPOINT xp_retry_item`);
       const newRetryCount = row.retry_count + 1;
       // Use lockTx so the retry_count update is part of the same transaction
       // that holds the FOR UPDATE SKIP LOCKED lock.
@@ -437,7 +439,7 @@ export async function retryFailedXPAwards(): Promise<{
 
       if (newRetryCount >= MAX_RETRIES) {
         permanentlyFailed++;
-        await raiseAlert(orm, {
+        await lockTx.transaction(async alertTx=>raiseAlert(alertTx, {
           type: "xp_award_permanent_failure",
           category: "infra",
           priorityLevel: 4,
@@ -445,9 +447,10 @@ export async function retryFailedXPAwards(): Promise<{
           message: `XP award permanently failed after ${MAX_RETRIES} retries for user ${row.user_id}`,
           metadata: { failedXpAwardId: row.id, userId: row.user_id, source: row.source },
           dedupeKey: `xp_award_permanent_failure:${row.id}`,
-        }).catch(() => {});
+        })).catch(() => {});
       }
     }  // end catch
+    await lockTx.execute(sql`RELEASE SAVEPOINT xp_retry_item`);
     }  // end for (const row of rows)
   });  // end globalDb.transaction
 

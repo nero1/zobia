@@ -157,9 +157,12 @@ function RoomChatPage() {
     return () => { cancelled = true; clearInterval(id); };
   }, [roomId]);
 
+  const pendingSendKey=useRef<{fingerprint:string;key:string}|null>(null);
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      const body: Record<string, string> = { content };
+      const fingerprint=JSON.stringify([roomId,user?.id,content,isMoment,momentCurrency]);
+      if(pendingSendKey.current?.fingerprint!==fingerprint)pendingSendKey.current={fingerprint,key:crypto.randomUUID()};
+      const body: Record<string, string> = { content,idempotencyKey:pendingSendKey.current.key };
       // BUG FIX (matches web): the request schema expects camelCase
       // `messageType`, not `message_type` — sending the wrong key gets
       // silently stripped by zod, so the message would post as plain text
@@ -169,6 +172,7 @@ function RoomChatPage() {
         body.currency = momentCurrency;
       }
       const { data } = await apiClient.post<{ message: RoomMessageRow }>(`/rooms/${roomId}/messages`, body);
+      pendingSendKey.current=null;
       return mapMessage(data.message);
     },
     onMutate: async (content) => {

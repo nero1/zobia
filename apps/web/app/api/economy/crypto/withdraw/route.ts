@@ -17,11 +17,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { badRequest, handleApiError } from "@/lib/api/errors";
+import { badRequest, handleApiError, forbidden } from "@/lib/api/errors";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getCryptoPayoutsEnabled, getCryptoPayoutMode, getCryptoPayoutThreshold } from "@/lib/payments/crypto/payouts";
+import {requirePinVerified} from "@/lib/auth/pinGuard";
+import {encryptField} from "@/lib/security/fieldEncryption";
 import { getToken } from "@/lib/payments/crypto/tokens";
 import { writeAuditLog } from "@/lib/audit/auditLog";
 import { logger } from "@/lib/logger";
@@ -35,6 +37,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const userId = auth.user.sub;
+    if(!await requirePinVerified(userId,auth.user.sid))throw forbidden("Verify your PIN before withdrawing","PIN_REQUIRED");
 
     const [enabled, mode] = await Promise.all([getCryptoPayoutsEnabled(), getCryptoPayoutMode()]);
     if (!enabled || mode !== "crypto") {
@@ -61,13 +64,16 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const threshold = await getCryptoPayoutThreshold(currency);
 
     const payoutId = await orm.transaction(async (tx) => {
+      await tx.select({id:schema.users.id}).from(schema.users).where(eq(schema.users.id,userId)).for("update");
+      const [currentWallet]=await tx.select({address:schema.userCryptoWallets.address}).from(schema.userCryptoWallets).where(and(eq(schema.userCryptoWallets.userId,userId),eq(schema.userCryptoWallets.chain,token.chain))).for("update");
+      if(!currentWallet)throw badRequest("Wallet was removed before the withdrawal","NO_WALLET_ADDRESS");
       const [balRow] = await tx
         .select({ balance_base_units: schema.creatorCryptoBalances.balanceBaseUnits })
         .from(schema.creatorCryptoBalances)
         .where(and(eq(schema.creatorCryptoBalances.userId, userId), eq(schema.creatorCryptoBalances.currency, currency)))
         .for("update");
       const balance = BigInt(balRow?.balance_base_units ?? "0");
-      if (balance < threshold) {
+      if (balance<=0n || balance < threshold) {
         throw badRequest(
           `Your ${currency} balance is below the minimum withdrawal threshold.`,
           "BELOW_PAYOUT_THRESHOLD"
@@ -90,16 +96,17 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           amountKobo: BigInt(0),
           provider: "crypto",
           payoutMethod: "crypto",
-          walletAddressSnapshot: walletRow.address,
+          walletAddressSnapshot: encryptField(currentWallet.address),
           cryptoCurrency: currency,
           cryptoChain: token.chain,
           cryptoAmountBaseUnits: balance.toString(),
-          status: "pending",
+          status: "awaiting_approval",
           requiresManualApproval: true,
           idempotencyKey,
         })
         .returning({ id: schema.creatorPayouts.id });
-      return payoutRow?.id;
+      await tx.insert(schema.cryptoBalanceLedger).values({userId,currency,amountBaseUnits:(-balance).toString(),sourceType:"payout_reserve",referenceId:`payout-reserve:${payoutRow.id}:0`,metadata:{payoutId:payoutRow.id}});
+      return payoutRow.id;
     });
 
     await writeAuditLog({
@@ -111,7 +118,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     });
     logger.info({ userId, currency, payoutId }, "[crypto:withdraw] withdrawal requested");
 
-    return NextResponse.json({ success: true, data: { payoutId, status: "pending" }, error: null });
+    return NextResponse.json({ success: true, data: { payoutId, status: "awaiting_approval" }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

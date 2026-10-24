@@ -69,6 +69,7 @@ jest.mock("@/lib/payments/circuit", () => ({
   cryptoPriceFeedBreaker: { execute: (fn: () => unknown) => fn() },
 }));
 
+jest.mock("@/lib/redis",()=>({redis:{set:jest.fn().mockResolvedValue("OK"),eval:jest.fn().mockResolvedValue(1)}}));
 import { getManifestValue } from "@/lib/manifest";
 import { getUsdPrice, PriceFeedUnavailableError } from "../priceFeed";
 
@@ -111,9 +112,9 @@ function mockDispatch(handlers: {
 }
 
 describe("getUsdPrice", () => {
-  it("returns the manual override when active (no expiry)", async () => {
+  it("returns a time-bounded active manual override", async () => {
     mockDispatch({
-      override: () => ({ rows: [overrideRow("650.00", null)] }),
+      override: () => ({ rows: [overrideRow("650.00", new Date(Date.now()+3600000).toISOString())] }),
     });
     const result = await getUsdPrice("BNB");
     expect(result.source).toBe("manual");
@@ -149,8 +150,8 @@ describe("getUsdPrice", () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to the stale cache when the live fetch fails", async () => {
-    const staleDate = new Date(Date.now() - 400 * 60_000).toISOString();
+  it("falls back only to a cache inside the maximum quote age", async () => {
+    const staleDate = new Date(Date.now() - 10 * 60_000).toISOString();
     mockDispatch({
       override: () => ({ rows: [] }), // no override
       cache: () => ({ rows: [cacheRow("600", "live", staleDate)] }), // stale cache
@@ -169,4 +170,23 @@ describe("getUsdPrice", () => {
     (global.fetch as jest.Mock).mockRejectedValueOnce(new Error("network down"));
     await expect(getUsdPrice("SOL")).rejects.toThrow(PriceFeedUnavailableError);
   });
+  it("rejects a very old cached price during an outage",async()=>{
+    mockDispatch({cache:()=>({rows:[cacheRow("600","live",new Date(Date.now()-60*86400000).toISOString())]})});
+    (global.fetch as jest.Mock).mockRejectedValue(new Error("network down"));
+    await expect(getUsdPrice("BNB")).rejects.toThrow(PriceFeedUnavailableError);
+  });
+  it("coalesces simultaneous refreshes into one provider request",async()=>{
+    mockDispatch({});
+    (global.fetch as jest.Mock).mockResolvedValue({ok:true,json:async()=>({binancecoin:{usd:600}})});
+    const prices=await Promise.all(Array.from({length:5},()=>getUsdPrice("BNB")));
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(prices.every(price=>price.usdPrice.eq(600))).toBe(true);
+  });
+
+  it("pauses new quotes on a confirmed large deviation instead of falling back to the known obsolete price",async()=>{
+    mockDispatch({cache:()=>({rows:[cacheRow("100","live",new Date(Date.now()-10*60000).toISOString())]})});
+    (global.fetch as jest.Mock).mockResolvedValue({ok:true,json:async()=>({binancecoin:{usd:200}})});
+    await expect(getUsdPrice("BNB")).rejects.toThrow(PriceFeedUnavailableError);
+  });
+
 });

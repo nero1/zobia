@@ -1,3 +1,5 @@
+import Decimal from "decimal.js";
+import {enqueueTask,processTask} from "@/lib/tasks/outbox";
 /**
  * lib/quests/questEngine.ts
  *
@@ -17,7 +19,6 @@ import { randomBytes } from "crypto";
 import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import type { Plan } from "@zobia/types";
-import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import type { XPTrack } from "@/lib/xp/safeAwardXP";
 import { publishRealtimeEvent } from "@/lib/realtime";
@@ -353,6 +354,7 @@ export async function generateDailyDeck(
       const seen = new Set<string>();
       const shuffled = pool.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
       const selectedTemplates = shuffled.slice(0, deckSize);
+      const fallbackTemplate=selectedTemplates.at(-1);
 
       // Sponsored Quest injection (PRD sponsored quests — "infused into
       // daily quests"): with probability sponsoredDailySlotChance, swap the
@@ -364,7 +366,7 @@ export async function generateDailyDeck(
           const affordable: typeof candidates = [];
           for (const c of candidates) {
             const cpm = Number(c.cpm_credits) || manifest.questSystem.sponsoredDefaultCpmCredits;
-            const costCredits = cpm / 1000;
+            const costCredits = new Decimal(cpm).div(1000).toNumber();
             if (c.daily_budget_credits) {
               const spentToday = await getSponsoredQuestSpendToday(db, c.sponsored_quest_id);
               if (spentToday + costCredits > Number(c.daily_budget_credits)) continue;
@@ -388,24 +390,21 @@ export async function generateDailyDeck(
               track: pick.track,
               feature_key: null,
             };
-            sponsoredSlot = { id: pick.id, sponsoredQuestId: pick.sponsored_quest_id, costCredits: cpm / 1000 };
+            sponsoredSlot = { id: pick.id, sponsoredQuestId: pick.sponsored_quest_id, costCredits: new Decimal(cpm).div(1000).toNumber() };
           }
         }
       }
 
       if (selectedTemplates.length > 0) {
-        const questIds = selectedTemplates.map((t) => t.id);
-        await db
-          .insert(schema.userQuestDecks)
-          .values(questIds.map((questId) => ({ userId, questId, assignedDate: today })))
-          .onConflictDoNothing();
-
-        // Bill the impression only once the deck is actually persisted, and
-        // only on this (the deck-generating) call — a concurrent request
-        // that lost the lock re-queries the DB below instead of billing again.
-        if (sponsoredSlot) {
-          await recordSponsoredQuestImpression(db, sponsoredSlot.sponsoredQuestId, userId, sponsoredSlot.costCredits);
-        }
+        await db.transaction(async tx=>{
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`quest-deck:${userId}:${today}`},0))`);
+          const existing=await tx.select({id:schema.userQuestDecks.id}).from(schema.userQuestDecks).where(and(eq(schema.userQuestDecks.userId,userId),eq(schema.userQuestDecks.assignedDate,today))).limit(1);
+          if(existing.length)return;
+          if(sponsoredSlot && !await recordSponsoredQuestImpression(tx,sponsoredSlot.sponsoredQuestId,userId,sponsoredSlot.costCredits)){
+            if(fallbackTemplate)selectedTemplates[selectedTemplates.length-1]=fallbackTemplate;else selectedTemplates.pop();
+          }
+          if(selectedTemplates.length)await tx.insert(schema.userQuestDecks).values(selectedTemplates.map(template=>({userId,questId:template.id,assignedDate:today}))).onConflictDoNothing();
+        });
       }
     }
   } finally {
@@ -538,32 +537,17 @@ export async function updateQuestProgress(
   // neither of which is a valid quest progress update. Callers that pass
   // a negative increment (e.g. due to a sign-flip bug) would silently corrupt
   // quest progress without this guard.
-  if (typeof increment !== "number" || !Number.isFinite(increment) || increment <= 0) {
+  if (typeof increment !== "number" || !Number.isSafeInteger(increment) || increment <= 0) {
     throw new Error(`[questEngine] updateQuestProgress: increment must be a positive number, got ${increment}`);
   }
 
   const today = new Date().toISOString().slice(0, 10);
 
-  // Collect XP/coin award details inside the transaction and issue the
-  // actual award only AFTER the transaction commits. This prevents phantom
-  // DLQ entries: if the transaction rolls back, there is no XP to award and
-  // no DLQ entry should be written.
-  //
-  // NOTE: coin crediting (creditCoins, lib/economy/coins.ts) is deferred
-  // post-commit rather than run inside this Drizzle transaction because
-  // lib/economy/coins.ts has not yet been migrated off the raw
-  // TransactionClient interface (it is out of scope for this migration) and
-  // cannot accept a Drizzle transaction handle. This mirrors the pre-existing
-  // deferred-XP pattern below but is a small atomicity change from the
-  // original behaviour, where the coin credit ran inside the same DB
-  // transaction as the quest-progress write. See migration report.
-  let pendingXP: { amount: number; track: XPTrack; ref: string } | null = null;
-  let pendingCoinCredit: { amount: number; ref: string } | null = null;
-  // PRD §7 (Elder System): Elder earns 10% of a Mentee's quest XP as a Mentorship Bonus.
-  let pendingElderBonus: { elderId: string; amount: number; ref: string; menteeId: string } | null = null;
+  let rewardTaskId:string|null=null;
 
   const orm = await getDb();
   const result = await orm.transaction(async (tx) => {
+    await tx.select({id:schema.users.id}).from(schema.users).where(eq(schema.users.id,userId)).for("update");
     const [quest] = await tx
       .select({
         id: schema.questTemplates.id,
@@ -680,14 +664,14 @@ export async function updateQuestProgress(
       }
       const questCompletionRef = `quest:${questId}:${userId}:${today}`;
 
-      // Defer XP award to post-commit; record intent here
-      pendingXP = { amount: xpAwarded, track: xpTrack, ref: questCompletionRef };
+      // XP and the durable coin reward intent share the progress transaction.
+      await safeAwardXP(userId,xpAwarded,xpTrack,"quest_complete",questCompletionRef,tx);
 
-      // Coin award also deferred to post-commit — see note above pendingCoinCredit.
+      // Delivery can retry without replaying the qualifying action.
       // SYS-CL-01: per-user, per-day reference (mirrors questCompletionRef above) — a bare
       // questId would collide across every user completing the same quest template.
       if (coinsAwarded > 0) {
-        pendingCoinCredit = { amount: coinsAwarded, ref: questCompletionRef };
+        rewardTaskId=await enqueueTask(tx,"coin_credit",questCompletionRef,userId,{amount:coinsAwarded,transactionType:"quest_reward",referenceId:questCompletionRef,description:"Daily quest reward"});
       }
 
       // Sponsored Quests panel stats (creator/owner-facing) — non-blocking.
@@ -712,12 +696,7 @@ export async function updateQuestProgress(
         .limit(1);
       const elderBonus = Math.floor(xpAwarded * 0.1);
       if (elder && elderBonus > 0) {
-        pendingElderBonus = {
-          elderId: elder.elderId,
-          amount: elderBonus,
-          ref: `mentorship_bonus:${questCompletionRef}`,
-          menteeId: userId,
-        };
+        await enqueueTask(tx,"xp_award",`mentorship_bonus:${questCompletionRef}`,elder.elderId,{amount:elderBonus,track:"main",source:"mentorship_bonus",referenceId:`mentorship_bonus:${questCompletionRef}`});
       }
     }
 
@@ -730,42 +709,10 @@ export async function updateQuestProgress(
     };
   });
 
-  // Issue coin credit after the transaction commits (see note above).
-  const capturedCoinCredit = pendingCoinCredit as { amount: number; ref: string } | null;
-  if (capturedCoinCredit) {
-    try {
-      await creditCoins(userId, capturedCoinCredit.amount, "quest_reward", capturedCoinCredit.ref, "Daily quest reward", {});
-    } catch (err) {
-      logger.error({ err, userId, questId }, "[questEngine] Failed to credit quest coin reward (non-fatal)");
-    }
-  }
-
-  // Issue XP award after the transaction commits so a rollback doesn't leave
-  // a phantom DLQ entry for XP that was never actually lost.
-  // Type assertion needed because TS narrows `let` vars assigned inside async callbacks to their
-  // initial type (null) after the await; the runtime value is correct.
-  const capturedXP = pendingXP as { amount: number; track: XPTrack; ref: string } | null;
-  if (capturedXP) {
-    await safeAwardXP(userId, capturedXP.amount, capturedXP.track, "quest_complete", capturedXP.ref);
-  }
-
-  const capturedElderBonus = pendingElderBonus as { elderId: string; amount: number; ref: string; menteeId: string } | null;
-  if (capturedElderBonus) {
-    await safeAwardXP(capturedElderBonus.elderId, capturedElderBonus.amount, "main", "mentorship_bonus", capturedElderBonus.ref);
-    try {
-      const { insertNotification } = await import("@/lib/notifications/insert");
-      const notifyOrm = await getDb();
-      await insertNotification(
-        notifyOrm,
-        capturedElderBonus.elderId,
-        "mentorship_bonus",
-        "Mentorship bonus earned!",
-        `Your mentee earned ${capturedElderBonus.amount} XP for you by completing a quest.`,
-        { menteeId: capturedElderBonus.menteeId, bonusXP: capturedElderBonus.amount }
-      );
-    } catch (err) {
-      logger.error({ err, elderId: capturedElderBonus.elderId }, "[questEngine] Failed to notify elder of mentorship bonus (non-fatal)");
-    }
+  if(rewardTaskId){
+    await processTask(rewardTaskId).catch(()=>{});
+    const [settlement]=await orm.select({status:schema.transactionalTasks.status}).from(schema.transactionalTasks).where(eq(schema.transactionalTasks.id,rewardTaskId));
+    if(settlement?.status!=="completed")result.coins_awarded=0;
   }
 
   return result;
@@ -791,7 +738,6 @@ export async function checkDeckCompletion(
   db: DbOrTx
 ): Promise<{ deckComplete: boolean; bonusAwarded: boolean; bonusXP: number }> {
   // Track whether we should issue XP after the transaction commits.
-  let shouldAwardBonus = false;
   const deckRef = `deck_completion:${userId}:${date}`;
 
   const orm = await getDb();
@@ -840,16 +786,10 @@ export async function checkDeckCompletion(
     }
 
     // Mark that bonus should be awarded post-commit (avoids phantom DLQ if tx rolls back)
-    shouldAwardBonus = true;
+    await safeAwardXP(userId,DECK_COMPLETION_BONUS_XP,"main","deck_completion",deckRef,tx);
 
     return { deckComplete: true, bonusAwarded: true, bonusXP: DECK_COMPLETION_BONUS_XP };
   });
-
-  // Issue XP award after the transaction commits so a rollback doesn't leave
-  // a phantom DLQ entry for XP that was never actually lost.
-  if (shouldAwardBonus) {
-    await safeAwardXP(userId, DECK_COMPLETION_BONUS_XP, "main", "deck_completion", deckRef);
-  }
 
   return result;
 }

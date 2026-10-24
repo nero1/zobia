@@ -12,7 +12,7 @@
  * coins (kobo / 100), so this page mirrors that conversion for display.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -74,6 +74,7 @@ function CreatorMerchStorePage() {
     { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
   );
   const qc = useQueryClient();
+  const checkout=useRef<{fingerprint:string;key:string}|null>(null);
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [shippingName, setShippingName] = useState('');
@@ -93,10 +94,15 @@ function CreatorMerchStorePage() {
 
   const buyMutation = useMutation({
     mutationFn: async (product: Product) => {
-      const body = product.productType === 'physical'
+      if(!user?.id)throw new Error('Please sign in again before purchasing.');
+      const details = product.productType === 'physical'
         ? { shippingName, shippingAddress, shippingCity, shippingCountry }
         : {};
-      await apiClient.post(`/merch/${creatorId}/products/${product.id}/purchase`, body);
+      const fingerprint=JSON.stringify({buyerId:user.id,productId:product.id,...details});
+      if(checkout.current?.fingerprint!==fingerprint)checkout.current={fingerprint,key:crypto.randomUUID()};
+      const response=await apiClient.post(`/merch/${creatorId}/products/${product.id}/purchase`, {...details,idempotencyKey:checkout.current.key,expectedBuyerId:user.id});
+      if(!response.data?.success||!response.data?.data?.orderId)throw new Error('Purchase confirmation is unavailable. Please retry.');
+      checkout.current=null;
     },
     onSuccess: (_data, product) => {
       showToast(t('merch.purchaseSuccess', 'You bought {{name}}!', { name: product.name }));

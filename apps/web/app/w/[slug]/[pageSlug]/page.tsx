@@ -92,7 +92,7 @@ export default async function PublicWikiPagePage({ params }: { params: Promise<{
 
         <div className="mt-6">
           {/* eslint-disable-next-line react/no-danger */}
-          <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: page.content_html }} />
+          <div className="prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: page.content_html }} />
         </div>
       </div>
     </main>

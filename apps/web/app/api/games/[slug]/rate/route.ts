@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -22,7 +23,7 @@ export const POST = withAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
       await assertGamesEnabled();
 
-      const body = await req.json().catch(() => ({})) as Record<string, unknown>;
+      const body = await readBoundedJson(req).catch(() => ({})) as Record<string, unknown>;
       const rating = Number(body.rating);
       if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
         throw badRequest("Rating must be an integer between 1 and 5.");

@@ -26,6 +26,7 @@ import type { AdSize } from "@/lib/ads/repo";
 
 export interface ServedAd {
   receipt: string;
+  viewReceipts?:string[];
   creativeId: string;
   campaignId: string;
   placementKey: string;
@@ -99,6 +100,7 @@ export async function serveAd(
 
   return {
     receipt: issueAdReceipt(userId,row.creative_id,placementKey),
+    viewReceipts:Array.from({length:15},()=>issueAdReceipt(userId,row.creative_id,placementKey)),
     creativeId: row.creative_id,
     campaignId: row.campaign_id,
     placementKey,

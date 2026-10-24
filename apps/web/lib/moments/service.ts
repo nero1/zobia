@@ -11,7 +11,7 @@
  */
 
 import { randomUUID } from "crypto";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
@@ -177,27 +177,24 @@ export interface CreateMomentResult {
  * insert (e.g. a race on the active-moment cap) never leaves a user charged
  * for a Moment that was never created.
  */
-export async function createMoment(input: CreateMomentInput): Promise<CreateMomentResult> {
+export async function prepareMomentCreation(userId:string):Promise<MomentEligibility>{
   await requireFeatureEnabled("moments");
-
-  const eligibility = await getMomentEligibility(input.userId);
+  const eligibility=await getMomentEligibility(userId);
+  assertMomentLevelGate(eligibility);return eligibility;
+}
+export async function createMoment(input: CreateMomentInput,options:{tx?:DbOrTx;eligibility?:MomentEligibility}={}): Promise<CreateMomentResult> {
+  const eligibility=options.eligibility??await prepareMomentCreation(input.userId);
   assertMomentLevelGate(eligibility);
-
-  const orm = await getDb();
-  const { rows: countRows } = await orm.execute<{ cnt: string }>(
-    sql`SELECT COUNT(*)::text AS cnt FROM moments WHERE user_id = ${input.userId} AND expires_at > NOW()`
-  );
-  if (parseInt(countRows[0]?.cnt ?? "0", 10) >= MAX_ACTIVE_MOMENTS_PER_USER) {
-    throw badRequest(`You can have at most ${MAX_ACTIVE_MOMENTS_PER_USER} active moments at a time`, "MOMENTS_LIMIT_REACHED");
-  }
-
   const currency = resolveMomentCurrency(eligibility, input.currency);
   assertCanAffordMoment(eligibility, currency);
 
   const { pricing } = eligibility;
   const referenceId = `moment_create:${input.userId}:${randomUUID()}`;
 
-  const created = await orm.transaction(async (tx) => {
+  const run=async(tx:DbOrTx)=>{
+    await tx.execute(sql`SELECT id FROM users WHERE id=${input.userId} FOR UPDATE`);
+    const counts=await tx.execute<{cnt:string}>(sql`SELECT COUNT(*)::text cnt FROM moments WHERE user_id=${input.userId} AND expires_at>NOW()`);
+    if(Number(counts.rows[0]?.cnt??0)>=MAX_ACTIVE_MOMENTS_PER_USER)throw badRequest("Active Moment limit reached","MOMENTS_LIMIT_REACHED");
     if (currency === "credits") {
       await debitCoins(input.userId, pricing.costCredits, "moment_created", referenceId, "Shared a Moment", { source: input.source }, tx);
     } else if (currency === "stars") {
@@ -218,7 +215,8 @@ export async function createMoment(input: CreateMomentInput): Promise<CreateMome
       texts: [input.contentType === "text" ? input.content : null, input.caption],
     });
     return rows[0];
-  });
+  };
+  const created=options.tx?await run(options.tx):await (await getDb()).transaction(run);
 
   return {
     id: created.id,

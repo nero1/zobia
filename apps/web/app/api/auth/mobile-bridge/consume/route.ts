@@ -18,10 +18,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { and, eq, isNull } from "drizzle-orm";
-import { createSession, buildCookieHeaders } from "@/lib/auth/session";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { createSession, buildCookieHeaders, getSessionFresh } from "@/lib/auth/session";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { handleApiError } from "@/lib/api/errors";
+import { handleApiError,badRequest } from "@/lib/api/errors";
 
 // Path plus an optional bounded query string (alphanumeric keys/values,
 // `=`/`&` separators only — no fragments). Deliberately looser than the
@@ -45,18 +45,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const reqOrigin = new URL(req.url).origin;
     const code = req.nextUrl.searchParams.get("code");
     const redirectParam = req.nextUrl.searchParams.get("redirect");
-    const safeRedirect = redirectParam && SAFE_REDIRECT_RE.test(redirectParam) ? redirectParam : "/home";
-
-    if (!code) {
+    if (!code || !/^[a-f0-9]{64}$/.test(code)) {
       return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
     }
 
     // Atomic single-use consume — a replayed/guessed code fails from here on.
-    const userId = await redis.getdel(`mobile_bridge:${code}`);
-    if (!userId) {
+    const raw = await redis.getdel(`mobile_bridge:${code}`);
+    if (!raw) {
       return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
     }
 
+    const grant = JSON.parse(raw) as {userId:string;sourceSid:string;path:string};
+    const source = await getSessionFresh(grant.sourceSid);
+    if (!source || source.uid !== grant.userId) return NextResponse.redirect(new URL("/auth/login",reqOrigin),{status:302});
+    const userId = grant.userId;
+    if (!grant.path.startsWith("/") || grant.path.startsWith("//") || !SAFE_REDIRECT_RE.test(grant.path)) throw badRequest("Invalid hand-off destination");
+    if (redirectParam && redirectParam !== grant.path) throw badRequest("Hand-off destination does not match");
+    const destination = new URL(grant.path, reqOrigin);
+    if(destination.origin!==reqOrigin)throw badRequest("Invalid hand-off destination");
     const orm = await getDb();
     const rows = await orm
       .select({
@@ -69,7 +75,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         onboarding_completed: schema.users.onboardingCompleted,
       })
       .from(schema.users)
-      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt),sql`${schema.users.sessionValidAfter}<=${source.created_at}::timestamptz`,eq(schema.users.isBanned,false),sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`))
       .limit(1);
     const user = rows[0];
     if (!user) {
@@ -78,11 +84,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const authTokens = await createSession(
       { ...user, onboarding_completed: user.onboarding_completed ?? false },
-      { ip, ua }
+      { ip, ua, parentSid:source.sid, impersonatedBy:source.impersonatedBy, adminSession:source.adminSession }
     );
-    const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
+    const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens, undefined, authTokens.refreshTtl);
 
-    const destination = new URL(safeRedirect, reqOrigin);
     const response = NextResponse.redirect(destination, { status: 302 });
     response.headers.append("Set-Cookie", accessCookie);
     response.headers.append("Set-Cookie", refreshCookie);

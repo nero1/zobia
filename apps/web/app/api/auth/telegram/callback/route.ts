@@ -176,7 +176,7 @@ async function upsertTelegramUser(profile: {
 
   if (existingRow) {
     const u = toUserRow(existingRow);
-    if (u.is_banned || u.is_suspended) {
+    if (u.is_banned || (u.is_suspended && (!u.suspended_until || new Date(u.suspended_until).getTime()>Date.now()))) {
       // Keyed by userId — identity is already established via Telegram's
       // signed widget payload at this point (BUG-060: bypassL1 on the general
       // per-IP auth limiter alone doesn't stop a blocked account being

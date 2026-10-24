@@ -92,6 +92,7 @@ export async function awardReferralCommissions(
   paymentAmountKobo: number = 0,
   cryptoContext: CryptoPurchaseContext | null = null
 ): Promise<CommissionResult> {
+  return db.transaction(async(db)=>{
   const result: CommissionResult = {
     tier1ReferrerId: null,
     tier1Coins: 0,
@@ -100,12 +101,32 @@ export async function awardReferralCommissions(
   };
 
   if (coinAmount <= 0) return result;
-
-  // Find the direct referrer (Tier 1).
-  const tier1Id = await getReferredBy(db, buyerId);
-  // BUG-REFERRAL-01: also reject self-referrals (data constraint should prevent this,
-  // but guard here in case the CHECK constraint was not applied on an older schema).
-  if (!tier1Id || tier1Id === buyerId) return result;
+  const payment=await db.execute<{provider:string;chain:string|null;token_symbol:string|null;expected_token_amount:string|null;metadata:Record<string,unknown>|null}>(sql`SELECT provider,chain,token_symbol,expected_token_amount,metadata FROM payments WHERE id=${paymentId} FOR UPDATE`);
+  const purchase=payment.rows[0];
+  if(!cryptoContext && purchase?.provider==="crypto"){
+    if(!purchase.chain || !purchase.token_symbol || !purchase.expected_token_amount)throw new Error("Crypto commission settlement context is missing");
+    cryptoContext={currency:purchase.token_symbol,chain:purchase.chain,expectedBaseUnits:purchase.expected_token_amount};
+  }
+  const frozen=purchase?.metadata?.referralSettlement as {native?:boolean;tier1Id?:string|null;tier2Id?:string|null}|undefined;
+  const prior=await db.execute<{user_id:string;reference_id:string;asset:string}>(sql`SELECT user_id,reference_id,'coins'::text asset FROM coin_ledger WHERE transaction_type='referral_commission' AND reference_id IN (${`referral:${paymentId}:t1`},${`referral:${paymentId}:t2`}) UNION ALL SELECT user_id,reference_id,'coins'::text asset FROM coin_ledger_archive WHERE transaction_type='referral_commission' AND reference_id IN (${`referral:${paymentId}:t1`},${`referral:${paymentId}:t2`}) UNION ALL SELECT user_id,reference_id,currency asset FROM crypto_balance_ledger WHERE reference_id IN (${`referral:${paymentId}:t1`},${`referral:${paymentId}:t2`})`);
+  const assets=new Set(prior.rows.map(row=>row.asset));
+  if(assets.size>1)throw new Error("Commission settlement has conflicting historical assets; manual reconciliation required");
+  const historicalAsset=prior.rows[0]?.asset;
+  const inferredNative=historicalAsset===undefined?undefined:historicalAsset!=="coins";
+  if(frozen?.native!==undefined && inferredNative!==undefined && frozen.native!==inferredNative)throw new Error("Commission settlement conflicts with its frozen asset; manual reconciliation required");
+  const native=frozen?.native ?? inferredNative ?? (cryptoContext!==null && await getCryptoPayoutsEnabled(db) && await getCryptoPayoutMode(db)==="crypto");
+  if(native && (!cryptoContext || (historicalAsset!==undefined && historicalAsset!==cryptoContext.currency)))throw new Error("Original native commission asset is unavailable; manual reconciliation required");
+  const recipient=(tier:1|2):string|null=>{
+    const recipients=[...new Set(prior.rows.filter(row=>row.reference_id===`referral:${paymentId}:t${tier}`).map(row=>row.user_id))];
+    if(recipients.length>1)throw new Error("Commission has conflicting historical recipients; manual reconciliation required");
+    return recipients[0]??null;
+  };
+  const historicalTier1=recipient(1),historicalTier2=recipient(2);
+  const tier1Id=frozen && Object.hasOwn(frozen,"tier1Id")?frozen.tier1Id??null:historicalTier1??await getReferredBy(db,buyerId);
+  const tier2Id=frozen && Object.hasOwn(frozen,"tier2Id")?frozen.tier2Id??null:historicalTier2??(tier1Id?await getReferredBy(db,tier1Id):null);
+  if((historicalTier1 && historicalTier1!==tier1Id)||(historicalTier2 && historicalTier2!==tier2Id))throw new Error("Commission recipient differs from its frozen settlement; manual reconciliation required");
+  if(purchase)await db.execute(sql`UPDATE payments SET metadata=COALESCE(metadata,'{}'::jsonb)||${JSON.stringify({referralSettlement:{native,tier1Id,tier2Id}})}::jsonb WHERE id=${paymentId}`);
+  if(!tier1Id || tier1Id===buyerId)return result;
 
   // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
   const qualifyRows = await db
@@ -115,8 +136,8 @@ export async function awardReferralCommissions(
     .returning({ id: schema.referrals.id });
   if (qualifyRows[0]) {
     // First qualifying purchase — award one-time XP + coin bonus to referrer (PRD §15)
-    const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
-    const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus");
+    const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus",db);
+    const coinBonusStr = await getManifestValue("referral_tier1_coin_bonus",db);
 
     const xpBonus = parseInt(xpBonusStr ?? "500", 10) || 500;
     const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
@@ -154,7 +175,7 @@ export async function awardReferralCommissions(
   // payouts are disabled entirely — commission is credited as Coins exactly
   // as before this feature existed.
   const payCryptoNative =
-    cryptoContext !== null && (await getCryptoPayoutsEnabled()) && (await getCryptoPayoutMode()) === "crypto";
+    native;
 
   // Calculate Tier 1 commission
   const tier1Coins = new Decimal(coinAmount).mul(TIER_1_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
@@ -185,7 +206,7 @@ export async function awardReferralCommissions(
     result.tier1Coins = tier1Coins;
 
     const tier1CommissionKobo = paymentAmountKobo > 0
-      ? Math.round(paymentAmountKobo * Number(TIER_1_RATE))
+      ? new Decimal(paymentAmountKobo).mul(TIER_1_RATE).toDecimalPlaces(0,Decimal.ROUND_HALF_UP).toNumber()
       : 0;
     await db
       .insert(schema.referralCommissions)
@@ -206,7 +227,6 @@ export async function awardReferralCommissions(
   // (currency, reference_id) uniqueness gives the same idempotency + audit trail.
 
   // Find Tier 2 referrer (referrer of the Tier 1 referrer).
-  const tier2Id = await getReferredBy(db, tier1Id);
   if (!tier2Id || tier2Id === buyerId || tier2Id === tier1Id) return result;
 
   result.tier2ReferrerId = tier2Id;
@@ -239,7 +259,7 @@ export async function awardReferralCommissions(
     result.tier2Coins = tier2Coins;
 
     const tier2CommissionKobo = paymentAmountKobo > 0
-      ? Math.round(paymentAmountKobo * Number(TIER_2_RATE))
+      ? new Decimal(paymentAmountKobo).mul(TIER_2_RATE).toDecimalPlaces(0,Decimal.ROUND_HALF_UP).toNumber()
       : 0;
     await db
       .insert(schema.referralCommissions)
@@ -257,6 +277,7 @@ export async function awardReferralCommissions(
   }
 
   return result;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -509,6 +530,7 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
 
     for (const row of pending.rows) {
       retried++;
+      await tx.execute(sql`SAVEPOINT commission_retry_item`);
       try {
         await awardReferralCommissions(
           tx,
@@ -525,6 +547,7 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
         `);
         resolved++;
       } catch (err) {
+        await tx.execute(sql`ROLLBACK TO SAVEPOINT commission_retry_item`);
         const newCount = row.retry_count + 1;
         await tx.execute(sql`
           UPDATE failed_commissions
@@ -535,7 +558,7 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
         if (newCount >= MAX_COMMISSION_RETRIES) {
           permanentFailed++;
           logger.error({ paymentId: row.payment_id, userId: row.user_id, newCount }, "[commissions] Commission permanently failed after max retries");
-          await raiseAlert(tx, {
+          await tx.transaction(async alertTx=>raiseAlert(alertTx, {
             type: "commission_permanent_failure",
             category: "financial",
             priorityLevel: 2,
@@ -543,9 +566,10 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
             message: `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
             metadata: { paymentId: row.payment_id, userId: row.user_id, retryCount: newCount },
             dedupeKey: `commission_permanent_failure:${row.payment_id}`,
-          }).catch(() => {});
+          })).catch(() => {});
         }
       }
+      await tx.execute(sql`RELEASE SAVEPOINT commission_retry_item`);
     }
   });
 

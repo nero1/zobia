@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -61,7 +62,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 /** POST /api/follows — follow a user */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
-  const body = await req.json();
+  const body = await readBoundedJson(req);
   const targetId: string | undefined = body?.userId;
 
   if (!targetId) throw badRequest('userId is required');
@@ -89,7 +90,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 /** DELETE /api/follows — unfollow a user */
 export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
-  const body = await req.json();
+  const body = await readBoundedJson(req);
   const targetId: string | undefined = body?.userId;
   if (!targetId) throw badRequest('userId is required');
 

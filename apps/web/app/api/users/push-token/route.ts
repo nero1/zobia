@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -64,9 +65,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, pushTokenSchema);
 
     if (body.platform === "web" && !isValidPushSubscription(body.token)) throw badRequest("Invalid push subscription");
+    const identity=body.platform==="web" ? `web:${new URL(JSON.parse(body.token).endpoint).href}` : `native:${body.token}`;
+    const ownershipKey=createHash("sha256").update(identity).digest("hex");
     const db = await getDb();
     await db.transaction(async tx => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${ownershipKey},64))`);
       await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, userId)).for("update");
+      await tx.delete(schema.userPushTokens).where(eq(schema.userPushTokens.ownershipKey,ownershipKey));
       if (body.deviceId) await tx.delete(schema.userPushTokens).where(and(eq(schema.userPushTokens.userId,userId),eq(schema.userPushTokens.deviceId,body.deviceId)));
       const [count] = await tx.select({ n: sql<number>`count(*)::int` }).from(schema.userPushTokens).where(eq(schema.userPushTokens.userId,userId));
       const existing=await tx.select({id:schema.userPushTokens.id}).from(schema.userPushTokens).where(and(eq(schema.userPushTokens.userId,userId),eq(schema.userPushTokens.token,body.token))).limit(1);
@@ -75,6 +80,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .insert(schema.userPushTokens)
       .values({
         userId,
+        ownershipKey,
         token: body.token,
         platform: body.platform,
         deviceId: body.deviceId ?? null,

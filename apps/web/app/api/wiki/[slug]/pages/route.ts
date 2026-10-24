@@ -1,3 +1,4 @@
+import {requireWikiReadAccess} from "@/lib/wiki/permissions";
 export const dynamic = "force-dynamic";
 
 /**
@@ -19,8 +20,8 @@ import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const listQuerySchema = z.object({
   cursor: z.string().optional(),
-  limit: z.string().optional().transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 50)),
-  q: z.string().optional(),
+  limit:z.coerce.number().int().min(1).max(100).default(50),
+  q: z.string().max(150).optional(),
 });
 
 const createPageSchema = z.object({
@@ -34,6 +35,7 @@ export const GET = withAuth<{ slug: string }>(async (req: NextRequest, { params,
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
     const wiki = await getWikiBySlug(params.slug);
     if (!wiki) throw notFound("Wiki not found");
+    await requireWikiReadAccess(wiki,auth.user.sub);
     const query = validateSearchParams(req.nextUrl.searchParams, listQuerySchema);
     const result = await listWikiPages(wiki.id, { cursor: query.cursor ?? null, limit: query.limit, search: query.q });
     return NextResponse.json({ success: true, data: result, error: null });

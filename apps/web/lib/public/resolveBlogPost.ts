@@ -12,6 +12,7 @@
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
+import { paywallPreview } from "@/lib/blogs/preview";
 
 export interface PublicBlogPost {
   id: string;
@@ -96,9 +97,7 @@ export async function resolvePublicBlogPost(blogId: string, postSlug: string, op
   const locked = row.isPaywalled && row.paywallCreditsCost > 0;
   let bodyHtml: string;
   if (locked) {
-    const previewWords = Math.max(100, Math.round(row.wordCount * 0.2));
-    const truncated = row.bodyMarkdown.trim().split(/\s+/).slice(0, previewWords).join(" ");
-    bodyHtml = render(truncated);
+    bodyHtml = render(paywallPreview(row.bodyMarkdown).text);
   } else {
     bodyHtml = render(row.bodyMarkdown);
   }

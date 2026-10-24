@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ slu
   try {
     await enforceRateLimit(getClientIp(req), "ip", VIEW_LIMIT);
     await requireFeatureEnabled("portals");
-    const raw = await req.json().catch(() => ({}));
+    const raw = await readBoundedJson(req).catch(() => ({}));
     const { src } = bodySchema.parse(raw);
 
     const { slug } = await params;

@@ -1,3 +1,4 @@
+import { insertNotification } from "@/lib/notifications/insert";
 /**
  * lib/nemesis/nemesisEngine.ts
  *
@@ -373,15 +374,7 @@ export async function expireUnacceptedNemesisChallenges(
       const newAssignment = await assignNemesis(challenge.challenger_id, db);
       if (newAssignment) {
         reassigned++;
-        await db
-          .insert(schema.notifications)
-          .values({
-            userId: challenge.challenger_id,
-            type: "nemesis_challenge_expired",
-            payload: { newNemesisId: newAssignment.nemesis_id },
-            isRead: false,
-          })
-          .catch(() => {});
+        await insertNotification(db,challenge.challenger_id,"nemesis_challenge_expired","Challenge expired","Your challenge expired and a new nemesis was assigned.",{newNemesisId:newAssignment.nemesis_id},`nemesis-expired:${challenge.id}`);
       }
     } catch {
       failed++;

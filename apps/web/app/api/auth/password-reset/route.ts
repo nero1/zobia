@@ -30,7 +30,8 @@ import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { env } from "@/lib/env";
+import {enqueueTask,processTask} from "@/lib/tasks/outbox";
+import {encryptTaskPayload} from "@/lib/tasks/payloadEncryption";
 import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
 import { logger } from "@/lib/logger";
 
@@ -44,7 +45,7 @@ const requestResetSchema = z.object({
 });
 
 const completeResetSchema = z.object({
-  token: z.string().min(32, "Invalid reset token"),
+  token: z.string().regex(/^[a-f0-9]{64}$/, "Invalid reset token"),
   newPassword: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -57,25 +58,6 @@ const completeResetSchema = z.object({
 
 function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
-}
-
-async function sendResetEmail(
-  email: string,
-  displayName: string,
-  rawToken: string
-): Promise<void> {
-  const { sendEmail } = await import("@/lib/notifications/email");
-  const resetUrl = `${env.NEXT_PUBLIC_APP_URL}/auth/reset-password?token=${encodeURIComponent(rawToken)}`;
-
-  await sendEmail(
-    email,
-    "Reset your Zobia password",
-    `Hi ${displayName}, click the link to reset your password: ${resetUrl} (expires in 1 hour)`,
-    `<p>Hi ${displayName},</p>
-     <p>Someone (probably you) requested a password reset for your Zobia account.</p>
-     <p><a href="${resetUrl}" style="background:#2563eb;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block">Reset Password</a></p>
-     <p>This link expires in 1 hour. If you didn't request this, you can safely ignore this email.</p>`
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +74,7 @@ export const POST = async (req: NextRequest) => {
     });
 
     const body = await validateBody(req, requestResetSchema);
+    await enforceRateLimit(hashToken(body.email.trim().toLowerCase()),"ip",{name:"auth:reset-email",limit:3,windowMs:3600000,bypassL1:true});
 
     // CAPTCHA verification — provider controlled via x_manifest (captcha_provider key)
     const captchaProvider = await getCaptchaProvider();
@@ -115,36 +98,25 @@ export const POST = async (req: NextRequest) => {
     if (!user) {
       return NextResponse.json({
         success: true,
-        data: { message: "If that email is registered, a reset link has been sent." },
+        data: { message: "If that email is registered, a reset link will be sent." },
         error: null,
       });
     }
 
-    // Invalidate any existing unused tokens for this user
-    await orm
-      .delete(schema.passwordResetTokens)
-      .where(and(eq(schema.passwordResetTokens.userId, user.id), isNull(schema.passwordResetTokens.usedAt)));
-
-    // Generate a new token
-    const rawToken = randomBytes(32).toString("hex");
-    const tokenHash = hashToken(rawToken);
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
-
-    await orm.insert(schema.passwordResetTokens).values({
-      userId: user.id,
-      tokenHash,
-      expiresAt,
+    const rawToken=randomBytes(32).toString("hex");
+    const tokenHash=hashToken(rawToken);
+    const taskId=await orm.transaction(async(tx)=>{
+      const [current]=await tx.select({id:schema.users.id}).from(schema.users).where(and(eq(schema.users.id,user.id),eq(schema.users.email,user.email!),isNull(schema.users.deletedAt))).for("update");
+      if(!current)return null;
+      await tx.delete(schema.passwordResetTokens).where(and(eq(schema.passwordResetTokens.userId,user.id),isNull(schema.passwordResetTokens.usedAt)));
+      const [token]=await tx.insert(schema.passwordResetTokens).values({userId:user.id,tokenHash,expiresAt:new Date(Date.now()+3600000)}).returning({id:schema.passwordResetTokens.id});
+      return enqueueTask(tx,"password_reset_email",token.id,user.id,{tokenId:token.id,encrypted:encryptTaskPayload({email:user.email,name:user.displayName,token:rawToken})});
     });
-
-    // Send reset email (non-blocking). user.email is guaranteed non-null here
-    // since the lookup above matched on LOWER(email) = LOWER(body.email).
-    sendResetEmail(user.email as string, user.displayName, rawToken).catch((err) => {
-      logger.error({ err, userId: user.id }, "[password-reset] Failed to send email");
-    });
+    if(taskId)await processTask(taskId).catch(error=>logger.warn({errorType:error instanceof Error?error.name:"TaskError"},"Password reset delivery remains queued"));
 
     return NextResponse.json({
       success: true,
-      data: { message: "If that email is registered, a reset link has been sent." },
+      data: { message: "If that email is registered, a reset link will be sent." },
       error: null,
     });
   } catch (err) {
@@ -158,7 +130,10 @@ export const POST = async (req: NextRequest) => {
 
 export const PATCH = async (req: NextRequest) => {
   try {
+    const ip = getClientIp(req);
+    await enforceRateLimit(ip,"ip",{name:"auth:reset-complete",limit:10,windowMs:3600_000,globalLimit:100,bypassL1:true});
     const body = await validateBody(req, completeResetSchema);
+    await enforceRateLimit(hashToken(body.token),"ip",{name:"auth:reset-token",limit:5,windowMs:3600_000,bypassL1:true});
     const tokenHash = hashToken(body.token);
 
     // Look up the token
@@ -186,14 +161,13 @@ export const PATCH = async (req: NextRequest) => {
 
     // Update password and mark token as used atomically
     await orm.transaction(async (tx) => {
-      await tx
-        .update(schema.users)
-        .set({ passwordHash, updatedAt: new Date() })
-        .where(eq(schema.users.id, tokenRow.userId));
-      await tx
-        .update(schema.passwordResetTokens)
-        .set({ usedAt: new Date() })
-        .where(eq(schema.passwordResetTokens.id, tokenRow.id));
+      const [user] = await tx.select({id:schema.users.id}).from(schema.users).where(and(eq(schema.users.id,tokenRow.userId),isNull(schema.users.deletedAt))).for("update");
+      if (!user) throw badRequest("Account unavailable", "INVALID_TOKEN");
+      const consumed = await tx.update(schema.passwordResetTokens).set({usedAt:new Date()})
+        .where(and(eq(schema.passwordResetTokens.id,tokenRow.id),isNull(schema.passwordResetTokens.usedAt),sql`${schema.passwordResetTokens.expiresAt}>NOW()`)).returning({id:schema.passwordResetTokens.id});
+      if (!consumed.length) throw badRequest("Invalid or already used reset token", "INVALID_TOKEN");
+      await tx.update(schema.users).set({passwordHash,sessionValidAfter:new Date(),updatedAt:new Date()}).where(eq(schema.users.id,tokenRow.userId));
+      await tx.update(schema.passwordResetTokens).set({usedAt:new Date()}).where(and(eq(schema.passwordResetTokens.userId,tokenRow.userId),isNull(schema.passwordResetTokens.usedAt)));
     });
 
     // Revoke all existing sessions so a compromised old session cannot survive the reset

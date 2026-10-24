@@ -26,6 +26,9 @@ import { getManifestValue } from "@/lib/manifest";
 import { cryptoPriceFeedBreaker } from "@/lib/payments/circuit";
 import type { CryptoCurrency } from "@zobia/types";
 import { getToken } from "./tokens";
+import { redis } from "@/lib/redis";
+import { randomUUID } from "node:crypto";
+import { badRequest } from "@/lib/api/errors";
 
 const COINGECKO_BASE = "https://api.coingecko.com/api/v3";
 const DEXSCREENER_BASE = "https://api.dexscreener.com/latest/dex/tokens";
@@ -33,6 +36,8 @@ const DEXSCREENER_BASE = "https://api.dexscreener.com/latest/dex/tokens";
 const DEFAULT_REFRESH_MINUTES = 360; // 6 hours
 const MIN_REFRESH_MINUTES = 5;
 const MAX_REFRESH_MINUTES = 7 * 24 * 60; // 7 days
+export const MAX_QUOTE_PRICE_AGE_MS = 15 * 60_000;
+const refreshes = new Map<CryptoCurrency,Promise<ResolvedPrice>>();
 
 export class PriceFeedUnavailableError extends Error {
   constructor(symbol: string) {
@@ -40,6 +45,7 @@ export class PriceFeedUnavailableError extends Error {
     this.name = "PriceFeedUnavailableError";
   }
 }
+class PriceDeviationError extends PriceFeedUnavailableError {}
 
 export interface ResolvedPrice {
   usdPrice: Decimal;
@@ -73,8 +79,9 @@ async function getActiveManualOverride(symbol: CryptoCurrency): Promise<{ usdPri
     .limit(1);
   const row = rows[0];
   if (!row) return null;
-  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
-  return { usdPrice: new Decimal(row.usdPrice) };
+  if (!row.expiresAt || row.expiresAt.getTime() <= Date.now()) return null;
+  const value = new Decimal(row.usdPrice);
+  return value.isFinite() && value.isPositive() ? { usdPrice: value } : null;
 }
 
 export async function setManualOverride(
@@ -85,6 +92,9 @@ export async function setManualOverride(
 ): Promise<void> {
   const orm = await getDb();
   const value = new Decimal(usdPrice).toString();
+  if (!new Decimal(value).isFinite() || !new Decimal(value).isPositive()) throw badRequest("Price must be positive and finite");
+  expiresAt ??= new Date(Date.now()+3600_000);
+  if (expiresAt.getTime()<=Date.now() || expiresAt.getTime()>Date.now()+86400_000) throw badRequest("Manual prices must expire within 24 hours");
   await orm
     .insert(schema.cryptoExchangeRateOverrides)
     .values({
@@ -209,7 +219,7 @@ async function fetchLivePrice(symbol: CryptoCurrency): Promise<Decimal> {
  * last-known cached price (however stale) if the live fetch fails, and only
  * throwing when there is truly nothing to serve.
  */
-export async function getUsdPrice(symbol: CryptoCurrency): Promise<ResolvedPrice> {
+async function resolveUsdPrice(symbol: CryptoCurrency): Promise<ResolvedPrice> {
   const manual = await getActiveManualOverride(symbol);
   if (manual) {
     return { usdPrice: manual.usdPrice, source: "manual", fetchedAt: new Date() };
@@ -217,26 +227,52 @@ export async function getUsdPrice(symbol: CryptoCurrency): Promise<ResolvedPrice
 
   const cached = await getCachedPrice(symbol);
   const refreshMinutes = await getPriceRefreshIntervalMinutes();
-  const isStale = !cached || Date.now() - cached.fetchedAt.getTime() > refreshMinutes * 60_000;
+  const validCached = !!cached && new Decimal(cached.usdPrice).isFinite() && new Decimal(cached.usdPrice).isPositive();
+  const age = cached ? Date.now()-cached.fetchedAt.getTime() : Infinity;
+  const usableCache = () => validCached && age>=0 && Date.now()-cached!.fetchedAt.getTime()<=MAX_QUOTE_PRICE_AGE_MS;
+  const isStale = !validCached || age<0 || age > Math.min(refreshMinutes * 60_000,5*60_000);
 
   if (!isStale && cached) {
     return { usdPrice: new Decimal(cached.usdPrice), source: "live", fetchedAt: cached.fetchedAt };
   }
 
+  const key=`crypto-price-refresh:${symbol}`, token=randomUUID();
+  const acquired=await redis.set(key,token,"EX",15,"NX");
+  if(!acquired) {
+    for(let attempt=0;attempt<5;attempt++) {
+      await new Promise(resolve=>setTimeout(resolve,100+Math.random()*100));
+      const updated=await getCachedPrice(symbol);
+      if(updated && updated.fetchedAt.getTime()>(cached?.fetchedAt.getTime()??0) && Date.now()-updated.fetchedAt.getTime()<=MAX_QUOTE_PRICE_AGE_MS) return {usdPrice:new Decimal(updated.usdPrice),source:"live",fetchedAt:updated.fetchedAt};
+    }
+    if(usableCache()) return {usdPrice:new Decimal(cached!.usdPrice),source:"stale-cache",fetchedAt:cached!.fetchedAt};
+    throw new PriceFeedUnavailableError(symbol);
+  }
   try {
     const live = await fetchLivePrice(symbol);
+    if(!live.isFinite() || !live.isPositive()) throw new Error("Invalid price");
+    if(validCached && age<86400_000 && live.div(cached!.usdPrice).minus(1).abs().gt("0.25")) throw new PriceDeviationError(symbol);
     await writeCachedPrice(symbol, live);
     return { usdPrice: live, source: "live", fetchedAt: new Date() };
   } catch (err) {
+    if(err instanceof PriceDeviationError)throw err;
     logger.warn(
       { symbol, err: err instanceof Error ? err.message : String(err) },
       "[crypto/priceFeed] Live price fetch failed — falling back to cache/manual"
     );
-    if (cached) {
+    if (cached && usableCache()) {
       return { usdPrice: new Decimal(cached.usdPrice), source: "stale-cache", fetchedAt: cached.fetchedAt };
     }
     throw new PriceFeedUnavailableError(symbol);
+  } finally {
+    await redis.eval("if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,key,token).catch(()=>{});
   }
+}
+
+export function getUsdPrice(symbol:CryptoCurrency):Promise<ResolvedPrice> {
+  const pending=refreshes.get(symbol);
+  if(pending)return pending;
+  const task=resolveUsdPrice(symbol).finally(()=>{if(refreshes.get(symbol)===task)refreshes.delete(symbol);});
+  refreshes.set(symbol,task);return task;
 }
 
 /** Best-effort warm-cache pass, called from the daily platform CRON. Never

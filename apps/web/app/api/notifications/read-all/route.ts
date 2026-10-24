@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -30,7 +31,7 @@ import { handleApiError } from "@/lib/api/errors";
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const type: string | undefined = typeof body?.type === "string" ? body.type : undefined;
 
     const db = await getDb();

@@ -1,3 +1,4 @@
+import {reserveAppealedPayout} from "@/lib/payments/payoutAccounting";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -37,7 +38,8 @@ export const PATCH = withAdminAuth(
 
       const orm = await getDb();
 
-      const [payout] = await orm
+      const payout=await orm.transaction(async(tx)=>{
+      const [payout] = await tx
         .select({
           id: schema.creatorPayouts.id,
           creator_id: schema.creatorPayouts.creatorId,
@@ -48,7 +50,7 @@ export const PATCH = withAdminAuth(
         })
         .from(schema.creatorPayouts)
         .where(eq(schema.creatorPayouts.id, payoutId))
-        .limit(1);
+        .limit(1).for("update");
 
       if (!payout) throw notFound("Payout not found");
 
@@ -63,28 +65,8 @@ export const PATCH = withAdminAuth(
 
       if (body.action === "approve") {
         // Re-open the payout: deduct from creator balance again and queue for processing
-        await orm.transaction(async (tx) => {
-          // Check if creator still has enough balance (they may have spent it)
-          const [balanceRow] = await tx
-            .select({ available: schema.users.availableEarningsKobo })
-            .from(schema.users)
-            .where(eq(schema.users.id, payout.creator_id))
-            .for("update");
-          const available = balanceRow?.available ?? BigInt(0);
-          if (available < grossKobo) {
-            throw badRequest(
-              "Creator does not have sufficient earnings balance to re-process this payout.",
-              "INSUFFICIENT_EARNINGS"
-            );
-          }
-
-          await tx
-            .update(schema.users)
-            .set({
-              availableEarningsKobo: sql`${schema.users.availableEarningsKobo} - ${grossKobo}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.users.id, payout.creator_id));
+        {
+          await reserveAppealedPayout(tx,payoutId);
 
           await tx
             .update(schema.creatorPayouts)
@@ -97,10 +79,10 @@ export const PATCH = withAdminAuth(
               updatedAt: new Date(),
             })
             .where(eq(schema.creatorPayouts.id, payoutId));
-        });
+        }
       } else {
         // Dismiss appeal
-        await orm
+        await tx
           .update(schema.creatorPayouts)
           .set({
             appealStatus: "dismissed",
@@ -110,6 +92,9 @@ export const PATCH = withAdminAuth(
           })
           .where(eq(schema.creatorPayouts.id, payoutId));
       }
+
+      return payout;
+      });
 
       // Audit log
       await orm

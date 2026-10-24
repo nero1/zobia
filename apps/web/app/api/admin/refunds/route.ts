@@ -24,10 +24,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
+import { debitCoins } from "@/lib/economy/coins";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 // ---------------------------------------------------------------------------
@@ -38,7 +39,7 @@ const createRefundSchema = z.object({
   /** Target user's UUID. */
   userId: z.string().uuid(),
   /** Number of coins to refund (positive integer). */
-  amountCoins: z.number().int().positive({ message: "amountCoins must be a positive integer" }),
+  amountCoins: z.number().int().positive({ message: "amountCoins must be a positive integer" }).max(Number.MAX_SAFE_INTEGER),
   /** Human-readable reason for the refund. */
   reason: z.string().min(5).max(500),
   /** Reference to the original transaction (coin_ledger id or payment reference). */
@@ -211,64 +212,23 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       throw notFound("User not found");
     }
 
-    if (user.coin_balance < BigInt(body.amountCoins)) {
-      throw badRequest(
-        `User only has ${user.coin_balance} coins — cannot refund ${body.amountCoins}`
-      );
-    }
-
     // 2. Execute all writes in a transaction
     const result = await orm.transaction(async (tx) => {
-      // Deduct the refund amount from the user's coin balance
-      const [updatedUser] = await tx
-        .update(schema.users)
-        .set({
-          coinBalance: sql`${schema.users.coinBalance} - ${body.amountCoins}`,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.users.id, body.userId))
-        .returning({ coinBalance: schema.users.coinBalance });
-
-      const newBalance = updatedUser?.coinBalance ?? BigInt(0);
-
-      const balanceBefore = newBalance + BigInt(body.amountCoins);
-
-      // Record in coin_ledger as a refund (negative amount = deduction)
-      const [ledgerRow] = await tx
-        .insert(schema.coinLedger)
-        .values({
-          userId: body.userId,
-          amount: BigInt(-body.amountCoins),
-          balanceBefore,
-          balanceAfter: newBalance,
-          transactionType: "refund",
-          description: `Refund: ${body.reason}`,
-        })
-        .returning({ id: schema.coinLedger.id });
-
-      const ledgerId = ledgerRow?.id;
-
-      // Insert into refunds table; ignore if table does not exist
-      let refundId: string | null = null;
-      try {
-        const [refundRow] = await tx
-          .insert(schema.refunds)
-          .values({
-            userId: body.userId,
-            amountCoins: BigInt(body.amountCoins),
-            reason: body.reason,
-            referenceId: body.referenceId,
-            status: "processed",
-            processedBy: auth.user.sub,
-            processedAt: new Date(),
-          })
-          .returning({ id: schema.refunds.id });
-        refundId = refundRow?.id ?? ledgerId ?? null;
-      } catch {
-        // refunds table may not exist; fall back to ledger id
-        refundId = ledgerId ?? null;
+      await tx.execute(sql`SELECT id FROM users WHERE id=${body.userId} FOR UPDATE`);
+      const original=await tx.execute<{id:string;amount:string}>(sql`SELECT id,amount::text FROM (SELECT id,user_id,amount,transaction_type,reference_id,created_at FROM coin_ledger UNION ALL SELECT id,user_id,amount,transaction_type,reference_id,created_at FROM coin_ledger_archive) purchases WHERE user_id=${body.userId} AND amount>0 AND transaction_type='purchase' AND (id::text=${body.referenceId} OR reference_id=${body.referenceId}) ORDER BY created_at,id LIMIT 1`);
+      if(!original.rows.length || BigInt(body.amountCoins)>BigInt(original.rows[0].amount))throw badRequest("Refund must reference an original purchase and cannot exceed its credit");
+      const purchaseId=original.rows[0].id;
+      const [existing]=await tx.select().from(schema.refunds).where(and(eq(schema.refunds.userId,body.userId),eq(schema.refunds.referenceId,purchaseId))).limit(1);
+      if(existing) {
+        if(existing.amountCoins!==BigInt(body.amountCoins))throw badRequest("Refund reference already used with a different amount");
+        const [current]=await tx.select({balance:schema.users.coinBalance}).from(schema.users).where(eq(schema.users.id,body.userId));
+        return {refundId:existing.id,newBalance:Number(current.balance)};
       }
 
+      const entry=await debitCoins(body.userId,body.amountCoins,"refund",`refund:${purchaseId}`,`Refund: ${body.reason}`,null,tx);
+      const [refundRow]=await tx.insert(schema.refunds).values({userId:body.userId,amountCoins:BigInt(body.amountCoins),reason:body.reason,referenceId:purchaseId,status:"processed",processedBy:auth.user.sub,processedAt:new Date()}).returning({id:schema.refunds.id});
+      const refundId=refundRow.id;
+      const newBalance=entry.balanceAfter;
       return { refundId, newBalance: Number(newBalance) };
     });
 

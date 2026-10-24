@@ -17,9 +17,11 @@
  * one browser tab / device cannot authorize operations in a different session.
  */
 
+import { createHash } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 /** TTL in seconds for the pin_ok key after a successful PIN verification. */
@@ -40,8 +42,9 @@ export function pinOkKey(userId: string, sessionId: string): string {
  * @param userId    - The authenticated user's UUID
  * @param sessionId - The session ID (sid) from the access token
  */
-export async function markPinVerified(userId: string, sessionId: string): Promise<void> {
-  await redis.set(pinOkKey(userId, sessionId), "1", "EX", PIN_OK_TTL_SECONDS);
+const pinVersion = (hash: string) => createHash("sha256").update(hash).digest("hex");
+export async function markPinVerified(userId: string, sessionId: string, verifiedHash: string): Promise<void> {
+  await redis.set(pinOkKey(userId, sessionId), pinVersion(verifiedHash), "EX", PIN_OK_TTL_SECONDS);
 }
 
 /**
@@ -57,7 +60,10 @@ export async function markPinVerified(userId: string, sessionId: string): Promis
 export async function requirePinVerified(userId: string, sessionId: string): Promise<boolean> {
   try {
     const value = await redis.get(pinOkKey(userId, sessionId));
-    return value !== null;
+    if (!value) return false;
+    const orm = await getDb();
+    const [pin] = await orm.select({hash:schema.userPins.pinHash}).from(schema.userPins).where(eq(schema.userPins.userId,userId)).limit(1);
+    return !!pin && value === pinVersion(pin.hash);
   } catch (err) {
     // Fail closed on Redis outage — do not allow sensitive operations
     logger.error({ err, userId, sessionId }, "[pinGuard] Redis unavailable — failing closed");

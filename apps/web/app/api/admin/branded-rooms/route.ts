@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -133,7 +134,7 @@ export const GET = withAdminAuth(async (_req: NextRequest) => {
  */
 export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const parsed = CreateBrandedRoomSchema.safeParse(body);
     if (!parsed.success) {
       throw badRequest("Invalid branded room payload", parsed.error.flatten());

@@ -1,3 +1,5 @@
+import {verifyNativePayoutTransfer,cryptoPayoutFingerprint} from "@/lib/payments/crypto/payoutProof";
+import {restorePayoutReservation} from "@/lib/payments/payoutAccounting";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -29,12 +31,13 @@ import { getDb, schema } from "@/lib/db/drizzle";
 const StatusSchema = z.object({
   status: z.enum(["processing", "completed", "failed", "cancelled"]),
   note: z.string().max(500).optional(),
+  txHash:z.string().max(100).optional(),
 });
 
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   awaiting_approval: ["processing", "cancelled"],
   processing: ["completed", "failed"],
-  failed: ["processing"],
+  failed: [],
   pending: ["processing", "completed", "failed", "cancelled"],
 };
 
@@ -50,7 +53,9 @@ export const PATCH = withAdminAuth(
 
       const orm = await getDb();
 
-      const [payout] = await orm
+      const proof=body.status==="completed" ? await verifyNativePayoutTransfer(payoutId,body.txHash??"") : null;
+      const payout = await orm.transaction(async(tx)=>{
+      const [payout] = await tx
         .select({
           id: schema.creatorPayouts.id,
           creator_id: schema.creatorPayouts.creatorId,
@@ -58,12 +63,16 @@ export const PATCH = withAdminAuth(
           net_kobo: schema.creatorPayouts.netKobo,
           status: schema.creatorPayouts.status,
           payout_method: schema.creatorPayouts.payoutMethod,
+          earnings_restored: schema.creatorPayouts.earningsRestored,
+          cryptoCurrency:schema.creatorPayouts.cryptoCurrency,cryptoChain:schema.creatorPayouts.cryptoChain,
+          cryptoAmountBaseUnits:schema.creatorPayouts.cryptoAmountBaseUnits,walletAddressSnapshot:schema.creatorPayouts.walletAddressSnapshot,createdAt:schema.creatorPayouts.createdAt,
         })
         .from(schema.creatorPayouts)
         .where(eq(schema.creatorPayouts.id, payoutId))
-        .limit(1);
+        .limit(1).for("update");
 
       if (!payout) throw notFound("Payout not found");
+      if(payout.earnings_restored)throw badRequest("This payout has already been refunded. Create a newly funded payout to retry.","PAYOUT_ALREADY_REFUNDED");
 
       const grossKobo = payout.gross_kobo ?? BigInt(0);
       const netKobo = payout.net_kobo ?? BigInt(0);
@@ -76,13 +85,21 @@ export const PATCH = withAdminAuth(
         );
       }
 
-      await orm.transaction(async (tx) => {
+      {
+        if(body.status==="completed" && payout.cryptoAmountBaseUnits!==null){
+          const fingerprint=cryptoPayoutFingerprint({id:payout.id,cryptoCurrency:payout.cryptoCurrency,cryptoChain:payout.cryptoChain,cryptoAmountBaseUnits:payout.cryptoAmountBaseUnits,walletAddressSnapshot:payout.walletAddressSnapshot,createdAt:payout.createdAt});
+          if(!proof || proof.fingerprint!==fingerprint)throw badRequest("Payout details changed; verify the transaction again","PAYOUT_CHANGED");
+          await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${proof.chain}:${proof.hash}`},13))`);
+          const used=await tx.execute(sql`SELECT id FROM creator_payouts WHERE crypto_chain=${proof.chain} AND crypto_tx_hash=${proof.hash} AND id<>${payoutId}::uuid LIMIT 1`);
+          if(used.rows.length)throw badRequest("This transaction already settled another payout","PAYOUT_PROOF_REPLAY");
+        }
         const setValues: Partial<typeof schema.creatorPayouts.$inferInsert> = {
           status: body.status,
           updatedAt: new Date(),
         };
         if (body.status === "completed") {
           setValues.completedAt = new Date();
+          if(proof)setValues.cryptoTxHash=proof.hash;
         }
         if (body.note) {
           setValues.rejectionReason = body.note;
@@ -92,15 +109,13 @@ export const PATCH = withAdminAuth(
 
         // Restore earnings on failure or cancellation
         if (body.status === "failed" || body.status === "cancelled") {
-          await tx
-            .update(schema.users)
-            .set({
-              availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${grossKobo}`,
-              updatedAt: new Date(),
-            })
-            .where(eq(schema.users.id, payout.creator_id));
+          await restorePayoutReservation(tx,payoutId);
         }
+      }
+      return payout;
       });
+      const grossKobo=payout.gross_kobo??BigInt(0);
+      const netKobo=payout.net_kobo??BigInt(0);
 
       // Audit log
       await orm

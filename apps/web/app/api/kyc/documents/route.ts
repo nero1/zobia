@@ -1,3 +1,4 @@
+import { readBoundedFormData } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -37,7 +38,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
-    const form = await req.formData();
+    const form = await readBoundedFormData(req);
     const file = form.get("file");
     const docType = form.get("docType");
 

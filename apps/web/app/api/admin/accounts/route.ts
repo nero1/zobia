@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 import { NextResponse } from "next/server";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -8,6 +9,6 @@ export const GET = withAdminAuth(async () => {
   catch (error) { return handleApiError(error); }
 });
 export const POST = withAdminAuth(async (req, { auth }) => {
-  try { return NextResponse.json({ success: true, data: await saveAccountType(auth.user.sub, await req.json()) }); }
+  try { return NextResponse.json({ success: true, data: await saveAccountType(auth.user.sub, await readBoundedJson(req)) }); }
   catch (error) { return handleApiError(error); }
 });

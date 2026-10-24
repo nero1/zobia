@@ -104,6 +104,7 @@ integration('forensic hardening contracts',()=>{
   expect(executions).toBe(1);expect(await claimCronRun(key,db)).toBeNull();await pool.query('DELETE FROM cron_job_runs WHERE job_key=$1',[key]);
  });
  it('restricts request-scoped ledger reads after explicitly leaving system context',async()=>{
+  await creditCoins(uid,1,'admin_grant',randomUUID());
   await creditCoins(other,7,'admin_grant',randomUUID());
   const role='hardening_'+randomUUID().replaceAll('-','');const client=await pool.connect();
   try{

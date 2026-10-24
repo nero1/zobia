@@ -9,7 +9,7 @@
  */
 
 import { cookies } from "next/headers";
-import { verifyAccessToken } from "@/lib/auth/jwt";
+import { authenticateAccessToken } from "@/lib/auth/principal";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 
 export interface OptionalServerUser {
@@ -25,13 +25,13 @@ export async function getOptionalServerUser(): Promise<OptionalServerUser | null
     const cookieStore = await cookies();
     const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
     if (!accessToken) return null;
-    const payload = await verifyAccessToken(accessToken);
+    const { user, session } = await authenticateAccessToken(accessToken);
     return {
-      userId: payload.sub,
-      isAdmin: !!payload.is_admin,
-      isModerator: !!payload.is_moderator,
-      isSupport: !!payload.is_support,
-      isSeniorSupport: !!payload.is_senior_support,
+      userId: user.id,
+      isAdmin: !!user.is_admin && !!session.adminSession,
+      isModerator: !!user.is_moderator,
+      isSupport: !!user.is_support,
+      isSeniorSupport: !!user.is_senior_support,
     };
   } catch {
     return null;

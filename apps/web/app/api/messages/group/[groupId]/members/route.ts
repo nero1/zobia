@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -139,7 +140,7 @@ export const POST = withAuth(async (
 ) => {
   const userId = auth.user.sub;
   const { groupId } = await params;
-  const body = await req.json();
+  const body = await readBoundedJson(req);
   const targetId: string | undefined = body?.userId;
   if (!targetId) throw badRequest('userId is required');
   if (targetId === userId) throw badRequest('You are already in this group');
@@ -219,7 +220,7 @@ export const DELETE = withAuth(async (
 ) => {
   const userId = auth.user.sub;
   const { groupId } = await params;
-  const body = await req.json();
+  const body = await readBoundedJson(req);
   const targetId: string | undefined = body?.userId;
   if (!targetId) throw badRequest('userId is required');
 

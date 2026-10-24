@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 /**
  * lib/quests/sponsoredQuestPacing.ts
  *
@@ -166,34 +167,19 @@ export async function recordSponsoredQuestImpression(
   userId: string,
   costCredits: number
 ): Promise<boolean> {
-  try {
-    const updated = await db
-      .update(schema.sponsoredQuests)
-      .set({
-        spentCredits: sql`${schema.sponsoredQuests.spentCredits} + ${costCredits}`,
-        impressionsCount: sql`${schema.sponsoredQuests.impressionsCount} + 1`,
-      })
-      .where(
-        and(
-          eq(schema.sponsoredQuests.id, questId),
-          lte(
-            sql`${schema.sponsoredQuests.spentCredits} + ${costCredits}`,
-            schema.sponsoredQuests.totalBudgetCredits
-          )
-        )
-      )
-      .returning({ id: schema.sponsoredQuests.id });
-    if (updated.length === 0) return false;
-
-    await db
-      .insert(schema.sponsoredQuestEvents)
-      .values({ questId, userId, eventType: "impression", costCredits: String(costCredits) })
-      .onConflictDoNothing();
+  return db.transaction(async tx=>{
+    const [quest]=await tx.select().from(schema.sponsoredQuests).where(eq(schema.sponsoredQuests.id,questId)).for("update");
+    if(!quest || !quest.isActive || quest.moderationStatus!=="approved" || quest.flagStatus==="flagged" || !quest.isDailyQuestEligible || quest.deletedAt || (quest.startsAt && quest.startsAt>new Date()) || (quest.endsAt && quest.endsAt<=new Date()))return false;
+    const cost=new Decimal(quest.cpmCredits).div(1000);
+    if(cost.lte(0) || !cost.eq(costCredits) || cost.decimalPlaces()>6)return false;
+    const prior=await tx.execute(sql`SELECT id FROM sponsored_quest_events WHERE quest_id=${questId} AND user_id=${userId} AND event_type='impression' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' LIMIT 1`);
+    if(prior.rows.length)return true;
+    const daily=await tx.execute<{spent:string}>(sql`SELECT COALESCE(SUM(cost_credits),0)::text spent FROM sponsored_quest_events WHERE quest_id=${questId} AND event_type='impression' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`);
+    if(new Decimal(quest.spentCredits).plus(cost).gt(quest.totalBudgetCredits) || (quest.dailyBudgetCredits!==null && new Decimal(daily.rows[0].spent).plus(cost).gt(quest.dailyBudgetCredits)))return false;
+    await tx.update(schema.sponsoredQuests).set({spentCredits:sql`${schema.sponsoredQuests.spentCredits}+${cost.toFixed(6)}`,impressionsCount:sql`${schema.sponsoredQuests.impressionsCount}+1`}).where(eq(schema.sponsoredQuests.id,questId));
+    await tx.insert(schema.sponsoredQuestEvents).values({questId,userId,eventType:"impression",costCredits:cost.toFixed(6)});
     return true;
-  } catch (err) {
-    logger.error({ err, questId, userId }, "[sponsoredQuestPacing] Failed to record impression (non-fatal)");
-    return false;
-  }
+  });
 }
 
 /** Today's already-spent Credits for a quest, for daily_budget_credits pacing. */

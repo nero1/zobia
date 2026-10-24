@@ -1,3 +1,6 @@
+import {readPayoutWallet} from "@/lib/payments/crypto/payoutProof";
+import type {CryptoCurrency} from "@zobia/types";
+import {creditCoins} from "@/lib/economy/coins";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -46,6 +49,7 @@ export const POST = withAdminAuth(
           idempotency_key: schema.creatorPayouts.idempotencyKey,
           bank_account_snapshot: schema.creatorPayouts.bankAccountSnapshot,
           wallet_address_snapshot: schema.creatorPayouts.walletAddressSnapshot,
+          crypto_currency:schema.creatorPayouts.cryptoCurrency,crypto_chain:schema.creatorPayouts.cryptoChain,crypto_amount_base_units:schema.creatorPayouts.cryptoAmountBaseUnits,
         })
         .from(schema.creatorPayouts)
         .where(eq(schema.creatorPayouts.id, payoutId))
@@ -71,6 +75,7 @@ export const POST = withAdminAuth(
       }
 
       let newStatus: string;
+      let approvedCoins:number|undefined;
       let walletAddressMasked: string | undefined;
 
       if (payout.payout_method === "bank_transfer") {
@@ -87,21 +92,30 @@ export const POST = withAdminAuth(
         // Admin sends USDT manually — provide wallet address for reference
         if (payout.wallet_address_snapshot) {
           try {
-            const addr = decryptField(payout.wallet_address_snapshot);
+            const addr = payout.crypto_currency && ["BNB","SOL","JAGA"].includes(payout.crypto_currency) ? readPayoutWallet(payout.wallet_address_snapshot,payout.crypto_currency as CryptoCurrency) : decryptField(payout.wallet_address_snapshot);
             walletAddressMasked = addr ?? "Could not decrypt address"; // full address shown to admin for sending
           } catch {
             walletAddressMasked = "Could not decrypt address";
           }
         }
         newStatus = "processing";
+      } else if(payout.payout_method==="coins") {
+        approvedCoins=Number((payout.bank_account_snapshot as {coinsToCredit?:unknown}|null)?.coinsToCredit);
+        if(!Number.isSafeInteger(approvedCoins) || approvedCoins<=0)throw badRequest("Missing immutable coin-conversion quote");
+        newStatus="completed";
       } else {
         throw badRequest("Unexpected payout method for manual approval");
       }
 
-      await orm
-        .update(schema.creatorPayouts)
-        .set({ status: newStatus, approvedAt: new Date(), updatedAt: new Date() })
-        .where(eq(schema.creatorPayouts.id, payoutId));
+      await orm.transaction(async(tx)=>{
+      const changed=await tx.update(schema.creatorPayouts)
+        .set({status:newStatus,approvedAt:new Date(),updatedAt:new Date()})
+        .where(and(eq(schema.creatorPayouts.id,payoutId),eq(schema.creatorPayouts.status,"awaiting_approval"),eq(schema.creatorPayouts.earningsRestored,false)))
+        .returning({id:schema.creatorPayouts.id});
+      if(!changed.length)throw badRequest("Payout changed while approval was being processed", "PAYOUT_CHANGED");
+
+      if(approvedCoins!==undefined)await creditCoins(payout.creator_id,approvedCoins,"creator_coin_conversion",payout.idempotency_key??payout.id,"Reviewed earnings conversion",{payoutId},tx);
+      });
 
       // Audit log
       await orm
@@ -133,8 +147,11 @@ export const POST = withAdminAuth(
         status: newStatus,
         method: payout.payout_method,
         ...(walletAddressMasked ? { walletAddress: walletAddressMasked } : {}),
+        cryptoCurrency:payout.crypto_currency,cryptoChain:payout.crypto_chain,cryptoAmountBaseUnits:payout.crypto_amount_base_units,
         message:
-          payout.payout_method === "crypto"
+          payout.crypto_amount_base_units!==null
+            ? `Send exactly ${payout.crypto_amount_base_units} base units of ${payout.crypto_currency} on ${payout.crypto_chain} to the saved wallet, then confirm using its transaction hash.`
+            : payout.payout_method === "crypto"
             ? `Please send ₦${(Number(payout.net_kobo ?? BigInt(0)) / 100).toFixed(2)} equivalent in USDT to the wallet address above, then mark as completed.`
             : "Payout queued for next batch run.",
       });

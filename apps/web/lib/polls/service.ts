@@ -1,3 +1,4 @@
+import {reserveCommunityReward} from "@/lib/tasks/communityReward";
 /**
  * lib/polls/service.ts
  *
@@ -11,12 +12,10 @@
  */
 
 import { randomUUID } from "crypto";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb,type DbOrTx } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
-import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
-import { creditCoins } from "@/lib/economy/coins";
 import { generateUniqueSlug } from "@/lib/slug";
 import {
   fundContentTreasury,
@@ -65,29 +64,8 @@ function assertCanCreate(eligibility: PollEligibility): void {
 // Rewards
 // ---------------------------------------------------------------------------
 
-async function awardCreditsCapped(userId: string, amount: number, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
-  if (amount <= 0) return;
-  try {
-    const orm = await getDb();
-    const { rows } = await orm.execute<{ earned: string }>(sql`
-      SELECT COALESCE(SUM(amount), 0)::text AS earned
-      FROM coin_ledger
-      WHERE user_id = ${userId} AND transaction_type LIKE 'poll_%' AND amount > 0
-        AND created_at >= NOW() - INTERVAL '24 hours'
-    `);
-    const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
-    const headroom = dailyCapCredits - earnedToday;
-    if (headroom <= 0) return;
-    const capped = Math.min(amount, headroom);
-    await creditCoins(userId, capped, "poll_create_reward", referenceId, description);
-  } catch (err) {
-    logger.error({ err, userId, amount }, "[polls/service] reward credit award failed");
-  }
-}
-
-function awardPollRewards(userId: string, xpAmount: number, creditAmount: number, xpSource: string, referenceId: string, description: string, dailyCapCredits: number): void {
-  if (xpAmount > 0) safeAwardXPFireAndForget(userId, xpAmount, "social", xpSource, referenceId);
-  if (creditAmount > 0) awardCreditsCapped(userId, creditAmount, referenceId, description, dailyCapCredits).catch(() => {});
+async function awardPollRewards(tx:DbOrTx,userId:string,xpAmount:number,creditAmount:number,xpSource:string,referenceId:string,description:string,dailyCapCredits:number):Promise<void>{
+ await reserveCommunityReward(tx,userId,{family:"poll",amount:creditAmount,dailyCap:dailyCapCredits,type:"poll_create_reward",xp:xpAmount,track:"social",source:xpSource,referenceId,description});
 }
 
 // ---------------------------------------------------------------------------
@@ -137,9 +115,8 @@ export async function createPoll(input: CreatePollInput): Promise<PollSummary> {
       authorId: input.userId,
       texts: [input.title, input.description],
     });
-  });
 
-  awardPollRewards(
+  await awardPollRewards(tx,
     input.userId,
     eligibility.config.rewardXpCreator,
     eligibility.config.rewardCreditsCreator,
@@ -148,6 +125,7 @@ export async function createPoll(input: CreatePollInput): Promise<PollSummary> {
     "Created a poll",
     eligibility.config.dailyRewardCapCredits
   );
+  });
 
   return { id: pollId, slug };
 }
@@ -292,6 +270,7 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
   await requireFeatureEnabled("polls");
   if (optionIds.length === 0) throw badRequest("Select at least one option.", "POLL_NO_OPTION_SELECTED");
 
+  const manifest=await loadManifest();
   const orm = await getDb();
   const { rows: pollRows } = await orm.execute<{ id: string; allow_multiple: boolean; status: string; closes_at: string | null }>(
     sql`SELECT id, allow_multiple, status, closes_at FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`
@@ -302,22 +281,24 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
   if (poll.closes_at && new Date(poll.closes_at) < new Date()) throw badRequest("This poll has closed.", "POLL_CLOSED");
   if (!poll.allow_multiple && optionIds.length > 1) throw badRequest("This poll only allows one selection.", "POLL_SINGLE_CHOICE");
 
-  const { rows: existingVotes } = await orm.execute<{ option_id: string }>(sql`SELECT option_id FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${userId}`);
+  await orm.transaction(async tx=>{
+    const current=await tx.execute<{allow_multiple:boolean;closes_at:string|null}>(sql`SELECT allow_multiple,closes_at FROM polls WHERE id=${pollId} AND deleted_at IS NULL AND status='active' FOR UPDATE`);
+    if(!current.rows[0])throw badRequest("This poll is no longer accepting votes.","POLL_NOT_ACTIVE");
+    if(current.rows[0].closes_at && new Date(current.rows[0].closes_at)<=new Date())throw badRequest("This poll has closed.","POLL_CLOSED");
+    if(!current.rows[0].allow_multiple && optionIds.length>1)throw badRequest("This poll only allows one selection.","POLL_SINGLE_CHOICE");
+  const { rows: existingVotes } = await tx.execute<{ option_id: string }>(sql`SELECT option_id FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${userId}`);
   if (existingVotes.length > 0) throw badRequest("You already voted on this poll.", "POLL_ALREADY_VOTED");
 
-  const { rows: optionRows } = await orm.execute<{ id: string }>(sql`SELECT id FROM poll_options WHERE poll_id = ${pollId} AND id = ANY(${sql.param(optionIds)}::uuid[])`);
+  const { rows: optionRows } = await tx.execute<{ id: string }>(sql`SELECT id FROM poll_options WHERE poll_id = ${pollId} AND id = ANY(${sql.param(optionIds)}::uuid[])`);
   if (optionRows.length !== optionIds.length) throw badRequest("Unknown poll option.", "POLL_UNKNOWN_OPTION");
 
-  await orm.transaction(async (tx) => {
     for (const optionId of optionIds) {
       await tx.execute(sql`INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES (${pollId}, ${optionId}, ${userId})`);
       await tx.execute(sql`UPDATE poll_options SET vote_count = vote_count + 1 WHERE id = ${optionId}`);
     }
     await tx.execute(sql`UPDATE polls SET voter_count = voter_count + 1 WHERE id = ${pollId}`);
-  });
 
-  const manifest = await loadManifest();
-  awardPollRewards(
+  await awardPollRewards(tx,
     userId,
     manifest.polls.rewardXpVoter,
     manifest.polls.rewardCreditsVoter,
@@ -326,6 +307,7 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
     "Voted on a poll",
     manifest.polls.dailyRewardCapCredits
   );
+  });
 
   const claim = await claimContentTreasuryReward("poll", pollId, userId, "vote", "poll_treasury_claim", manifest.features.pollMonetization).catch((err) => {
     logger.error({ err, pollId, userId }, "[polls/service] failed to claim treasury reward for vote");

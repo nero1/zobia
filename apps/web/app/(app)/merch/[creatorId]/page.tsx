@@ -10,7 +10,8 @@
  * Creator sees a settings panel if viewing their own store.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import {useAuth} from "@/lib/auth/hooks";
 import { useParams } from "next/navigation";
 import Link from "@/components/ui/Link";
 import { Icon } from "@/components/ui/Icon";
@@ -222,6 +223,8 @@ function ProductCard({ product, creatorId, onBuy }: ProductCardProps) {
 export default function CreatorMerchStorePage() {
   const { creatorId } = useParams<{ creatorId: string }>() ?? { creatorId: "" };
   const { t } = useTranslation();
+  const {user}=useAuth();
+  const checkout=useRef<{fingerprint:string;key:string}|null>(null);
 
   const [store, setStore] = useState<MerchStore | null>(null);
   const [loading, setLoading] = useState(true);
@@ -293,7 +296,11 @@ export default function CreatorMerchStorePage() {
     if (!confirmProduct) return;
     setBuying(true);
     try {
-      const body = confirmProduct.productType === "physical" ? shipping : {};
+      if(!user?.id)throw new Error("Please sign in again before purchasing.");
+      const details=confirmProduct.productType === "physical" ? shipping : {};
+      const fingerprint=JSON.stringify({buyerId:user.id,productId:confirmProduct.id,...details});
+      if(checkout.current?.fingerprint!==fingerprint)checkout.current={fingerprint,key:crypto.randomUUID()};
+      const body={...details,idempotencyKey:checkout.current.key,expectedBuyerId:user.id};
       const res = await fetch(`/api/merch/${creatorId}/products/${confirmProduct.id}/purchase`, {
         method: "POST",
         credentials: "include",
@@ -306,6 +313,9 @@ export default function CreatorMerchStorePage() {
         err.code = errBody.error?.code ?? null;
         throw err;
       }
+      const receipt=await res.json();
+      if(!receipt.success||!receipt.data?.orderId)throw new Error("The purchase could not be confirmed. Please retry.");
+      checkout.current=null;
       showToast(`You bought ${confirmProduct.name}!`);
       setConfirmProduct(null);
       setShipping({ shippingName: "", shippingAddress: "", shippingCity: "", shippingCountry: "" });

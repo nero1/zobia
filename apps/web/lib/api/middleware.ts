@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 /**
  * lib/api/middleware.ts
  *
@@ -195,7 +196,7 @@ export function requiresLiveVerification(req: NextRequest, pathname: string): bo
  * Fails CLOSED: if the account row cannot be read, the request is rejected.
  * A brief database blip is preferable to letting a banned user transact (#20).
  */
-async function assertAccountActive(userId: string): Promise<void> {
+async function assertAccountActive(userId: string,sessionCreatedAt:string): Promise<void> {
   let row:
     | {
         is_banned: boolean;
@@ -214,7 +215,7 @@ async function assertAccountActive(userId: string): Promise<void> {
         deleted_at: schema.users.deletedAt,
       })
       .from(schema.users)
-      .where(eq(schema.users.id, userId))
+      .where(and(eq(schema.users.id,userId),sql`${schema.users.sessionValidAfter}<=${sessionCreatedAt}::timestamptz`))
       .limit(1);
     row = rows[0];
   } catch {
@@ -324,7 +325,7 @@ export function withAuth<TParams = Record<string, string>>(
           return cleared;
         }
         // Fails closed — an unreadable account row rejects the request.
-        await assertAccountActive(payload.sub);
+        await assertAccountActive(payload.sub,session.created_at);
       }
 
       // Geolocation anomaly detection (PRD §19, §23)
@@ -440,6 +441,8 @@ export function withAdminAuth<TParams = Record<string, string>>(
         return cleared;
       }
 
+      if (payload.type === "pre_auth" || !session.adminSession) throw forbidden("Sign in through the administrator login with two-factor authentication", "ADMIN_REAUTH_REQUIRED");
+
       // ALWAYS check is_admin from the database – never trust JWT claim alone
       const orm = await getDb();
       const rows = await orm
@@ -449,7 +452,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
           is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
-        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt),sql`${schema.users.sessionValidAfter}<=${session.created_at}::timestamptz`))
         .limit(1);
 
       if (!rows[0]?.is_admin) {
@@ -578,10 +581,11 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
           is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
-        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt),sql`${schema.users.sessionValidAfter}<=${session.created_at}::timestamptz`))
         .limit(1);
 
       const isAdmin = !!rows[0]?.is_admin;
+      if (payload.type === "pre_auth" || (isAdmin && !session.adminSession)) throw forbidden("Administrator reauthentication required", "ADMIN_REAUTH_REQUIRED");
       const isModerator = !!rows[0]?.is_moderator;
       if (!isAdmin && !isModerator) {
         throw forbidden("Moderator or administrator access required");
@@ -711,10 +715,11 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
           is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         })
         .from(schema.users)
-        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt),sql`${schema.users.sessionValidAfter}<=${session.created_at}::timestamptz`))
         .limit(1);
 
       const isAdmin = !!rows[0]?.is_admin;
+      if (payload.type === "pre_auth" || (isAdmin && !session.adminSession)) throw forbidden("Administrator reauthentication required", "ADMIN_REAUTH_REQUIRED");
       const isAdModerator = !!rows[0]?.is_ad_moderator;
       if (!isAdmin && !isAdModerator) {
         throw forbidden("Ad Moderator or administrator access required");
@@ -842,8 +847,9 @@ export async function validateBody<T>(
 ): Promise<T> {
   let raw: unknown;
   try {
-    raw = await req.json();
-  } catch {
+    raw = await readBoundedJson(req);
+  } catch (error) {
+    if(error instanceof ApiError)throw error;
     throw badRequest("Request body must be valid JSON");
   }
 

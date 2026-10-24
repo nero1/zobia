@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -37,7 +38,7 @@ export const POST = withAuth<UserParams>(async (req: NextRequest, { params, auth
     if (!UUID_RE.test(userId)) throw badRequest("userId must be a valid UUID");
     if (userId === auth.user.sub) throw badRequest("You cannot report yourself");
 
-    const body = bodySchema.parse(await req.json());
+    const body = bodySchema.parse(await readBoundedJson(req));
     const reportType: ReportType = REASON_LABEL_TO_TYPE[body.reason] ?? "other";
 
     const db = await getDb();

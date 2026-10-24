@@ -80,7 +80,7 @@ export function PostBody({
   return (
     <div>
       {/* eslint-disable-next-line react/no-danger */}
-      <div className="prose prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="prose dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: html }} />
 
       {locked && checked && (
         <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-950/20 p-5 text-center">

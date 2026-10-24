@@ -8,6 +8,7 @@
  */
 
 import { getManifestValue } from "@/lib/manifest";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import type { Plan } from "@zobia/types";
 
 /** Fallback defaults — must match migration 0042's seeded x_manifest values. */
@@ -18,9 +19,9 @@ const DEFAULT_SAVE_SLOTS: Record<Plan, number> = {
   max: 5,
 };
 
-export async function getSaveSlotLimit(plan: string): Promise<number> {
+export async function getSaveSlotLimit(plan: string, tx?: DbOrTx): Promise<number> {
   const key = (plan in DEFAULT_SAVE_SLOTS ? plan : "free") as Plan;
-  const raw = await getManifestValue(`save_slots_${key}`);
+  const raw = await getManifestValue(`save_slots_${key}`, tx);
   const parsed = raw != null ? parseInt(raw, 10) : NaN;
   if (Number.isFinite(parsed) && parsed >= 0) return parsed;
   return DEFAULT_SAVE_SLOTS[key];

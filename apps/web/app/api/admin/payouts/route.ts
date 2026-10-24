@@ -1,3 +1,5 @@
+import {readPayoutWallet} from "@/lib/payments/crypto/payoutProof";
+import type {CryptoCurrency} from "@zobia/types";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -29,6 +31,7 @@ interface AdminPayoutRow {
   creator_username: string;
   creator_email: string | null;
   gross_kobo: number;
+  crypto_currency:string|null;crypto_chain:string|null;crypto_amount_base_units:string|null;crypto_tx_hash:string|null;
   net_kobo: number;
   platform_fee_kobo: number;
   status: string;
@@ -83,7 +86,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
     // Keyset cursor condition — sort is (gross_kobo DESC, created_at ASC, id ASC)
     if (cursor) {
       conditions.push(
-        sql`(cp.gross_kobo < ${cursor.grossKobo} OR (cp.gross_kobo = ${cursor.grossKobo} AND (cp.created_at > ${cursor.createdAt} OR (cp.created_at = ${cursor.createdAt} AND cp.id > ${cursor.id}))))`
+        sql`(COALESCE(cp.gross_kobo,0) < ${cursor.grossKobo} OR (COALESCE(cp.gross_kobo,0) = ${cursor.grossKobo} AND (cp.created_at > ${cursor.createdAt} OR (cp.created_at = ${cursor.createdAt} AND cp.id > ${cursor.id}))))`
       );
     }
 
@@ -93,7 +96,8 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
     const { rows } = await orm.execute<AdminPayoutRow & Record<string, unknown>>(sql`
       SELECT cp.id, cp.creator_id,
               u.username AS creator_username, u.email AS creator_email,
-              cp.gross_kobo, cp.net_kobo, cp.platform_fee_kobo,
+              COALESCE(cp.gross_kobo,0) AS gross_kobo, cp.net_kobo, cp.platform_fee_kobo,
+              cp.crypto_currency,cp.crypto_chain,cp.crypto_amount_base_units,cp.crypto_tx_hash,
               cp.status, cp.payout_method, cp.region,
               cp.bank_account_snapshot, cp.bank_account_last4, cp.wallet_address_snapshot,
               cp.idempotency_key, cp.retry_count,
@@ -102,7 +106,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
        FROM creator_payouts cp
        JOIN users u ON u.id = cp.creator_id
        ${whereClause}
-       ORDER BY cp.gross_kobo DESC, cp.created_at ASC, cp.id ASC
+       ORDER BY COALESCE(cp.gross_kobo,0) DESC, cp.created_at ASC, cp.id ASC
        LIMIT ${limit}
     `);
 
@@ -124,6 +128,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
           email: p.creator_email,
         },
         grossKobo: p.gross_kobo,
+        cryptoCurrency:p.crypto_currency,cryptoChain:p.crypto_chain,cryptoAmountBaseUnits:p.crypto_amount_base_units,cryptoTxHash:p.crypto_tx_hash,
         netKobo: p.net_kobo,
         platformFeeKobo: p.platform_fee_kobo,
         status: p.status,
@@ -132,6 +137,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
         bankAccountSnapshot: p.bank_account_snapshot,
         bankAccountLast4: p.bank_account_last4,
         hasWalletSnapshot: !!p.wallet_address_snapshot,
+        walletAddress:p.crypto_currency && ["BNB","SOL","JAGA"].includes(p.crypto_currency) && p.wallet_address_snapshot ? readPayoutWallet(p.wallet_address_snapshot,p.crypto_currency as CryptoCurrency):null,
         retryCount: p.retry_count,
         rejectionReason: p.rejection_reason,
         appealStatus: p.appeal_status,

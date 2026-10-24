@@ -25,7 +25,7 @@ describe("getGracePeriodDays", () => {
   it("uses the business-prefixed key for business tiers", async () => {
     mockGetManifestValue.mockResolvedValueOnce("21");
     expect(await getGracePeriodDays("business", "growth")).toBe(21);
-    expect(mockGetManifestValue).toHaveBeenCalledWith("grace_period_days_business_growth");
+    expect(mockGetManifestValue).toHaveBeenCalledWith("grace_period_days_business_growth", undefined);
   });
 
   it("rejects a negative or non-numeric override and falls back", async () => {

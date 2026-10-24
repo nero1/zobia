@@ -318,6 +318,7 @@ export const users = pgTable("users", {
 
   // Privacy/notification (additional)
   purgedAt: timestamp("purged_at",{withTimezone:true}),
+  sessionValidAfter:timestamp("session_valid_after",{withTimezone:true}).notNull().default(sql`'1970-01-01 00:00:00+00'::timestamptz`),
   contactDiscoveryEnabled: boolean("contact_discovery_enabled").notNull().default(false),
   contactDiscoveryConsentedAt: timestamp("contact_discovery_consented_at",{withTimezone:true}),
   sitemapOptOut: boolean("sitemap_opt_out").notNull().default(false),
@@ -420,6 +421,7 @@ export const userPushTokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     token: text("token").notNull(),
+    ownershipKey:varchar("ownership_key",{length:64}).notNull(),
     platform: text("platform").notNull().default("android"),
     deviceId: varchar("device_id",{length:255}),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -427,6 +429,7 @@ export const userPushTokens = pgTable(
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
+    ownershipIdx:uniqueIndex("user_push_tokens_ownership_key_unique").on(t.ownershipKey),
     userTokenIdx: uniqueIndex("user_push_tokens_user_token_idx").on(
       t.userId,
       t.token
@@ -2983,6 +2986,7 @@ export const creatorPayouts = pgTable(
     onDelete: "set null",
   }),
   earningsRestored: boolean("earnings_restored").notNull().default(false),
+  reservationVersion:integer("reservation_version").notNull().default(0),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
   rejectedAt: timestamp("rejected_at", { withTimezone: true }),
   rejectionReason: text("rejection_reason"),
@@ -2992,6 +2996,7 @@ export const creatorPayouts = pgTable(
   completedAt: timestamp("completed_at", { withTimezone: true }),
   },
   (t) => ({
+    cryptoTransferIdx:uniqueIndex("creator_payouts_crypto_transfer_unique").on(t.cryptoChain,t.cryptoTxHash).where(sql`crypto_tx_hash IS NOT NULL`),
     // DB-INDEX-01: partial index for efficient retry queue scans
     retryIdx: index("idx_creator_payouts_retry")
       .on(t.nextRetryAt)
@@ -3287,6 +3292,7 @@ export const referrals = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({
+    oneDirectReferrer:uniqueIndex("referrals_one_direct_referrer").on(t.referredId).where(sql`${t.tier}=1`),
     unique: uniqueIndex("referrals_referrer_referred_idx").on(
       t.referrerId,
       t.referredId
@@ -3412,9 +3418,9 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   // the campaign's date range. Funded from the business owner's Ad Wallet,
   // same ledger as lib/ads (ad_wallet_ledger) — see lib/quests/sponsoredQuestPacing.ts.
   pricingModel: text("pricing_model").notNull().default("duration"),
-  totalBudgetCredits: numeric("total_budget_credits", { precision: 14, scale: 2 }).notNull().default("0"),
-  spentCredits: numeric("spent_credits", { precision: 14, scale: 2 }).notNull().default("0"),
-  dailyBudgetCredits: numeric("daily_budget_credits", { precision: 14, scale: 2 }),
+  totalBudgetCredits: numeric("total_budget_credits", { precision: 18, scale: 6 }).notNull().default("0"),
+  spentCredits: numeric("spent_credits", { precision: 18, scale: 6 }).notNull().default("0"),
+  dailyBudgetCredits: numeric("daily_budget_credits", { precision: 18, scale: 6 }),
   cpmCredits: numeric("cpm_credits", { precision: 12, scale: 2 }).notNull().default("500"),
   estimatedReach: integer("estimated_reach"),
   impressionsCount: bigint("impressions_count", { mode: "number" }).notNull().default(0),
@@ -3437,7 +3443,7 @@ export const sponsoredQuestEvents = pgTable("sponsored_quest_events", {
     .references(() => sponsoredQuests.id, { onDelete: "cascade" }),
   userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
   eventType: text("event_type").notNull(),
-  costCredits: numeric("cost_credits", { precision: 12, scale: 4 }).notNull().default("0"),
+  costCredits: numeric("cost_credits", { precision: 18, scale: 6 }).notNull().default("0"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -7272,7 +7278,12 @@ export const cronJobSteps=pgTable("cron_job_steps",{jobKey:text("job_key").notNu
 export const gameScoreAttestations=pgTable("game_score_attestations",{playId:uuid("play_id").primaryKey().references(()=>gamePlays.id,{onDelete:"cascade"}),score:bigint("score",{mode:"bigint"}).notNull(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
 export const gameProgressTasks=pgTable("game_progress_tasks",{playId:uuid("play_id").primaryKey().references(()=>gamePlays.id,{onDelete:"cascade"}),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),completedAt:timestamp("completed_at",{withTimezone:true})});
 
+export const transactionalTasks=pgTable("transactional_tasks",{
+ id:uuidPk(),kind:text("kind").notNull(),operationKey:text("operation_key").notNull(),userId:uuid("user_id").references(()=>users.id,{onDelete:"cascade"}),payload:jsonb("payload").notNull().default({}),status:text("status").notNull().default("pending"),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),leaseUntil:timestamp("lease_until",{withTimezone:true}),completedAt:timestamp("completed_at",{withTimezone:true}),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[uniqueIndex("transactional_tasks_kind_operation_key_key").on(t.kind,t.operationKey),index("transactional_tasks_ready_idx").on(t.status,t.availableAt)]);
+
 export const schema = {
+  transactionalTasks,
   cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
   auditDiscrepanciesArchive,rankUpEventsArchive,
   accountTypePlayProducts,

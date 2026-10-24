@@ -51,6 +51,16 @@ export async function anonymizeUserAccount(
 
   const orm = await getDb();
   await orm.transaction(async (tx) => {
+    const [identity]=await tx.select({avatar:schema.users.avatarUrl}).from(schema.users).where(eq(schema.users.id,userId)).for("update");
+    if(identity?.avatar){
+      try{
+        const key=new URL(identity.avatar).pathname.match(new RegExp(`/(avatars/${userId}/[^/]+)$`))?.[1];
+        if(key)await queueObjectDeletion(tx,decodeURIComponent(key));
+      }catch(error){
+        // An external avatar has no managed storage object to remove.
+        if(!(error instanceof TypeError || error instanceof URIError))throw error;
+      }
+    }
     // Soft delete: anonymise public-facing fields but KEEP identifiers (email,
     // google_id, etc.) so the user can reactivate within the 30-day grace
     // period by logging in again. PII identifiers are only wiped by the
@@ -61,6 +71,7 @@ export async function anonymizeUserAccount(
         displayName: "Deleted User",
         bio: null,
         avatarEmoji: "👤",
+        avatarUrl:null,
         city: null,
         pushToken: null,
         pinHash: null,
@@ -78,6 +89,8 @@ export async function anonymizeUserAccount(
     // that cannot be retained; payout records preserve accounting data via snapshots.
     await tx.delete(schema.creatorBankAccounts).where(eq(schema.creatorBankAccounts.creatorId, userId));
     await tx.delete(schema.creatorWalletAddresses).where(eq(schema.creatorWalletAddresses.creatorId, userId));
+    await tx.delete(schema.userCryptoWallets).where(eq(schema.userCryptoWallets.userId,userId));
+    await tx.delete(schema.userPins).where(eq(schema.userPins.userId,userId));
     await tx
       .delete(schema.creatorKyc)
       .where(eq(schema.creatorKyc.creatorId, userId));

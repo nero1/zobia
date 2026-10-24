@@ -23,8 +23,8 @@ import { getDb, schema } from "@/lib/db/drizzle";
 const listQuerySchema = z.object({
   tab: z.enum(["popular", "trending", "new", "random"]).default("popular"),
   cursor: z.string().optional(),
-  limit: z.string().optional().transform((v) => (v ? Math.min(parseInt(v, 10), 50) : 20)),
-  q: z.string().optional(),
+  limit:z.coerce.number().int().min(1).max(50).default(20),
+  q:z.string().max(150).optional(),
 });
 
 const createWikiSchema = z.object({

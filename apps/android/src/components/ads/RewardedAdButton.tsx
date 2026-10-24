@@ -41,6 +41,8 @@ function todayUTC(): string {
 interface AdRewardResponse {
   coinsAwarded: number;
   remainingToday: number;
+  pending?:boolean;
+  replayed?:boolean;
 }
 
 interface AdRewardErrorBody {
@@ -80,19 +82,27 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
     setPhase('loading');
     setError(null);
     try {
-      const result = await showRewarded();
-      if (!result) {
-        setError(t('wallet.rewardedAd.unavailable', 'No rewarded ad is available right now — try again later.'));
-        setPhase('error');
-        return;
+      const pendingKey=`zobia_ad_reward_pending:${user.id}`;
+      const stored=await Preferences.get({key:pendingKey});
+      let challenge=stored.value;
+      if(!challenge){
+        const prepared=await apiClient.get<{challenge:string}>('/economy/rewards/ad-reward');
+        challenge=prepared.data.challenge;
+        await Preferences.set({key:pendingKey,value:challenge});
+        const result=await showRewarded({userId:user.id,customData:challenge});
+        if(!result){await Preferences.remove({key:pendingKey});setError(t('wallet.rewardedAd.unavailable','No rewarded ad is available right now — try again later.'));setPhase('error');return;}
+        await Preferences.set({key:pendingKey,value:challenge});
       }
-
       setPhase('claiming');
-      const { data } = await apiClient.post<AdRewardResponse>('/economy/rewards/ad-reward', {});
-      onRewarded?.(data.coinsAwarded);
-      setPhase('idle');
+      for(let attempt=0;attempt<10;attempt++){
+        const {data}=await apiClient.post<AdRewardResponse>('/economy/rewards/ad-reward',{provider:'admob',challenge});
+        if(!data.pending){await Preferences.remove({key:pendingKey});if(!data.replayed)onRewarded?.(data.coinsAwarded);setPhase('idle');return;}
+        await new Promise(resolve=>setTimeout(resolve,1500));
+      }
+      setError('Ad completion is still being verified. Tap again to check your pending reward.');setPhase('error');
     } catch (err) {
       const axiosErr = err as AxiosError<AdRewardErrorBody>;
+      if(axiosErr.response?.status===400)await Preferences.remove({key:`zobia_ad_reward_pending:${user.id}`});
       if (axiosErr.response?.status === 429) {
         await Preferences.set({ key: capHintKey(user.id), value: todayUTC() });
         setPhase('capped');

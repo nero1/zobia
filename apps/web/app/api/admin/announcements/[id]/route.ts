@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -150,7 +151,7 @@ export const PUT = withAdminAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
       const { id } = await params;
 
-      const body = await req.json().catch(() => ({}));
+      const body = await readBoundedJson(req).catch(() => ({}));
       const parsed = UpdateSchema.safeParse(body);
       if (!parsed.success) throw badRequest("Invalid update payload", parsed.error.flatten());
       if (Object.keys(parsed.data).length === 0) throw badRequest("No fields to update");
@@ -174,7 +175,7 @@ export const PATCH = withAdminAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
       const { id } = await params;
 
-      const body = await req.json().catch(() => ({}));
+      const body = await readBoundedJson(req).catch(() => ({}));
       const parsed = UpdateSchema.safeParse(body);
       if (!parsed.success) throw badRequest("Invalid update payload", parsed.error.flatten());
       if (Object.keys(parsed.data).length === 0) throw badRequest("No fields to update");

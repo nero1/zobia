@@ -29,8 +29,8 @@ describe("readCacheKey", () => {
     expect(readCacheKey(u("/api/notifications?limit=1"), "GET")).toBe("/api/notifications?limit=1");
     expect(readCacheKey(u("/api/notifications?limit=20"), "GET")).toBeNull();
     expect(readCacheKey(u("/api/notifications?limit=1&after=x"), "GET")).toBeNull();
-    expect(readCacheKey(u("/api/ads/serve?placement=home_top"), "GET")).toBe("/api/ads/serve?placement=home_top");
-    expect(readCacheKey(u("/api/ads/serve"), "GET")).toBe("/api/ads/serve");
+    expect(readCacheKey(u("/api/ads/serve?placement=home_top"), "GET")).toBeNull();
+    expect(readCacheKey(u("/api/ads/serve"), "GET")).toBeNull();
   });
 
   it("caches GETs of listed endpoints only", () => {

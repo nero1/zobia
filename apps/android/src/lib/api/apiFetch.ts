@@ -8,7 +8,7 @@
  */
 
 import { env } from '@/lib/env';
-import { getCachedToken, refreshAccessToken, setCachedToken, signalUnauthenticated } from '@/lib/api/client';
+import { getAuthGeneration, getCachedToken, refreshAccessToken, setCachedToken, signalUnauthenticated } from '@/lib/api/client';
 import { invalidateReadCache, writeInvalidatesReadCache } from '@/lib/api/readCache';
 
 const MAX_ATTEMPTS = 4;
@@ -40,6 +40,8 @@ export async function apiFetch(
     return fetch(input, init);
   }
 
+  const generation=getAuthGeneration();
+  const assertOwner=()=>{if(generation!==getAuthGeneration())throw new DOMException("Account changed","AbortError");};
   const headers = new Headers((init?.headers ?? {}) as HeadersInit);
   if (!headers.has('Authorization')) {
     const token = getCachedToken();
@@ -60,11 +62,14 @@ export async function apiFetch(
       await new Promise((res) => setTimeout(res, baseDelay / 2 + Math.random() * (baseDelay / 2)));
     }
     try {
+      assertOwner();
       const response = await fetch(input, requestInit);
+      assertOwner();
 
       if (response.status === 401 && !didRefresh) {
         didRefresh = true;
         const newToken = await refreshAccessToken();
+        assertOwner();
         if (newToken) {
           setCachedToken(newToken);
           requestInit.headers = new Headers(requestInit.headers as HeadersInit);

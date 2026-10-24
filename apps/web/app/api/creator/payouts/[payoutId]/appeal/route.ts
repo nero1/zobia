@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import {and,eq,sql} from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
 import { getDb, schema } from "@/lib/db/drizzle";
@@ -69,7 +69,7 @@ export const POST = withAuth(
         );
       }
 
-      await orm
+      const changed=await orm
         .update(schema.creatorPayouts)
         .set({
           appealReason: body.reason,
@@ -77,7 +77,8 @@ export const POST = withAuth(
           appealSubmittedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(schema.creatorPayouts.id, payoutId));
+        .where(and(eq(schema.creatorPayouts.id,payoutId),eq(schema.creatorPayouts.status,"rejected"),sql`COALESCE(${schema.creatorPayouts.appealStatus},'')!='pending'`)).returning({id:schema.creatorPayouts.id});
+      if(!changed.length)throw badRequest("Payout changed or an appeal is already pending","PAYOUT_CHANGED");
 
       // Notify admin via system_alert
       await raiseAlert(orm, {

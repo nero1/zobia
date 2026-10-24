@@ -40,7 +40,7 @@ import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
 import { logger } from "@/lib/logger";
 import { loadClassroomContext } from "@/lib/classroom/access";
-import { createMoment } from "@/lib/moments/service";
+import { createMoment, prepareMomentCreation } from "@/lib/moments/service";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -70,7 +70,7 @@ const sendMessageSchema = z.object({
     .max(2000, "Message cannot exceed 2000 characters"),
   // 'moment' = ephemeral 24-hour message (PRD §5 — Zobia Moments)
   messageType: z
-    .enum(["text", "sticker", "gif", "gift", "system", "moment"])
+    .enum(["text", "sticker", "gif", "moment"])
     .default("text"),
   metadata: z.record(z.unknown()).optional(),
   replyToMessageId: z.string().uuid().optional(),
@@ -590,7 +590,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Layer-1 auto-moderation: bot detection, duplicate detection, profanity filter
-    if (!isAdmin && body.messageType === "text") {
+    if (!isAdmin && (body.messageType === "text" || body.messageType === "moment")) {
       const [senderRow] = await orm
         .select({
           is_verified: schema.users.isVerified,
@@ -622,7 +622,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Anti-spam content filter (also honours blockLinks automod rule)
     const blockLinks = Boolean(modRules.blockLinks) && !isAdmin;
     let content = body.content;
-    if (body.messageType === "text") {
+    if ((body.messageType === "text" || body.messageType === "moment")) {
       // filterPublicContent already strips links when isAdmin=false; the
       // blockLinks rule makes this explicit even for edge cases.
       content = filterPublicContent(content, isAdmin);
@@ -653,36 +653,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    // OFFLINE-IDEMP-GAP: mirrors the DM route's existing-row check so offline-queued
-    // room messages retried on reconnect (Expo sync queue / PWA) don't create duplicates.
-    if (body.idempotencyKey) {
-      const [dupRow] = await orm
-        .select({ id: schema.roomMessages.id })
-        .from(schema.roomMessages)
-        .where(and(eq(schema.roomMessages.senderId, userId), eq(schema.roomMessages.idempotencyKey, body.idempotencyKey)))
-        .limit(1);
-      if (dupRow) {
-        const [existing] = await orm
-          .select({
-            id: schema.roomMessages.id,
-            sender_id: schema.roomMessages.senderId,
-            content: schema.roomMessages.content,
-            message_type: schema.roomMessages.messageType,
-            metadata: schema.roomMessages.metadata,
-            created_at: schema.roomMessages.createdAt,
-          })
-          .from(schema.roomMessages)
-          .where(eq(schema.roomMessages.id, dupRow.id))
-          .limit(1);
-        if (existing) {
-          return NextResponse.json(
-            { message: toClientMessage({ ...existing, created_at: existing.created_at ?? new Date() }, existing.content ?? "") },
-            { status: 200 }
-          );
-        }
-      }
-    }
-
     // todayMsgCount is counted AFTER the insert below (inclusive) to prevent off-by-one (BUG-18)
 
     // Determine if message needs approval (approval-required rooms, non-admin)
@@ -695,6 +665,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // the send entirely instead of posting a message the charge never backed.
     let momentResult: Awaited<ReturnType<typeof createMoment>> | null = null;
     let metadataToStore = safeMetadata as Record<string, unknown> | null;
+    const preparedMoment=body.messageType==="moment" && !requiresApproval ? await prepareMomentCreation(userId) : null;
+    if(body.messageType==="moment" && !body.idempotencyKey)throw badRequest("An idempotency key is required for a Moment","IDEMPOTENCY_KEY_REQUIRED");
+
+    // Persist message and update room counter atomically
+    const {message,replay} = await orm.transaction(async (tx) => {
+      if(body.idempotencyKey){
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${userId}:${body.idempotencyKey}`},78))`);
+        const [existing]=await tx.select().from(schema.roomMessages).where(and(eq(schema.roomMessages.senderId,userId),eq(schema.roomMessages.idempotencyKey,body.idempotencyKey))).limit(1);
+        if(existing){if(existing.roomId!==roomId)throw badRequest("Message key belongs to another room","IDEMPOTENCY_CONFLICT");return {message:existing,replay:true};}
+      }
     if (body.messageType === "moment" && !requiresApproval) {
       momentResult = await createMoment({
         userId,
@@ -702,12 +682,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         contentType: "text",
         currency: body.currency ?? null,
         source: "room",
-      });
+      },{tx,eligibility:preparedMoment!});
       metadataToStore = { ...(metadataToStore ?? {}), momentId: momentResult.id };
     }
 
-    // Persist message and update room counter atomically
-    const [message] = await orm.transaction(async (tx) => {
       const inserted = await tx
         .insert(schema.roomMessages)
         .values({
@@ -732,9 +710,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           .where(eq(schema.rooms.id, roomId));
       }
 
-      return inserted;
+      return {message:inserted[0],replay:false};
     });
+    if(replay)return NextResponse.json({message:toClientMessage({id:message.id,sender_id:message.senderId,message_type:message.messageType,created_at:message.createdAt??new Date(),metadata:message.metadata},message.content??"")},{status:200});
 
+    const createdMoment=momentResult as Awaited<ReturnType<typeof createMoment>>|null;
     // Canonical camelCase payload returned to the sender AND broadcast to other
     // clients, so an optimistic render and the realtime echo are byte-identical.
     const clientMessage = toClientMessage(
@@ -802,13 +782,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     return NextResponse.json(
       {
         message: clientMessage,
-        ...(momentResult
+        ...(createdMoment
           ? {
               moment: {
-                id: momentResult.id,
-                costCredits: momentResult.costCredits,
-                costStars: momentResult.costStars,
-                currencyCharged: momentResult.currencyCharged,
+                id: createdMoment.id,
+                costCredits: createdMoment.costCredits,
+                costStars: createdMoment.costStars,
+                currencyCharged: createdMoment.currencyCharged,
               },
             }
           : {}),

@@ -67,6 +67,7 @@ export default function AdSlot({ placement, className }: AdSlotProps) {
 
   useEffect(() => {
     let cancelled = false;
+    impressedRef.current=false;setAd(undefined);
     void requestAd(placement).then((served) => {
       if (!cancelled) setAd(served);
     });

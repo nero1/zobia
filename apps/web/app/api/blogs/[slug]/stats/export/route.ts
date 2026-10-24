@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { escapeDelimitedValue } from "@/lib/export/tabular";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -19,7 +20,7 @@ import { getDb, schema } from "@/lib/db/drizzle";
 
 function toCsv(rows: Awaited<ReturnType<typeof getBlogDailyStats>>): string {
   const header = "date,post_title,views,likes,comments,unlock_count,unlock_credits";
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const escape = (v: string) => escapeDelimitedValue(v, ",");
   const lines = rows.map((r) => [r.date, escape(r.post_title), r.views, r.likes, r.comments, r.unlock_count, r.unlock_credits].join(","));
   return [header, ...lines].join("\n");
 }

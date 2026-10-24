@@ -23,6 +23,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import Decimal from "decimal.js";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
@@ -73,7 +74,8 @@ export async function contributeToCreatorFund(
   if (!Number.isFinite(grossAmountKobo) || grossAmountKobo <= 0) return;
 
   const percent = await getCreatorFundSplitPercent(activity, dbClient);
-  const contributionKobo = Math.floor((grossAmountKobo * percent) / 100);
+  if (!Number.isSafeInteger(grossAmountKobo)) throw new Error("Creator Fund revenue must be exact integer kobo");
+  const contributionKobo = new Decimal(grossAmountKobo).mul(percent).div(100).floor().toNumber();
   if (contributionKobo <= 0) return;
 
   const client = dbClient ?? (await getDb());

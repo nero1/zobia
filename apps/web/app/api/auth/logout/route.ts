@@ -19,9 +19,11 @@ import {
   invalidateSession,
   buildClearCookieHeaders,
   ACCESS_TOKEN_COOKIE,
+  REFRESH_TOKEN_COOKIE,
 } from "@/lib/auth/session";
 import {
   verifyAccessToken,
+  verifyRefreshToken,
   extractBearerToken,
   JwtVerificationError,
 } from "@/lib/auth/jwt";
@@ -51,9 +53,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const { accessCookie, refreshCookie } = buildClearCookieHeaders();
 
-  if (token) {
+  const refreshToken=request.headers.get("X-Refresh-Token") ?? request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+  let revocationFailed=false;
+  if (token || refreshToken) {
     try {
-      const payload = await verifyAccessToken(token);
+      let payload:{sid?:string;sub:string};
+      try {
+        if(!token)throw new JwtVerificationError("Missing access token", "MISSING");
+        payload=await verifyAccessToken(token);
+      }catch(error){
+        if(!(error instanceof JwtVerificationError) || !refreshToken)throw error;
+        payload=await verifyRefreshToken(refreshToken);
+      }
       // Delete session from Redis immediately – all tokens for this session
       // become invalid on the next request that checks Redis.
       if (payload.sid && payload.sub) {
@@ -63,12 +74,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       // Expired token is fine – we still want to clear the cookies.
       // Only log unexpected errors.
       if (!(err instanceof JwtVerificationError)) {
+        revocationFailed=true;
         logger.error({ err: err }, "[api:auth:logout] Error invalidating session");
       }
     }
   }
 
-  const response = NextResponse.json({ success: true }, { status: 200 });
+  const response = NextResponse.json({ success: !revocationFailed }, { status: revocationFailed ? 503 : 200 });
   response.headers.append("Set-Cookie", accessCookie);
   response.headers.append("Set-Cookie", refreshCookie);
   return response;

@@ -35,7 +35,7 @@ let client: PublicClient | null = null;
 function getClient(): PublicClient {
   if (client) return client;
   const rpcUrl = process.env.BSC_RPC_URL || DEFAULT_BSC_RPC;
-  client = createPublicClient({ chain: bsc, transport: http(rpcUrl) });
+  client = createPublicClient({ chain: bsc, transport: http(rpcUrl,{timeout:8000,retryCount:0}) });
   return client;
 }
 

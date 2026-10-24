@@ -1,3 +1,4 @@
+import {reserveCommunityReward} from "@/lib/tasks/communityReward";
 /**
  * lib/forum/service.ts
  *
@@ -22,11 +23,10 @@
  */
 
 import { randomUUID } from "crypto";
-import { getDb, schema } from "@/lib/db/drizzle";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
-import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { applyForumAutoModeration } from "@/lib/forum/moderation";
 import { generateUniqueSlug } from "@/lib/slug";
@@ -144,54 +144,8 @@ export function assertCanComment(eligibility: ForumEligibility, payBypass: boole
  * the awarded amount to whatever headroom remains; awards nothing once the
  * cap is hit. Never throws — reward failures are logged, not propagated.
  */
-async function awardForumCreditsCapped(
-  userId: string,
-  amount: number,
-  type: "forum_question_reward" | "forum_answer_reward" | "forum_upvote_reward" | "forum_best_answer_reward",
-  referenceId: string,
-  description: string,
-  dailyCapCredits: number
-): Promise<void> {
-  if (amount <= 0) return;
-  try {
-    const orm = await getDb();
-    const rows = await orm
-      .select({ earned: sql<string>`COALESCE(SUM(${schema.coinLedger.amount}), 0)::text` })
-      .from(schema.coinLedger)
-      .where(
-        and(
-          eq(schema.coinLedger.userId, userId),
-          sql`${schema.coinLedger.transactionType} LIKE 'forum_%'`,
-          sql`${schema.coinLedger.amount} > 0`,
-          sql`${schema.coinLedger.createdAt} >= NOW() - INTERVAL '24 hours'`
-        )
-      );
-    const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
-    const headroom = dailyCapCredits - earnedToday;
-    if (headroom <= 0) return;
-    const capped = Math.min(amount, headroom);
-    await creditCoins(userId, capped, type, referenceId, description);
-  } catch (err) {
-    logger.error({ err, userId, type, amount }, "[forum/service] reward credit award failed");
-  }
-}
-
-function awardForumRewards(
-  userId: string,
-  xpAmount: number,
-  creditAmount: number,
-  xpSource: string,
-  creditType: "forum_question_reward" | "forum_answer_reward" | "forum_upvote_reward" | "forum_best_answer_reward",
-  referenceId: string,
-  description: string,
-  dailyCapCredits: number
-): void {
-  if (xpAmount > 0) {
-    safeAwardXPFireAndForget(userId, xpAmount, "knowledge", xpSource, referenceId);
-  }
-  if (creditAmount > 0) {
-    awardForumCreditsCapped(userId, creditAmount, creditType, referenceId, description, dailyCapCredits).catch(() => {});
-  }
+async function awardForumRewards(tx:DbOrTx,userId:string,xpAmount:number,creditAmount:number,xpSource:string,creditType: "forum_question_reward"|"forum_answer_reward"|"forum_upvote_reward"|"forum_best_answer_reward",referenceId:string,description:string,dailyCapCredits:number):Promise<void>{
+ await reserveCommunityReward(tx,userId,{family:"forum",amount:creditAmount,dailyCap:dailyCapCredits,type:creditType,xp:xpAmount,track:"knowledge",source:xpSource,referenceId,description});
 }
 
 // ---------------------------------------------------------------------------
@@ -259,9 +213,7 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
       authorId: input.userId,
       texts: [finalTitle, mod.filteredBody],
     });
-  });
-
-  awardForumRewards(
+    await awardForumRewards(tx,
     input.userId,
     eligibility.config.rewardXpPerQuestion,
     eligibility.config.rewardCreditsPerQuestion,
@@ -271,6 +223,9 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
     "Posted a question on Answers",
     eligibility.config.dailyRewardCapCredits
   );
+  });
+
+
 
   return { id: questionId, slug, status: "visible" };
 }
@@ -361,19 +316,20 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
       .set({ answerCount: sql`${schema.forumQuestions.answerCount} + 1`, lastActivityAt: sql`NOW()`, updatedAt: sql`NOW()` })
       .where(eq(schema.forumQuestions.id, input.questionId));
 
-    return answer.id;
-  });
-
-  awardForumRewards(
+    await awardForumRewards(tx,
     input.userId,
     eligibility.config.rewardXpPerAnswer,
     eligibility.config.rewardCreditsPerAnswer,
     "forum_answer_posted",
     "forum_answer_reward",
-    `forum_answer_reward:${answerId}`,
+    `forum_answer_reward:${answer.id}`,
     "Posted an answer on Answers",
     eligibility.config.dailyRewardCapCredits
   );
+    return answer.id;
+  });
+
+
 
   return { id: answerId, status: "visible" };
 }
@@ -447,19 +403,9 @@ export async function castVote(
       .where(eq(targetTable.id, targetId))
       .returning({ voteScore: targetTable.voteScore });
 
-    return {
-      voteScore: updatedRows[0].voteScore,
-      myVote,
-      authorId: target.authorId,
-      becameUpvoted: myVote === 1 && existing !== 1,
-    };
-  });
-
-  // Best-effort reward to the content author when a net new upvote lands —
-  // outside the transaction so a reward failure never blocks the vote.
-  if (result.becameUpvoted) {
-    awardForumRewards(
-      result.authorId,
+  if (myVote===1 && existing!==1) {
+    await awardForumRewards(tx,
+      target.authorId,
       manifest.forum.rewardXpPerUpvoteReceived,
       manifest.forum.rewardCreditsPerUpvoteReceived,
       "forum_upvote_received",
@@ -469,6 +415,15 @@ export async function castVote(
       manifest.forum.dailyRewardCapCredits
     );
   }
+
+    return {
+      voteScore: updatedRows[0].voteScore,
+      myVote,
+      authorId: target.authorId,
+      becameUpvoted: myVote === 1 && existing !== 1,
+    };
+  });
+
 
   return { voteScore: result.voteScore, myVote: result.myVote };
 }
@@ -546,9 +501,10 @@ export async function markBestAnswer(
   const answer = aRows[0];
   if (!answer) throw notFound("Answer not found");
 
-  await orm.update(schema.forumQuestions).set({ bestAnswerId: answerId, updatedAt: sql`NOW()` }).where(eq(schema.forumQuestions.id, questionId));
+  await orm.transaction(async tx=>{
+  await tx.update(schema.forumQuestions).set({ bestAnswerId: answerId, updatedAt: sql`NOW()` }).where(eq(schema.forumQuestions.id, questionId));
 
-  awardForumRewards(
+  await awardForumRewards(tx,
     answer.authorId,
     manifest.forum.rewardXpBestAnswer,
     manifest.forum.rewardCreditsBestAnswer,
@@ -558,6 +514,7 @@ export async function markBestAnswer(
     "Your answer was marked best on Answers",
     manifest.forum.dailyRewardCapCredits
   );
+  });
 }
 
 // ---------------------------------------------------------------------------

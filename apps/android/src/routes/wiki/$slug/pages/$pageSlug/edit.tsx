@@ -6,7 +6,7 @@
  * revision server-side per PATCH /wiki/:slug/pages/:pageSlug).
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
@@ -27,11 +27,14 @@ function EditWikiPagePage() {
   const [content, setContent] = useState('');
   const [format, setFormat] = useState<ContentFormat>('markdown');
   const [editSummary, setEditSummary] = useState('');
+  const initialized=useRef<string|null>(null);
+  const [baseRevision,setBaseRevision]=useState<number|null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const p = pageQuery.data?.page;
-    if (!p) return;
+    if (!p || initialized.current===p.id) return;
+    initialized.current=p.id;setBaseRevision(p.revision_count);
     setTitle(p.title);
     setContent(p.content_markdown);
     setFormat(p.content_format);
@@ -44,6 +47,7 @@ function EditWikiPagePage() {
         contentMarkdown: content.trim(),
         contentFormat: format,
         editSummary: editSummary.trim() || undefined,
+        expectedRevision:baseRevision,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['wiki', 'page', slug, pageSlug] });

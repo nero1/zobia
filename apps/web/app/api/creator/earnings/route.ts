@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic';
  * @module app/api/creator/earnings
  */
 
+import Decimal from "decimal.js";
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { forbidden, handleApiError } from "@/lib/api/errors";
@@ -87,10 +88,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const { rows } = await orm.execute<EarningsRow & Record<string, unknown>>(sql`
        SELECT
          source_type AS stream,
-         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE)::BIGINT AS today_gross,
-         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days')::BIGINT AS week_gross,
-         SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days')::BIGINT AS month_gross,
-         SUM(gross_amount_kobo)::BIGINT AS all_time_gross
+         COALESCE(SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE),0)::text AS today_gross,
+         COALESCE(SUM(net_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE),0)::text AS today_net,
+         COALESCE(SUM(platform_fee_kobo) FILTER (WHERE created_at >= CURRENT_DATE),0)::text AS today_fee,
+         COALESCE(SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'),0)::text AS week_gross,
+         COALESCE(SUM(net_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'),0)::text AS week_net,
+         COALESCE(SUM(platform_fee_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days'),0)::text AS week_fee,
+         COALESCE(SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'),0)::text AS month_gross,
+         COALESCE(SUM(net_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'),0)::text AS month_net,
+         COALESCE(SUM(platform_fee_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'),0)::text AS month_fee,
+         COALESCE(SUM(gross_amount_kobo),0)::text AS all_time_gross,
+         COALESCE(SUM(net_amount_kobo),0)::text AS all_time_net,
+         COALESCE(SUM(platform_fee_kobo),0)::text AS all_time_fee
        FROM creator_earnings
        WHERE creator_id = ${userId}
        GROUP BY source_type
@@ -102,14 +111,6 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const STANDARD_CREATOR_PERCENT = 80;
     const SPONSORED_QUEST_PLATFORM_FEE_PERCENT = 30;
     const SPONSORED_QUEST_CREATOR_PERCENT = 70;
-
-    /** Returns the split percentages for a given earnings stream. */
-    function splitForStream(stream: string): { creatorPct: number; platformPct: number } {
-      if (stream === "sponsored_quest") {
-        return { creatorPct: SPONSORED_QUEST_CREATOR_PERCENT, platformPct: SPONSORED_QUEST_PLATFORM_FEE_PERCENT };
-      }
-      return { creatorPct: STANDARD_CREATOR_PERCENT, platformPct: STANDARD_PLATFORM_FEE_PERCENT };
-    }
 
     interface PeriodAccumulator {
       grossKobo: number;
@@ -131,32 +132,20 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       allTime: emptyPeriod(),
     };
 
-    for (const row of rows as unknown as Array<{
-      stream: string;
-      today_gross: string;
-      week_gross: string;
-      month_gross: string;
-      all_time_gross: string;
-    }>) {
-      const { creatorPct, platformPct } = splitForStream(row.stream);
-
-      const entries: Array<[keyof typeof periods, string]> = [
-        ["today", row.today_gross],
-        ["week", row.week_gross],
-        ["month", row.month_gross],
-        ["allTime", row.all_time_gross],
-      ];
-
-      for (const [periodKey, rawGross] of entries) {
-        const gross = parseInt(rawGross ?? "0", 10);
-        const net = Math.floor((gross * creatorPct) / 100);
-        const fee = gross - net;
-
-        periods[periodKey].grossKobo += gross;
-        periods[periodKey].netKobo += net;
-        periods[periodKey].platformFeeKobo += fee;
-        periods[periodKey].byStream[row.stream] = gross;
-        periods[periodKey].byStreamNet[row.stream] = net;
+    const exactNumber=(value:Decimal.Value)=>{
+      const amount=new Decimal(value);
+      if(!amount.isInteger() || amount.abs().gt(Number.MAX_SAFE_INTEGER))throw new Error("Earnings summary exceeds the exact numeric response range; use the ledger export");
+      return amount.toNumber();
+    };
+    for(const row of rows as unknown as Array<Record<string,string>>) {
+      for(const [periodKey,prefix] of [["today","today"],["week","week"],["month","month"],["allTime","all_time"]]) {
+        const gross=exactNumber(row[`${prefix}_gross`]??0),net=exactNumber(row[`${prefix}_net`]??0),fee=exactNumber(row[`${prefix}_fee`]??0);
+        const period=periods[periodKey];
+        period.grossKobo=exactNumber(new Decimal(period.grossKobo).add(gross));
+        period.netKobo=exactNumber(new Decimal(period.netKobo).add(net));
+        period.platformFeeKobo=exactNumber(new Decimal(period.platformFeeKobo).add(fee));
+        period.byStream[row.stream]=gross;
+        period.byStreamNet[row.stream]=net;
       }
     }
 

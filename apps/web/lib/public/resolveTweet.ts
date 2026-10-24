@@ -10,6 +10,7 @@
  * removed content never leaks to crawlers or logged-out visitors.
  */
 
+import {publicOwnerVisible} from "./ownerVisibility";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
@@ -94,7 +95,7 @@ async function fetchTopReplies(tweetId: string): Promise<PublicTweet[]> {
     .from(schema.tweets)
     .innerJoin(schema.users, eq(schema.users.id, schema.tweets.userId))
     .where(
-      and(isNull(schema.tweets.deletedAt), isNull(schema.users.deletedAt), eq(schema.tweets.parentTweetId, tweetId))
+      and(isNull(schema.tweets.deletedAt), publicOwnerVisible("tweets"), eq(schema.tweets.parentTweetId, tweetId))
     )
     .orderBy(asc(schema.tweets.createdAt))
     .limit(3);
@@ -112,7 +113,7 @@ export async function resolvePublicTweet(tweetId: string): Promise<PublicTweet |
     .select(selectTweetColumns())
     .from(schema.tweets)
     .innerJoin(schema.users, eq(schema.users.id, schema.tweets.userId))
-    .where(and(isNull(schema.tweets.deletedAt), isNull(schema.users.deletedAt), eq(schema.tweets.id, tweetId)))
+    .where(and(isNull(schema.tweets.deletedAt), publicOwnerVisible("tweets"), eq(schema.tweets.id, tweetId)))
     .limit(1);
   if (!row) return null;
   const top_replies = await fetchTopReplies(row.id);

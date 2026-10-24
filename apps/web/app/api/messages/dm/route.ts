@@ -57,6 +57,7 @@ const DM_SEND_RATE_LIMIT = {
 // ---------------------------------------------------------------------------
 
 const sendDMSchema = z.object({
+  queueOwnerId:z.string().uuid().optional(),
   recipientId: z.string().uuid("recipientId must be a valid UUID"),
   content: z
     .string()
@@ -353,6 +354,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", DM_SEND_RATE_LIMIT);
 
     const body = await validateBody(req, sendDMSchema);
+    if(body.queueOwnerId && body.queueOwnerId!==auth.user.sub)throw conflict("This queued message belongs to a different account.","QUEUE_OWNER_MISMATCH");
 
     // Prevent messaging yourself
     if (body.recipientId === auth.user.sub) {

@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -132,7 +133,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const parsed = SendMessageSchema.safeParse(body);
     if (!parsed.success) {
       throw badRequest("Invalid message payload", parsed.error.flatten());
