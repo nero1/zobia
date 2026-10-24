@@ -82,7 +82,10 @@ jobs:
 
       - name: Show Android App Link fingerprint
         run: |
-          fingerprint="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p')"
+          sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          signer="$(find "$sdk_root/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          test -x "$signer"
+          fingerprint="$("$signer" verify --print-certs apps/android/android/app/build/outputs/apk/debug/app-debug.apk | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')"
           test -n "$fingerprint"
           {
             echo '### Android App Links'

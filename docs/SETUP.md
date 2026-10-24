@@ -11,7 +11,7 @@ Deploy the web/PWA from `apps/web`. The current Android app is **Vite/Capacitor 
 5. Create an **Upstash Redis** database and copy its REST URL/token.
 6. Create an **Ably** app and a server API key with Publish and Subscribe permissions. Both web/PWA and Android use this backend; no Ably secret goes into the Android build.
 
-Railway and DigitalOcean PostgreSQL also work: select `railway` or `digitalocean` for `DATABASE_PROVIDER`, use their connection URLs and CA certificate, and apply the same schema. Storage and realtime are configured independently of the database.
+Railway and DigitalOcean PostgreSQL also work: select `railway` or `digitalocean` for `DATABASE_PROVIDER`, use their connection URLs, and apply the same schema. Set their CA certificate as `RAILWAY_CA_CERT` or `DO_CA_CERT`, respectively; `DB_CA_CERT` is the Supabase runtime setting. Storage and realtime are configured independently of the database.
 
 ## 2. Configure Google sign-in
 
