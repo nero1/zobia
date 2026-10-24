@@ -1,97 +1,176 @@
-# Zobia — Dashboard Deployment
+# Zobia — Step-by-step dashboard setup
 
-Deploy the web/PWA from `apps/web`. The current Android app is **Vite/Capacitor in `apps/android`**. These steps use the Vercel, database and GitHub websites; no local terminal is required.
+Follow these sections in order. Everything here uses websites and dashboards; you do not need a terminal. The website/PWA is in `apps/web`; the Android app is Vite/Capacitor in `apps/android`.
 
-## 1. Create the services
+Use one website address throughout, for example `https://zobia.vercel.app`. Replace that example with your own address wherever it appears. If you already have a working service, reuse it rather than creating another one.
 
-1. Create a **Supabase PostgreSQL** project. In **Connect**, copy its transaction-pooler URL for `DATABASE_URL` and its direct URL for `DIRECT_URL`. Replace the password placeholder; URL-encode special password characters. If the direct host is IPv6-only and your runner cannot reach it, use the session-pooler URL for migrations.
-2. In **Database → SSL Configuration**, download the database CA certificate. Keep its complete PEM text for `DB_CA_CERT`.
-3. In **Storage**, create `zobia-media` as a **public** bucket and `zobia-private` as a **private** bucket. Uploads go through the authenticated application server; do not enable anonymous writes or public access to the private bucket.
-4. Copy the project URL and **service_role** key from Supabase's API settings. The service-role key stays server-side.
-5. Create an **Upstash Redis** database and copy its REST URL/token.
-6. Create an **Ably** app and a server API key with Publish and Subscribe permissions. Both web/PWA and Android use this backend; no Ably secret goes into the Android build.
+## 1. Create your Supabase database and storage
 
-Railway and DigitalOcean PostgreSQL also work: select `railway` or `digitalocean` for `DATABASE_PROVIDER`, use their connection URLs, and apply the same schema. Set their CA certificate as `RAILWAY_CA_CERT` or `DO_CA_CERT`, respectively; `DB_CA_CERT` is the Supabase runtime setting. Storage and realtime are configured independently of the database.
+- Create an account at [supabase.com](https://supabase.com).
+- Open the dashboard and click **New project**. Create an organization first if asked.
+- Enter a project name, generate a strong database password, and save the password in your password manager.
+- Select a suitable region, choose the Free plan if appropriate, and click **Create new project**. Wait until the project is ready.
+- Click **Connect** at the top of the project. Select **Transaction pooler** and copy the PostgreSQL connection string. Save it as your future `DATABASE_URL` value.
+- In the same dialog, select **Direct connection** and copy its connection string. Save it as `DIRECT_URL`. If that connection is IPv6-only and unavailable from your host, use **Session pooler** instead.
+- Replace `[YOUR-PASSWORD]` in both strings with the database password. The square brackets must not remain. Special characters in passwords must be URL-encoded in connection strings; a long randomly generated letters-and-numbers password avoids this extra step.
+- Open **Project Settings → Database → SSL Configuration** (sometimes shown under **Database → Settings**). Download the CA certificate.
+- Open the downloaded certificate in a text editor. Keep its entire text, including `-----BEGIN CERTIFICATE-----` and `-----END CERTIFICATE-----`; you will paste it into `DB_CA_CERT`.
+- Open **Project Settings → API** / **API Keys**. Copy the **Project URL** and the **legacy service_role key**. Keep the key private; do not use the `anon` key for this setting.
+- Open **Storage → New bucket**. Name the bucket `zobia-media`, enable **Public bucket**, and create it.
+- Create another bucket named `zobia-private`. Leave **Public bucket** off.
+- Leave anonymous upload/write permissions disabled. The app's server handles authenticated uploads.
 
-## 2. Configure Google sign-in
+**Using another supported database?** You can use Railway or DigitalOcean PostgreSQL instead. Choose `railway` or `digitalocean` for `DATABASE_PROVIDER`, copy that provider's connection URLs, and use `RAILWAY_CA_CERT` or `DO_CA_CERT` for its certificate. You can still use Supabase Storage independently. The schema works in PostgreSQL without Supabase Auth; Supabase grants are applied only when its roles exist.
 
-1. Open **Google Cloud Console → Google Auth Platform**. Configure the consent screen and add your account under **Test users** while the app is in Testing.
-2. Create an OAuth client with application type **Web application**. This same client handles web/PWA and Android's browser-based sign-in.
-3. Add your exact website origin under **Authorized JavaScript origins**, for example `https://zobia.vercel.app`.
-4. Add this exact **Authorized redirect URI**: `https://zobia.vercel.app/api/auth/google/callback`. Replace the domain if using your own domain. Do not register the Android deep link as Google's redirect URI.
-5. Copy the client ID and secret into the Vercel variables below. The callback domain must match `NEXT_PUBLIC_APP_URL` and the domain where you start sign-in.
+## 2. Create Upstash Redis
 
-## 3. Configure Vercel
+- Create an account at [console.upstash.com](https://console.upstash.com).
+- Click **Create Database** under **Redis**. Choose a name, a nearby region, and the Free plan if available for your account.
+- Open the new database and find **REST API** / **REST API credentials**.
+- Copy the **REST URL** and **REST token**. These become `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`.
+- Use the normal REST token, not a read-only token: the app needs to write session and rate-limit data.
 
-1. Import **nero1/zobia**, select branch **main**, and choose **Next.js**.
-2. Set **Root Directory** to `apps/web` and enable access to files outside that directory. Keep the detected install/output settings; the build command is `npm run build`. Select **Node.js 22.x**.
-3. In **Settings → Environment Variables**, add the following for **Production**. Add separate Preview values only if you intend to test preview deployments.
+## 3. Create Ably realtime messaging
 
-| Variable | Value |
+- Create an account at [ably.com](https://ably.com) and open your dashboard.
+- Click **Create app**, enter a name, and open the app.
+- Open **API Keys** and create a server key with **Publish** and **Subscribe** permissions.
+- Copy the complete key as `ABLY_API_KEY`. Keep it private.
+- Both the website and Android use this server key through the backend. Do not put it into Android build settings.
+
+## 4. Choose your website address in Vercel
+
+- Create an account at [vercel.com](https://vercel.com) and connect your GitHub account.
+- Click **Add New → Project**, find `nero1/zobia`, and click **Import**. Grant GitHub repository access if requested.
+- Set the project name. Its default address will usually be `https://PROJECT_NAME.vercel.app`; check the actual address Vercel assigns.
+- Set **Framework Preset** to **Next.js**.
+- Set **Root Directory** to `apps/web`. Enable **Include source files outside of the Root Directory**.
+- Use `main` as the production branch. Select **Node.js 22.x** in the project settings.
+- Keep the detected install/output settings. The **Build Command** field should contain `npm run build`; this is a dashboard field, not something you run locally.
+- Use the assigned address in the next section. For a custom domain, add it in **Settings → Domains** and follow Vercel's DNS instructions first.
+- Complete the environment variables below before expecting a successful deployment. If Vercel makes an initial deployment before you finish, redeploy after setup.
+
+## 5. Set up Google sign-in
+
+- Open [console.cloud.google.com](https://console.cloud.google.com) and sign in.
+- Use the project selector at the top to create or select a Google Cloud project.
+- Open **Google Auth Platform → Branding**. Enter the app name, support email, and developer contact email; save the changes.
+- Open **Audience**. Choose **External** for users outside your organization. While the app is in **Testing**, add your Google account under **Test users**.
+- Open **Clients → Create client**. Choose **Web application**, give it a name, and add your website address under **Authorized JavaScript origins**, for example `https://zobia.vercel.app`.
+- Under **Authorized redirect URIs**, add `https://zobia.vercel.app/api/auth/google/callback`, using your actual domain.
+- Click **Create** and copy the **Client ID** and **Client secret**. These become `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- Use this same Web application client for website/PWA and Android browser sign-in. Google's redirect goes to the website backend; do not enter the Android deep link here.
+- Before opening sign-in to everyone, change the consent screen's publishing status from **Testing** to **In production**. Complete any verification Google requests.
+
+## 6. Add your Vercel environment variables
+
+- In your Vercel project, open **Settings → Environment Variables**. On the initial import screen, use its **Environment Variables** section instead.
+- Add each variable below with its exact name and corresponding value. Select **Production**, then save.
+- Each table row is a separate variable. Preview deployments need their own matching settings only if you intend to use them.
+
+| Variable name | Value to enter |
 |---|---|
 | `DATABASE_PROVIDER` | `supabase` |
-| `DATABASE_URL` | Supabase transaction-pooler PostgreSQL URL |
-| `DIRECT_URL` | Direct PostgreSQL URL, or session pooler when direct IPv6 is unavailable |
-| `DB_CA_CERT` | Complete database PEM certificate, including BEGIN/END lines |
-| `DB_POOL_SIZE` / `DB_DIRECT_POOL_SIZE` | `2` each |
+| `DATABASE_URL` | Transaction-pooler connection string from section 1 |
+| `DIRECT_URL` | Direct or session-pooler connection string from section 1 |
+| `DB_CA_CERT` | Complete certificate text from section 1, including BEGIN/END lines |
+| `DB_POOL_SIZE` | `2` |
+| `DB_DIRECT_POOL_SIZE` | `2` |
 | `REDIS_PROVIDER` | `upstash` |
-| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Upstash REST credentials |
+| `UPSTASH_REDIS_REST_URL` | Upstash REST URL from section 2 |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash REST token from section 2 |
 | `STORAGE_PROVIDER` | `supabase-storage` |
-| `SUPABASE_URL` | `https://YOUR_PROJECT.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key; never a public variable |
+| `SUPABASE_URL` | Supabase Project URL from section 1 |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key from section 1 |
 | `SUPABASE_STORAGE_BUCKET` | `zobia-media` |
 | `SUPABASE_PRIVATE_STORAGE_BUCKET` | `zobia-private` |
-| `REALTIME_PROVIDER` / `NEXT_PUBLIC_REALTIME_PROVIDER` | `ably` for both |
-| `ABLY_API_KEY` | Ably server API key |
-| `NEXT_PUBLIC_APP_URL` | Your final HTTPS website origin, e.g. `https://zobia.vercel.app`; no trailing slash |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Web application OAuth credentials |
-| `JWT_SECRET` / `JWT_REFRESH_SECRET` | Two different, securely generated random secrets, at least 32 characters each |
-| `CRON_SECRET` | Another independent random secret; used by your scheduler |
-| `KYC_ENCRYPTION_KEY_V2` | Another independent random secret, at least 32 characters; keep a secure backup |
+| `REALTIME_PROVIDER` | `ably` |
+| `NEXT_PUBLIC_REALTIME_PROVIDER` | `ably` |
+| `ABLY_API_KEY` | Complete Ably server key from section 3 |
+| `NEXT_PUBLIC_APP_URL` | Your HTTPS website address, e.g. `https://zobia.vercel.app`, without a trailing `/` |
+| `GOOGLE_CLIENT_ID` | Google Client ID from section 5 |
+| `GOOGLE_CLIENT_SECRET` | Google Client secret from section 5 |
+| `JWT_SECRET` | A new random secret of at least 32 characters |
+| `JWT_REFRESH_SECRET` | A different random secret of at least 32 characters |
+| `CRON_SECRET` | Another different random secret of at least 32 characters |
+| `KYC_ENCRYPTION_KEY_V2` | Another different random secret of at least 32 characters |
 
-Use a password manager's generator for the random secrets. Keep existing encryption keys when upgrading an existing deployment; replacing them makes encrypted records unreadable. If existing records use `KYC_ENCRYPTION_KEY_V1`, retain that variable too. Leave `SKIP_ENV_VALIDATION` unset in production.
+- Generate the four random secrets with your password manager's generator; save a secure backup. Do not use the example words above as values.
+- For an existing deployment, retain its secrets and encryption keys. If it already uses `KYC_ENCRYPTION_KEY_V1`, keep that variable too; replacing encryption keys can make saved records unreadable.
+- Paste values without extra quotation marks. For certificates, paste the full multiline text.
+- Leave `SKIP_ENV_VALIDATION` unset. Omit unused optional variables instead of adding empty values from `.env.example`.
+- Only variables beginning with `NEXT_PUBLIC_` are intended for the browser. Never add that prefix to a private key or secret.
 
-Do not copy blank optional URL variables from `.env.example`; omit unused optional variables. Only `NEXT_PUBLIC_*` values are exposed to the browser.
+## 7. Create the database tables
 
-## 4. Install or upgrade the database
+Choose **one** route below. For a new empty Supabase project, route A is the simplest.
 
-**Empty Supabase database:** Open GitHub's `apps/web/db/migrations/0001_consolidated_schema.sql`, copy the complete file into **Supabase → SQL Editor**, and click **Run**. It is one final-state schema with reference/configuration data, RLS and conditional Supabase grants. Do not run the old historical migration files or demo seeds.
+### A. New, empty Supabase database
 
-**Existing database, or migrations through GitHub's website:**
+- On GitHub, open [`apps/web/db/migrations/0001_consolidated_schema.sql`](../apps/web/db/migrations/0001_consolidated_schema.sql) on branch **main**.
+- Click **Raw**, select the complete file, and copy it. Do not copy only the visible preview.
+- In Supabase, open **SQL Editor → New query**.
+- Paste the complete SQL and click **Run**. Wait until it finishes successfully.
+- This creates the final tables, views, reference/configuration data, permissions, and row-level security rules in one migration. Do not run historical migration files or demo seeds afterward.
+- If SQL Editor reports an error, keep the message and resolve it before proceeding. Do not repeatedly rerun the baseline over partially created application tables.
 
-1. Back up the existing database in your database provider's dashboard.
-2. In **GitHub repository → Settings → Secrets and variables → Actions**, add `MIGRATION_DATABASE_URL` using the direct/session-pooler URL and `MIGRATION_DB_CA_CERT` using the PEM certificate.
-3. In **Actions → Database Setup → Run workflow**, select **main** and choose **apply**. If you previously pasted the baseline SQL manually and it has no migration history, choose **adopt** instead.
-4. Wait for a green run. The runner verifies known existing schemas before upgrading; it preserves application data and refuses unknown schema drift. Do not paste the fresh baseline over an existing application schema or bypass a refused upgrade.
+### B. Existing database, or setup through GitHub's website
 
-The baseline is ordinary PostgreSQL; Supabase-only grants are conditional on those roles existing. No Supabase Auth dependency is required.
+- For an existing database, first create a backup using the provider's dashboard and confirm how you would restore it. Backup availability depends on your provider and plan.
+- Open your GitHub repository → **Settings → Secrets and variables → Actions → New repository secret**.
+- Add `MIGRATION_DATABASE_URL` with the direct/session-pooler PostgreSQL URL, including the real database password.
+- Add `MIGRATION_DB_CA_CERT` with the full database CA certificate text. This workflow uses that name for every supported database provider.
+- Open **Actions → Database Setup → Run workflow**.
+- Select branch **main**. Choose **apply** for a new database or a recognized existing installation.
+- Choose **adopt** only if the baseline was previously pasted manually and the database has no migration history. This verifies and registers that schema.
+- Click **Run workflow**. Open the run and wait for a green checkmark; approve the `production` environment if your repository requires it.
+- A refused schema check means the runner did not recognize the database's state. Do not paste the baseline over existing application tables or bypass that check.
 
-## 5. Deploy and create the administrator
+## 8. Deploy the website and create your administrator
 
-1. In Vercel, click **Deploy**, or open **Deployments → Redeploy** after saving environment variables. Check that the deployed commit is the merged PR's commit.
-2. Open `https://YOUR_DOMAIN/api/health` in your browser. It must report healthy database and Redis connections.
-3. Sign in with Google, complete onboarding, and open **Settings → Set Password** to create your account password.
-4. In your database's SQL editor, promote only your own account, replacing the email below:
+- Return to Vercel. Click **Deploy**, or open **Deployments → latest deployment → ⋯ → Redeploy** after saving all variables.
+- Wait until the deployment says **Ready**. If it fails, open its build logs and read the first reported error.
+- Open `https://YOUR_DOMAIN/api/health`, replacing `YOUR_DOMAIN` with your website domain. Confirm the database and Redis checks are healthy.
+- Open your website and sign in with Google. Complete the account onboarding.
+- Open **Settings → Set Password** and create a password for your account.
+- In Supabase **SQL Editor**, or your database provider's query editor, run the following. Replace the sample email with the exact email of the account you just created:
 
-   ```sql
-   UPDATE public.users SET is_admin = true WHERE email = 'you@example.com';
-   ```
+  ```sql
+  UPDATE public.users SET is_admin = true WHERE email = 'you@example.com';
+  ```
 
-5. Open `/gate44/login`, sign in with that email/password, and complete the authenticator setup. Admin actions require this separate assured admin sign-in.
-6. Configure features, payment providers, moderation and limits in the admin panel. Test Google sign-in in a fresh browser session and as an installed PWA.
+- Confirm the query updated your account. If it updated zero rows, check the email before continuing.
+- Open `https://YOUR_DOMAIN/gate44/login`. Sign in with your email/password and complete the authenticator-app setup. Admin actions use this separate admin sign-in.
+- In the admin panel, configure the features, payment providers, moderation, and limits you want to enable.
+- Test Google sign-in in a fresh browser session. For the PWA, install the site using your browser's **Install app** / **Add to Home Screen** option and test sign-in there too.
 
-## 6. Build the Vite/Capacitor Android app
+## 9. Build and download the Android test APK
 
-1. In **GitHub → Settings → Secrets and variables → Actions**, set `VITE_API_BASE_URL` and `VITE_WEB_BASE_URL` to the **same HTTPS website origin** used above. Do not append `/api`. Google secrets and database credentials belong only on the server.
-2. Open **Actions → Android APK Build → Run workflow**, select **main**, and leave **release** unchecked for a test APK.
-3. When it finishes, download the APK from **Artifacts**. The build uses `VITE_WEB_BASE_URL` for its Android App Link hostname.
-4. In that run's **Summary → Android App Links**, copy the SHA-256 fingerprint into Vercel's `ANDROID_APP_LINK_SHA256` variable, then **redeploy the website**. Debug signing certificates can differ between builds; use the fingerprint for the APK you install.
-5. Open `https://YOUR_DOMAIN/.well-known/assetlinks.json` in your browser. It must show `com.zobiasocial.app` and your APK's fingerprint, with no placeholder.
-6. Install the APK, open Android **Settings → Apps → Zobia → Open by default**, and allow supported links. Retry Google sign-in. Google's callback reaches the backend first; the verified `/auth/callback` App Link returns the one-time exchange code to the app.
+- In GitHub, open your repository → **Settings → Secrets and variables → Actions**.
+- Click **New repository secret**. Add `VITE_API_BASE_URL` with your website address, e.g. `https://zobia.vercel.app`.
+- Add another secret named `VITE_WEB_BASE_URL` with the same website address. Do not add `/api` or a trailing `/` to either value.
+- Open **Actions → Android APK Build → Run workflow**.
+- Select branch **main**, leave **release** unchecked, and click **Run workflow**.
+- Open the new run and wait for the build to finish with a green checkmark.
+- Open its **Summary**, scroll to **Artifacts**, and download the `zobia-debug-…` artifact.
+- Extract the downloaded ZIP. The installable file inside is `app-debug.apk`.
+- Keep this run open: you need its signing fingerprint in the next section. Google secrets, database credentials, and the Ably server key stay on Vercel.
 
-For a Play Store release, supply the existing `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` GitHub secrets, then run the workflow with **release** checked. For Play-installed builds, use **Play Console → App integrity → App signing certificate → SHA-256** in `ANDROID_APP_LINK_SHA256`. Multiple installed signing certificates can be listed separated by commas. Add the domain in Vercel before building against a custom domain.
+## 10. Enable Android sign-in links and install the APK
 
-## 7. Connect optional services and background jobs
+- In the successful GitHub run's **Summary**, find **Android App Links** and copy the complete **SHA-256 fingerprint**. This identifies the APK's signing certificate.
+- In Vercel → **Settings → Environment Variables**, add `ANDROID_APP_LINK_SHA256` for **Production** and paste the fingerprint.
+- Redeploy the website so the new value takes effect.
+- Open `https://YOUR_DOMAIN/.well-known/assetlinks.json`. It should show `com.zobiasocial.app` and the fingerprint you entered, with no placeholder.
+- Transfer `app-debug.apk` to your Android phone and open it. If prompted, allow **Install unknown apps** for the browser or file manager you used, then install Zobia.
+- On the phone, open **Settings → Apps → Zobia → Open by default** and enable **Open supported links**. The exact wording varies by Android version.
+- Open Zobia and test Google sign-in. After Google returns to the backend, Android should open the app to complete sign-in.
+- Each debug build can have a different signing certificate. Use the fingerprint from the exact APK you install, and update Vercel/redeploy when it changes.
+- Changing a `VITE_*` value requires a new APK. Changing a Vercel server variable requires a website redeploy.
+
+**Publishing through Google Play:** This requires a release-signing keystore. If you already have one, add `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` as GitHub Actions secrets, then run **Android APK Build** with **release** checked. Download the release AAB artifact and upload it through [Google Play Console](https://play.google.com/console). For Play-installed apps, copy **App integrity → App signing certificate → SHA-256** into Vercel's `ANDROID_APP_LINK_SHA256`, then redeploy. Use the app-signing certificate, not the upload certificate. Separate multiple supported fingerprints with commas. If you do not have a release keystore yet, the debug APK steps above are sufficient for device testing; creating the signing identity is a separate prerequisite for publishing.
+
+## 11. Enable optional features
 
 Set only the variables needed by the features you enable, then redeploy Vercel:
 
@@ -114,5 +193,5 @@ The full optional variable list is in [`apps/web/.env.example`](../apps/web/.env
 
 - **`Invalid IP address: undefined`:** deploy the merged DNS callback fix. This was backend code, shared by web/PWA and Android; changing your Google client secret does not fix it.
 - **`redirect_uri_mismatch`:** compare Google's redirect URI with `NEXT_PUBLIC_APP_URL` plus `/api/auth/google/callback`, including HTTPS and the exact domain.
-- **Android stays in the browser:** check the built domain, installed APK certificate, published `assetlinks.json`, and Android's supported-link setting in step 6.
+- **Android stays in the browser:** check the built domain, installed APK certificate, published `assetlinks.json`, and Android's supported-link setting in step 10.
 - **Works on the old deployment only:** redeploy after changing variables. Android `VITE_*` values require a new APK build; server variables require a Vercel redeploy.
