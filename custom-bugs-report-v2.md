@@ -1,6 +1,6 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 24, 2026 — 11:36:46 PM WAT (Africa/Lagos)
+**Date and time:** October 24, 2026 — 11:59:44 PM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** Deployment checkpoint requested: finish the current batch, merge its PR, then halt. Findings marked ✅ have been fixed and verified; all other findings remain open for a later batch. This report replaces the previous report.
 **Additional review:** 100 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
@@ -114,7 +114,7 @@
 
 98: BUG ZOB-V2-098: ✅ [High] Pinned DNS lookup uses the wrong Node callback shape and breaks Google sign-in
 
-99: BUG ZOB-V2-099: [Medium] Android OAuth App Links use a fixed domain and placeholder certificate
+99: BUG ZOB-V2-099: ✅ [Medium] Android OAuth App Links use a fixed domain and placeholder certificate
 
 100: BUG ZOB-V2-100: ✅ [High] Durable commission-intent insertion targets a partial unique index without its predicate
 
@@ -1456,7 +1456,7 @@
 
 **VALIDATION:** Ten focused tests cover IPv4/IPv6 callback forms, a stable pin, invalid pin rejection and continued blocking of private/metadata destinations.
 
-### 99: BUG ZOB-V2-099: [Medium] Android OAuth App Links use a fixed domain and placeholder certificate
+### 99: BUG ZOB-V2-099: ✅ [Medium] Android OAuth App Links use a fixed domain and placeholder certificate
 
 **PROBLEM:** The native manifest only registers zobia.org while the Vite OAuth callback follows VITE_WEB_BASE_URL. Deployments on zobia.vercel.app or another domain cannot return through that verified App Link. The published assetlinks file also contains a placeholder instead of a real signing fingerprint.
 
@@ -1465,6 +1465,10 @@
 **FIX:** Build the native App Link hostname from the configured HTTPS website origin, publish configured real certificate fingerprints, and expose the test APK fingerprint in the GitHub run summary.
 
 **EVIDENCE:** Confirmed the hardcoded manifest hostname, default Vite website origin and placeholder fingerprint in the shipped association file.
+
+**RESOLUTION:** ✅ The Vite/Capacitor manifest now takes its host from the configured HTTPS website origin. The web association endpoint publishes validated signing fingerprints, and the APK workflow exposes its actual debug signing SHA-256 in the run summary. Deployment still requires the operator to configure that fingerprint and rebuild the APK.
+
+**VALIDATION:** GitHub Android build 40140550797 passed, including APK compilation, Gradle signing fingerprint extraction and artifact upload. Five association helper tests passed; the production endpoint smoke test returned the configured normalized certificate and native package. Physical-device Google sign-in remains a deployment check.
 
 ### 100: BUG ZOB-V2-100: ✅ [High] Durable commission-intent insertion targets a partial unique index without its predicate
 
@@ -1503,10 +1507,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **90/100 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
+Remediation progress: **91/100 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 24, 2026 — 11:36:46 PM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 24, 2026 — 11:59:44 PM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.
