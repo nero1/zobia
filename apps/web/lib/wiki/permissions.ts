@@ -1,3 +1,4 @@
+import {notFound} from "@/lib/api/errors";
 /**
  * lib/wiki/permissions.ts
  *
@@ -117,4 +118,11 @@ export async function canContributeToWiki(wiki: WikiRow, userId: string): Promis
     default:
       return false;
   }
+}
+
+/** Apply the same draft/moderation read boundary to page content and history. */
+export async function requireWikiReadAccess(wiki:WikiRow,userId:string,pageStatus?:string){
+ const canManage=await canManageWiki(wiki,userId);
+ if(!canManage && (!['active','paused'].includes(wiki.status) || (pageStatus!==undefined && pageStatus!=="published" && !await isActiveCollaborator(wiki.id,userId))))throw notFound("Page not found");
+ return canManage;
 }

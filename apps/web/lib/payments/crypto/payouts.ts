@@ -32,13 +32,13 @@ export type CryptoPayoutMode = "crypto" | "credits";
 
 const DEFAULT_THRESHOLDS_USD: Record<CryptoCurrency, number> = { JAGA: 10, BNB: 10, SOL: 10 };
 
-export async function getCryptoPayoutsEnabled(): Promise<boolean> {
-  const raw = await getManifestValue("crypto_payouts_enabled");
+export async function getCryptoPayoutsEnabled(db?:DbOrTx): Promise<boolean> {
+  const raw = await getManifestValue("crypto_payouts_enabled",db);
   return raw === "true" || raw === "1";
 }
 
-export async function getCryptoPayoutMode(): Promise<CryptoPayoutMode> {
-  const raw = await getManifestValue("crypto_payout_mode");
+export async function getCryptoPayoutMode(db?:DbOrTx): Promise<CryptoPayoutMode> {
+  const raw = await getManifestValue("crypto_payout_mode",db);
   return raw === "crypto" ? "crypto" : "credits";
 }
 

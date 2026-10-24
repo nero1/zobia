@@ -1706,6 +1706,7 @@ CREATE TABLE public.creator_payouts (
     crypto_chain text,
     crypto_amount_base_units numeric(40,0),
     crypto_tx_hash text,
+    reservation_version integer DEFAULT 0 NOT NULL CHECK(reservation_version>=0),
     CONSTRAINT creator_payouts_appeal_status_check CHECK ((appeal_status = ANY (ARRAY['pending'::text, 'resolved'::text, 'dismissed'::text]))),
     CONSTRAINT creator_payouts_payout_method_check CHECK ((payout_method = ANY (ARRAY['bank_transfer'::text, 'coins'::text, 'crypto'::text]))),
     CONSTRAINT creator_payouts_region_check CHECK ((region = ANY (ARRAY['nigeria'::text, 'global'::text]))),
@@ -2840,7 +2841,7 @@ CREATE TABLE public.merch_orders (
     updated_at timestamp with time zone DEFAULT now(),
     provider_reference text,
     CONSTRAINT merch_orders_fulfillment_method_check CHECK ((fulfillment_method = ANY (ARRAY['manual'::text, 'partner'::text]))),
-    CONSTRAINT merch_orders_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'shipped'::text, 'in_transit'::text, 'delivered'::text, 'completed'::text, 'refunded'::text]))),
+    CONSTRAINT merch_orders_status_check CHECK ((status = ANY (ARRAY['awaiting_payment'::text, 'pending'::text, 'shipped'::text, 'in_transit'::text, 'delivered'::text, 'completed'::text, 'refunded'::text]))),
     CONSTRAINT merch_orders_pkey PRIMARY KEY (id)
 );
 
@@ -3212,7 +3213,7 @@ CREATE TABLE public.payments (
     wallet_address text,
     expected_token_amount numeric(38,0),
     sender_address text,
-    CONSTRAINT payments_payment_type_check CHECK ((payment_type = ANY (ARRAY['coin_purchase'::text, 'star_purchase'::text, 'subscription'::text, 'season_pass'::text, 'booster_pack'::text, 'room_entry'::text, 'room_subscription'::text, 'business_upgrade'::text]))),
+    CONSTRAINT payments_payment_type_check CHECK ((payment_type = ANY (ARRAY['coin_purchase'::text, 'star_purchase'::text, 'subscription'::text, 'season_pass'::text, 'booster_pack'::text, 'room_entry'::text, 'room_subscription'::text, 'business_upgrade'::text, 'merch_purchase'::text]))),
     CONSTRAINT payments_provider_check CHECK ((provider = ANY (ARRAY['paystack'::text, 'dodopayments'::text, 'google_play'::text, 'crypto'::text, 'free'::text]))),
     CONSTRAINT payments_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'completed'::text, 'failed'::text, 'refunded'::text, 'cancelled'::text, 'underpaid'::text]))),
     CONSTRAINT payments_idempotency_key_key UNIQUE (idempotency_key),
@@ -3614,6 +3615,8 @@ CREATE TABLE public.referrals (
     CONSTRAINT referrals_referrer_id_referred_id_key UNIQUE (referrer_id, referred_id)
 );
 
+CREATE UNIQUE INDEX referrals_one_direct_referrer ON public.referrals (referred_id) WHERE tier=1;
+
 CREATE TABLE public.refunds (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     user_id uuid NOT NULL,
@@ -3973,7 +3976,7 @@ CREATE TABLE public.sponsored_quest_events (
     quest_id uuid NOT NULL,
     user_id uuid,
     event_type text NOT NULL,
-    cost_credits numeric(12,4) DEFAULT 0 NOT NULL,
+    cost_credits numeric(18,6) DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT sponsored_quest_events_type_check CHECK ((event_type = ANY (ARRAY['impression'::text, 'completion'::text]))),
     CONSTRAINT sponsored_quest_events_pkey PRIMARY KEY (id)
@@ -4018,9 +4021,9 @@ CREATE TABLE public.sponsored_quests (
     flagged_by uuid,
     flagged_at timestamp with time zone,
     pricing_model text DEFAULT 'duration'::text NOT NULL,
-    total_budget_credits numeric(14,2) DEFAULT 0 NOT NULL,
-    spent_credits numeric(14,2) DEFAULT 0 NOT NULL,
-    daily_budget_credits numeric(14,2),
+    total_budget_credits numeric(18,6) DEFAULT 0 NOT NULL,
+    spent_credits numeric(18,6) DEFAULT 0 NOT NULL,
+    daily_budget_credits numeric(18,6),
     cpm_credits numeric(12,2) DEFAULT 500 NOT NULL,
     estimated_reach integer,
     impressions_count bigint DEFAULT 0 NOT NULL,
@@ -4626,6 +4629,7 @@ CREATE TABLE public.user_push_tokens (
     updated_at timestamp with time zone DEFAULT now(),
     last_seen_at timestamp with time zone DEFAULT now(),
     device_id character varying(255),
+    ownership_key character varying(64) NOT NULL,
     CONSTRAINT user_push_tokens_pkey PRIMARY KEY (id)
 );
 
@@ -4896,6 +4900,7 @@ CREATE TABLE public.users (
     contact_discovery_enabled boolean DEFAULT false NOT NULL,
     contact_discovery_consented_at timestamp with time zone,
     purged_at timestamp with time zone,
+    session_valid_after timestamp with time zone DEFAULT '1970-01-01 00:00:00+00' NOT NULL,
     CONSTRAINT users_ban_type_check CHECK ((ban_type = ANY (ARRAY['temporary'::text, 'permanent'::text]))),
     CONSTRAINT users_coin_balance_max CHECK ((coin_balance <= '1000000000000'::bigint)),
     CONSTRAINT users_creator_tier_check CHECK ((creator_tier = ANY (ARRAY['rookie'::text, 'rising'::text, 'verified'::text, 'elite'::text, 'icon'::text]))),
@@ -9691,7 +9696,6 @@ CREATE UNIQUE INDEX nemesis_assignments_active_idx ON public.nemesis_assignments
 
 CREATE INDEX new_member_quests_user_id_idx ON public.new_member_quests USING btree (user_id);
 
-CREATE UNIQUE INDEX notifications_type_null_ref_unique ON public.notifications USING btree (user_id, type) WHERE (reference_id IS NULL);
 
 CREATE INDEX object_deletion_due ON public.object_deletion_tasks USING btree (available_at) WHERE (attempts < 10);
 
@@ -10447,6 +10451,30 @@ CREATE POLICY xp_ledger_owner_or_admin ON public.xp_ledger USING (((user_id = (N
 
 CREATE POLICY xp_ledger_select_own ON public.xp_ledger FOR SELECT USING (((user_id)::text = current_setting('app.current_user_id'::text, true)));
 
+
+CREATE TABLE public.transactional_tasks (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ kind text NOT NULL,
+ operation_key text NOT NULL,
+ user_id uuid REFERENCES public.users(id) ON DELETE CASCADE,
+ payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+ status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','processing','completed','dead')),
+ attempts integer NOT NULL DEFAULT 0 CHECK(attempts>=0),
+ available_at timestamptz NOT NULL DEFAULT NOW(),
+ lease_token uuid,
+ lease_until timestamptz,
+ completed_at timestamptz,
+ last_error text,
+ created_at timestamptz NOT NULL DEFAULT NOW(),
+ UNIQUE(kind,operation_key)
+);
+CREATE INDEX transactional_tasks_ready_idx ON public.transactional_tasks(status,available_at);
+ALTER TABLE public.transactional_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.transactional_tasks FORCE ROW LEVEL SECURITY;
+CREATE POLICY transactional_tasks_server ON public.transactional_tasks USING(current_setting('app.is_system',true)='true') WITH CHECK(current_setting('app.is_system',true)='true');
+
+CREATE UNIQUE INDEX user_push_tokens_ownership_key_unique ON public.user_push_tokens(ownership_key);
+CREATE UNIQUE INDEX creator_payouts_crypto_transfer_unique ON public.creator_payouts(crypto_chain,crypto_tx_hash) WHERE crypto_tx_hash IS NOT NULL;
 
 -- Explicit Data API grants; neutralize inherited client/default grants first.
 
@@ -13081,5 +13109,15 @@ BEGIN
  END IF;
 END
 $server_grants$;
+
+-- Private outbox records never belong to the client Data API.
+REVOKE ALL ON public.transactional_tasks FROM PUBLIC;
+DO $task_grants$
+BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='anon') THEN EXECUTE 'REVOKE ALL ON public.transactional_tasks FROM anon'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN EXECUTE 'REVOKE ALL ON public.transactional_tasks FROM authenticated'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='service_role') THEN EXECUTE 'GRANT SELECT,INSERT,UPDATE,DELETE ON public.transactional_tasks TO service_role'; END IF;
+END
+$task_grants$;
 
 COMMIT;

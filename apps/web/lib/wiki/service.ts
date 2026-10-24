@@ -1,3 +1,4 @@
+import {reserveCommunityReward} from "@/lib/tasks/communityReward";
 /**
  * lib/wiki/service.ts
  *
@@ -22,12 +23,10 @@ import { db } from "@/lib/db";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
-import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
-import { creditCoins } from "@/lib/economy/coins";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueWikiPageSlug, recordSlugRedirect } from "@/lib/slug";
 import { insertNotificationBatch, insertNotification } from "@/lib/notifications/insert";
-import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
+import { ApiError, badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { getStaffRoles } from "@/lib/auth/roles";
 import {
@@ -74,34 +73,8 @@ function renderContentHtml(markdown: string, format: WikiContentFormat): string 
 // Rewards — mirrors lib/polls/service.ts's awardCreditsCapped/awardPollRewards.
 // ---------------------------------------------------------------------------
 
-async function awardCreditsCapped(userId: string, amount: number, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
-  if (amount <= 0) return;
-  try {
-    const orm = await getDb();
-    const rows = await orm
-      .select({ earned: sql<string>`COALESCE(SUM(${schema.coinLedger.amount}), 0)::text` })
-      .from(schema.coinLedger)
-      .where(
-        and(
-          eq(schema.coinLedger.userId, userId),
-          sql`${schema.coinLedger.transactionType} LIKE 'wiki_%'`,
-          sql`${schema.coinLedger.amount} > 0`,
-          sql`${schema.coinLedger.createdAt} >= NOW() - INTERVAL '24 hours'`
-        )
-      );
-    const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
-    const headroom = dailyCapCredits - earnedToday;
-    if (headroom <= 0) return;
-    const capped = Math.min(amount, headroom);
-    await creditCoins(userId, capped, "wiki_contribute_reward", referenceId, description);
-  } catch (err) {
-    logger.error({ err, userId, amount }, "[wiki/service] reward credit award failed");
-  }
-}
-
-async function awardWikiRewards(userId: string, xpAmount: number, creditAmount: number, xpSource: string, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
-  if (xpAmount > 0) safeAwardXPFireAndForget(userId, xpAmount, "knowledge", xpSource, referenceId);
-  if (creditAmount > 0) await awardCreditsCapped(userId, creditAmount, referenceId, description, dailyCapCredits);
+async function awardWikiRewards(tx:DbOrTx,userId:string,xpAmount:number,creditAmount:number,xpSource:string,referenceId:string,description:string,dailyCapCredits:number):Promise<void>{
+ await reserveCommunityReward(tx,userId,{family:"wiki",amount:creditAmount,dailyCap:dailyCapCredits,type:"wiki_contribute_reward",xp:xpAmount,track:"knowledge",source:xpSource,referenceId,description});
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +115,7 @@ export async function createWiki(input: CreateWikiInput): Promise<CreateWikiResu
   const slug = await generateUniqueSlug("wiki", input.name, wikiId);
   const policy = input.contributePolicy ?? "everyone";
 
+  const reward=await getWikiCreateReward(),dailyCap=await getWikiDailyRewardCapCredits();
   const orm = await getDb();
   await orm.transaction(async (tx) => {
     await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, input.userId)).for("update");
@@ -165,11 +139,11 @@ export async function createWiki(input: CreateWikiInput): Promise<CreateWikiResu
       role: "owner",
       status: "active",
     });
+    await awardWikiRewards(tx,input.userId,reward.xp,reward.credits,"wiki_created",`wiki_create_reward:${wikiId}`,"Created a wiki",dailyCap);
+
   });
 
-  const reward = await getWikiCreateReward();
-  const dailyCap = await getWikiDailyRewardCapCredits();
-  await awardWikiRewards(input.userId, reward.xp, reward.credits, "wiki_created", `wiki_create_reward:${wikiId}`, "Created a wiki", dailyCap);
+
 
   return { id: wikiId, slug };
 }
@@ -273,6 +247,7 @@ export async function createPage(input: CreatePageInput): Promise<{ id: string; 
   const contentFormat: WikiContentFormat = input.contentFormat === "plaintext" ? "plaintext" : "markdown";
   const contentHtml = renderContentHtml(input.contentMarkdown, contentFormat);
 
+  const reward=await getWikiContributeReward(),dailyCap=await getWikiDailyRewardCapCredits();
   const orm = await getDb();
   let becameContributor = false;
   await orm.transaction(async (tx) => {
@@ -312,6 +287,7 @@ export async function createPage(input: CreatePageInput): Promise<{ id: string; 
       .update(schema.wikiCollaborators)
       .set({ pageEditCount: sql`${schema.wikiCollaborators.pageEditCount} + 1`, updatedAt: sql`NOW()` })
       .where(and(eq(schema.wikiCollaborators.wikiId, input.wikiId), eq(schema.wikiCollaborators.userId, input.authorId)));
+    await awardWikiRewards(tx,input.authorId,reward.xp,reward.credits,"wiki_page_contributed",`wiki_contribute_reward:${pageId}:1`,"Contributed to a wiki page",dailyCap);
   });
 
   if (becameContributor) {
@@ -324,6 +300,7 @@ export async function createPage(input: CreatePageInput): Promise<{ id: string; 
 }
 
 export interface UpdatePageInput {
+  expectedRevision:number;
   title?: string;
   contentMarkdown?: string;
   contentFormat?: WikiContentFormat;
@@ -337,15 +314,19 @@ export async function updatePage(pageId: string, callerId: string, input: Update
 
   await requireContributorAccess(page.wiki_id, callerId);
 
-  const title = input.title?.trim() || page.title;
-  const contentFormat: WikiContentFormat = (input.contentFormat ?? (page.content_format as WikiContentFormat)) === "plaintext" ? "plaintext" : "markdown";
-  const contentMarkdown = input.contentMarkdown ?? page.content_markdown;
-  if (!contentMarkdown.trim()) throw badRequest("Page content cannot be empty.", "WIKI_PAGE_EMPTY_CONTENT");
-  const contentHtml = renderContentHtml(contentMarkdown, contentFormat);
-
+  const reward=await getWikiContributeReward(),dailyCap=await getWikiDailyRewardCapCredits();
   const orm = await getDb();
   let becameContributor = false;
   await orm.transaction(async (tx) => {
+    const [current]=await tx.select().from(schema.wikiPages).where(and(eq(schema.wikiPages.id,pageId),isNull(schema.wikiPages.deletedAt))).for("update");
+    if(!current)throw notFound("Page not found");
+    if(current.revisionCount!==input.expectedRevision)throw conflict("This page changed while you were editing. Reload the current version before saving.","WIKI_REVISION_CONFLICT");
+  const title = input.title?.trim() || current.title;
+  const contentFormat: WikiContentFormat = (input.contentFormat ?? (current.contentFormat as WikiContentFormat)) === "plaintext" ? "plaintext" : "markdown";
+  const contentMarkdown = input.contentMarkdown ?? current.contentMarkdown;
+  if (!contentMarkdown.trim()) throw badRequest("Page content cannot be empty.", "WIKI_PAGE_EMPTY_CONTENT");
+  const contentHtml = renderContentHtml(contentMarkdown, contentFormat);
+
     const nextRevRows = await tx
       .select({ next: sql<number>`COALESCE(MAX(${schema.wikiPageRevisions.revisionNumber}), 0) + 1` })
       .from(schema.wikiPageRevisions)
@@ -385,6 +366,7 @@ export async function updatePage(pageId: string, callerId: string, input: Update
       .update(schema.wikiCollaborators)
       .set({ pageEditCount: sql`${schema.wikiCollaborators.pageEditCount} + 1`, updatedAt: sql`NOW()` })
       .where(and(eq(schema.wikiCollaborators.wikiId, page.wiki_id), eq(schema.wikiCollaborators.userId, callerId)));
+    await awardWikiRewards(tx,callerId,reward.xp,reward.credits,"wiki_page_contributed",`wiki_contribute_reward:${pageId}:${nextRevision}`,"Contributed to a wiki page",dailyCap);
   });
 
   if (becameContributor) {
@@ -397,10 +379,6 @@ export async function updatePage(pageId: string, callerId: string, input: Update
 /** Best-effort XP/Credits + treasury claim after a page create/edit commits. Never blocks or throws into the caller. */
 async function afterContribution(wikiId: string, userId: string, pageId: string): Promise<void> {
   try {
-    const reward = await getWikiContributeReward();
-    const dailyCap = await getWikiDailyRewardCapCredits();
-    await awardWikiRewards(userId, reward.xp, reward.credits, "wiki_page_contributed", `wiki_contribute_reward:${pageId}:${userId}:${Date.now()}`, "Contributed to a wiki page", dailyCap);
-
     const manifest = await loadManifest();
     await claimContentTreasuryReward("wiki", wikiId, userId, "contribute", "wiki_treasury_claim", manifest.features.wikiMonetization).catch((err) => {
       logger.error({ err, wikiId, userId }, "[wiki/service] failed to claim treasury reward for contribution");
@@ -428,7 +406,7 @@ export async function deletePage(pageId: string, callerId: string): Promise<void
   });
 }
 
-export async function restorePageRevision(pageId: string, callerId: string, revisionNumber: number): Promise<void> {
+export async function restorePageRevision(pageId: string, callerId: string, revisionNumber: number,expectedRevision:number): Promise<void> {
   const page = await getWikiPageById(pageId);
   if (!page) throw notFound("Page not found");
   const wiki = await getWikiForPermissionCheck(page.wiki_id);
@@ -446,6 +424,7 @@ export async function restorePageRevision(pageId: string, callerId: string, revi
   if (!revision) throw notFound("Revision not found");
 
   await updatePage(pageId, callerId, {
+    expectedRevision,
     title: revision.title,
     contentMarkdown: revision.contentMarkdown,
     contentFormat: revision.contentFormat as WikiContentFormat,
@@ -613,7 +592,11 @@ export async function acceptInvite(token: string, userId: string): Promise<{ wik
 
   const orm = await getDb();
   await orm.transaction(async (tx) => {
-    await tx.update(schema.wikiInvites).set({ usedAt: sql`NOW()`, usedByUserId: userId }).where(eq(schema.wikiInvites.id, invite.id));
+    const [currentWiki]=await tx.select({id:schema.wikis.id}).from(schema.wikis).where(and(eq(schema.wikis.id,invite.wiki_id),eq(schema.wikis.status,"active"),isNull(schema.wikis.deletedAt))).for("share");
+    if(!currentWiki)throw notFound("Wiki not found");
+
+    const consumed=await tx.update(schema.wikiInvites).set({ usedAt: sql`NOW()`, usedByUserId: userId }).where(and(eq(schema.wikiInvites.id, invite.id),isNull(schema.wikiInvites.usedAt),sql`${schema.wikiInvites.expiresAt}>NOW()`,sql`(${schema.wikiInvites.invitedUserId} IS NULL OR ${schema.wikiInvites.invitedUserId}=${userId})`)).returning({id:schema.wikiInvites.id});
+    if(!consumed.length)throw badRequest("Invite expired, already used, or addressed to another user", "WIKI_INVITE_UNAVAILABLE");
     const inserted = await tx
       .insert(schema.wikiCollaborators)
       .values({ wikiId: invite.wiki_id, userId, role: "contributor", status: "active", invitedBy: invite.created_by })

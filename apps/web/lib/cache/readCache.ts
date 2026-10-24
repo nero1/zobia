@@ -61,10 +61,6 @@ export const READ_CACHE_POLICIES: Readonly<Record<string, ReadCachePolicy>> = {
   },
   // Ad slots: one served ad per placement is reused for a few minutes;
   // impressions are still recorded per render by adEventQueue.
-  "/api/ads/serve": {
-    ttlMs: 5 * MINUTE,
-    query: (p) => p.has("placement") || p.has("placements"),
-  },
 };
 
 /**

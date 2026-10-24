@@ -20,7 +20,7 @@ let connection: Connection | null = null;
 function getConnection(): Connection {
   if (connection) return connection;
   const rpcUrl = process.env.SOLANA_RPC_URL || DEFAULT_SOLANA_RPC;
-  connection = new Connection(rpcUrl, "finalized");
+  connection = new Connection(rpcUrl, {commitment:"finalized",fetch:((input,init)=>fetch(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,AbortSignal.timeout(8000)]):AbortSignal.timeout(8000)})) as typeof fetch});
   return connection;
 }
 
@@ -76,18 +76,20 @@ export const solanaAdapter: ChainAdapter = {
     const status: OnChainTransfer["status"] = tx.meta?.err ? "failed" : "success";
     const blockTime = tx.blockTime ?? null;
 
-    // Find a native SOL transfer instruction targeting `expectedTo`.
-    const accountKeys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toBase58());
-    const toIndex = accountKeys.indexOf(expectedTo);
-    if (toIndex === -1 || !tx.meta) return { ...notFound, status: status === "success" ? "not_found" : status };
-
-    const preBalance = tx.meta.preBalances[toIndex] ?? 0;
-    const postBalance = tx.meta.postBalances[toIndex] ?? 0;
-    const received = BigInt(Math.max(0, postBalance - preBalance));
-    if (received === 0n) return { ...notFound, status: status === "success" ? "not_found" : status };
-
-    // Best-effort sender: the fee payer (index 0) is the transaction's signer.
-    const from = accountKeys[0] ?? "";
+    if (!tx.meta || status !== "success") return {...notFound,status};
+    const signers = new Set(tx.transaction.message.accountKeys.filter(k=>k.signer).map(k=>k.pubkey.toBase58()));
+    const transfers = tx.transaction.message.instructions.flatMap(instruction => {
+      if (!("parsed" in instruction) || instruction.program !== "system" || instruction.parsed?.type !== "transfer") return [];
+      const info = instruction.parsed.info;
+      if (info.destination !== expectedTo) return [];
+      if (!signers.has(info.source) || !Number.isSafeInteger(info.lamports) || info.lamports<=0) throw new Error("Unsupported SOL transfer source or amount");
+      return [{source:info.source as string, amount:BigInt(info.lamports)}];
+    });
+    // A payment has one unambiguous source. CPI transfers and mixed-source
+    // transactions require a separate proof contract and are not accepted.
+    if (!transfers.length || new Set(transfers.map(t=>t.source)).size !== 1) return notFound;
+    const from = transfers[0].source;
+    const received = transfers.reduce((sum,t)=>sum+t.amount,0n);
 
     const confirmations = SOLANA_MIN_CONFIRMATIONS; // getParsedTransaction(finalized) established finality.
 

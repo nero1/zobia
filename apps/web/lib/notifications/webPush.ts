@@ -30,7 +30,7 @@ export function isValidPushSubscription(raw: string): boolean {
   try {
     const sub = JSON.parse(raw); const url = new URL(sub.endpoint);
     const hosts = ["fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com"];
-    return url.protocol === "https:" && !url.port && !url.username && !url.password && hosts.includes(url.hostname) && typeof sub.keys?.auth === "string" && /^[A-Za-z0-9_-]{20,32}$/.test(sub.keys.auth) && typeof sub.keys?.p256dh === "string" && /^[A-Za-z0-9_-]{80,100}$/.test(sub.keys.p256dh);
+    return url.href===sub.endpoint && !url.hash && url.protocol === "https:" && !url.port && !url.username && !url.password && hosts.includes(url.hostname) && typeof sub.keys?.auth === "string" && /^[A-Za-z0-9_-]{20,32}$/.test(sub.keys.auth) && typeof sub.keys?.p256dh === "string" && /^[A-Za-z0-9_-]{80,100}$/.test(sub.keys.p256dh);
   } catch { return false; }
 }
 export type WebPushSendResult = "ok" | "unregistered" | "error";

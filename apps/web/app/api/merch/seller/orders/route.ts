@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, ne, asc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -69,7 +69,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       .from(schema.merchOrders)
       .innerJoin(schema.merchProducts, eq(schema.merchProducts.id, schema.merchOrders.productId))
       .innerJoin(schema.users, eq(schema.users.id, schema.merchOrders.buyerId))
-      .where(eq(schema.merchOrders.creatorId, userId))
+      .where(and(eq(schema.merchOrders.creatorId, userId),ne(schema.merchOrders.status,'awaiting_payment')))
       .orderBy(
         asc(sql`CASE ${schema.merchOrders.status}
            WHEN 'pending'    THEN 0

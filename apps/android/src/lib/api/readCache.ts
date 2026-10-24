@@ -46,10 +46,6 @@ export const READ_CACHE_POLICIES: Readonly<Record<string, ReadCachePolicy>> = {
   '/notices': { ttlMs: 10 * MINUTE },
   '/feed/zobian-of-month': { ttlMs: 60 * MINUTE },
   '/config/rewards-ui': { ttlMs: 60 * MINUTE },
-  '/ads/serve': {
-    ttlMs: 5 * MINUTE,
-    query: (p) => p.has('placement') || p.has('placements'),
-  },
 };
 
 const cache = new Map<string, { response: AxiosResponse; at: number; ttlMs: number }>();
@@ -150,6 +146,10 @@ export function defaultAdapterFor(config: InternalAxiosRequestConfig): AxiosAdap
 /** Drop everything cached (call after writes, token changes and sign-out). */
 export function invalidateReadCache(): void {
   generation += 1;
+  for(const listener of invalidationListeners)listener();
   cache.clear();
   inflight.clear();
 }
+
+const invalidationListeners=new Set<()=>void>();
+export function onReadCacheInvalidate(listener:()=>void){invalidationListeners.add(listener);return ()=>{invalidationListeners.delete(listener);};}

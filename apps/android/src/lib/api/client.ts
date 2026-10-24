@@ -20,7 +20,7 @@ import { App } from '@capacitor/app';
 import { Network } from '@capacitor/network';
 import { focusManager, onlineManager } from '@tanstack/react-query';
 import { env } from '@/lib/env';
-import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
+import { secureGet, secureSet } from '@/lib/auth/secureTokenStore';
 import { reportRequestStart, reportRequestEnd } from '@/lib/loading/requestActivity';
 import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
 import {
@@ -39,6 +39,24 @@ export const JWT_KEY = 'zobia_jwt';
 export const REFRESH_TOKEN_KEY = 'zobia_rt';
 
 let _cachedToken: string | null = null;
+let authGeneration = 0;
+let refreshController: AbortController | null = null;
+let storageMutation: Promise<unknown> = Promise.resolve();
+/** Invalidate outstanding account work synchronously, before storage awaits. */
+export function beginAuthTransition(): number {
+  authGeneration++;
+  refreshController?.abort();
+  refreshPromise = null;
+  return authGeneration;
+}
+export function isAuthGenerationCurrent(generation:number):boolean {return generation === authGeneration;}
+export function getAuthGeneration():number{return authGeneration;}
+/** Prevent an old credential write from completing after a newer login. */
+export function runAuthStorageMutation<T>(fn:()=>Promise<T>):Promise<T> {
+  const task=storageMutation.then(fn,fn);
+  storageMutation=task.catch(()=>{});
+  return task;
+}
 
 type TokenChangeListener = (token: string | null) => void;
 const tokenChangeListeners = new Set<TokenChangeListener>();
@@ -51,8 +69,9 @@ export function onCachedTokenChange(cb: TokenChangeListener): () => void {
   };
 }
 
-export function setCachedToken(t: string | null): void {
+export function setCachedToken(t: string | null, transition=true): void {
   if (t === _cachedToken) return;
+  if(transition)beginAuthTransition();
   invalidateReadCache();
   _cachedToken = t;
   tokenChangeListeners.forEach((cb) => {
@@ -154,10 +173,15 @@ export function resetUnauthenticatedFlag(): void {
 export async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
 
-  refreshPromise = (async () => {
+  const generation=authGeneration;
+  const controller=new AbortController();
+  refreshController=controller;
+  const current=()=>generation===authGeneration && !controller.signal.aborted;
+  let task!: Promise<string|null>;
+  task = (async () => {
     try {
       const refreshToken = await secureGet(REFRESH_TOKEN_KEY);
-      if (!refreshToken) return null;
+      if (!refreshToken || !current()) return null;
 
       const res = await axios.post<{ accessToken: string; refreshToken?: string; expiresIn: number }>(
         `${env.VITE_API_BASE_URL}/api/auth/refresh`,
@@ -168,22 +192,28 @@ export async function refreshAccessToken(): Promise<string | null> {
             'Content-Type': 'application/json',
           },
           timeout: 10_000,
+          signal: controller.signal,
         }
       );
 
-      if (res.status !== 200) return null;
+      if (res.status !== 200 || !current()) return null;
 
       const newToken = res.data.accessToken;
       if (!newToken) return null;
 
-      await secureSet(JWT_KEY, newToken);
-      setCachedToken(newToken);
-      setSessionExpiresAtFromToken(newToken);
-
-      const newRefreshToken = res.data.refreshToken;
-      if (newRefreshToken) {
-        await secureSet(REFRESH_TOKEN_KEY, newRefreshToken);
-      }
+      const applied=await runAuthStorageMutation(async()=>{
+        if(!current() || await secureGet(REFRESH_TOKEN_KEY)!==refreshToken)return false;
+        await secureSet(JWT_KEY,newToken);
+        if(res.data.refreshToken)await secureSet(REFRESH_TOKEN_KEY,res.data.refreshToken);
+        if(!current())return false;
+        // A rotation preserves this generation. Account transitions advance it.
+        invalidateReadCache();
+        _cachedToken=newToken;
+        tokenChangeListeners.forEach(cb=>{try{cb(newToken);}catch{}});
+        setSessionExpiresAtFromToken(newToken);
+        return true;
+      });
+      if(!applied)return null;
 
       // Background user update (non-blocking)
       ;(async () => {
@@ -194,7 +224,7 @@ export async function refreshAccessToken(): Promise<string | null> {
             headers: { Authorization: `Bearer ${newToken}` },
             signal: meController.signal,
           }).finally(() => clearTimeout(meTimeout));
-          if (meRes.ok) {
+          if (meRes.ok && current() && _cachedToken===newToken) {
             const meBody = (await meRes.json()) as Record<string, unknown>;
             const me = (meBody.user ?? meBody.data ?? meBody) as Record<string, unknown>;
             const updatedUser = {
@@ -211,21 +241,27 @@ export async function refreshAccessToken(): Promise<string | null> {
               avatar_url: (me.avatar_url ?? null) as string | null,
             };
             const userJson = JSON.stringify(updatedUser);
-            await Preferences.set({ key: 'zobia_user', value: userJson });
-            notifyUserUpdated(userJson);
+            await runAuthStorageMutation(async()=>{
+              if(!current() || _cachedToken!==newToken)return;
+              await Preferences.set({ key: 'zobia_user', value: userJson });
+              if(current())notifyUserUpdated(userJson);
+            });
           }
         } catch {}
       })();
 
       return newToken;
-    } catch {
-      return null;
+    } catch(error) {
+      if(!current())return null;
+      if(axios.isAxiosError(error) && [401,403].includes(error.response?.status??0))return null;
+      throw error;
     } finally {
-      refreshPromise = null;
+      if(refreshPromise===task)refreshPromise=null;
+      if(refreshController===controller)refreshController=null;
     }
   })();
-
-  return refreshPromise;
+  refreshPromise=task;
+  return task;
 }
 
 // Request/response activity tracking — powers <GlobalLoadingIndicator/> (see
@@ -280,13 +316,17 @@ apiClient.interceptors.response.use(
 // Request interceptor — attach stored JWT as Bearer token.
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    const owned=config as InternalAxiosRequestConfig & {_authGeneration?:number};
+    owned._authGeneration??=authGeneration;
+    if(owned._authGeneration!==authGeneration)throw new axios.CanceledError('Account changed');
     if (_cachedToken) {
       config.headers.Authorization = `Bearer ${_cachedToken}`;
       return config;
     }
     const token = await secureGet(JWT_KEY);
+    if(owned._authGeneration!==authGeneration)throw new axios.CanceledError('Account changed');
     if (token) {
-      setCachedToken(token);
+      setCachedToken(token,false);
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -298,6 +338,7 @@ apiClient.interceptors.request.use(
 // and handle 401 with silent refresh, then sign out.
 apiClient.interceptors.response.use(
   (response) => {
+    if((response.config as InternalAxiosRequestConfig & {_authGeneration?:number})._authGeneration!==authGeneration)throw new axios.CanceledError('Account changed');
     const body = response.data as unknown;
     if (
       body &&
@@ -310,22 +351,19 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error: AxiosError) => {
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean };
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retried?: boolean; _authGeneration?:number };
+    if(!originalRequest || originalRequest._authGeneration!==authGeneration)return Promise.reject(error);
 
     if (error.response?.status === 401 && !originalRequest._retried) {
       originalRequest._retried = true;
 
       const newToken = await refreshAccessToken();
+      if(originalRequest._authGeneration!==authGeneration)return Promise.reject(error);
       if (newToken) {
         originalRequest.headers.Authorization = `Bearer ${newToken}`;
         return apiClient(originalRequest);
       }
 
-      await Promise.all([
-        secureRemove(JWT_KEY),
-        secureRemove(REFRESH_TOKEN_KEY),
-        Preferences.remove({ key: 'zobia_user' }),
-      ]);
       signalUnauthenticated();
     }
 

@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -66,7 +67,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const parsed = UpdateSchema.safeParse(body);
     if (!parsed.success) {
       throw badRequest("Invalid preferences payload");

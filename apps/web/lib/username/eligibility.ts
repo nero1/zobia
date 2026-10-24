@@ -96,9 +96,10 @@ export interface UsernameChangeEligibility {
  */
 export async function checkUsernameChangeEligibility(
   userId: string,
-  client: Queryable = db
+  client: Queryable = db,
+  cachedConfig?: UsernameChangeConfig,
 ): Promise<UsernameChangeEligibility> {
-  const config = await getUsernameChangeConfig();
+  const config = cachedConfig ?? await getUsernameChangeConfig();
   const user = await loadUserRow(userId, client);
 
   if (!user) {

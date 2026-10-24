@@ -807,6 +807,7 @@ export const GET = async (req: NextRequest) => {
     },()=>errors.length===stepErrors);
   } catch (err) {
     logger.warn({ err }, '[daily-platform] Failed to prune stale data export requests');
+    errors.push(`dataExportPrune: ${String(err)}`);
   }
 
   // Prune audit_log / admin_audit_log rows past the retention window (see
@@ -822,6 +823,9 @@ export const GET = async (req: NextRequest) => {
     errors.push(`auditLogPrune: ${String(err)}`);
   }
 
+  try {
+    await lease.runStep("transactionalTasks",async()=>{results.transactionalTasks=await (await import("@/lib/tasks/outbox")).drainTasks();});
+  }catch(error){errors.push(`transactionalTasks: ${String(error)}`);}
   await lease.finish(errors.length===0);
   return NextResponse.json({
     success: errors.length === 0,

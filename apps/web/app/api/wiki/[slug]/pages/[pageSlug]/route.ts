@@ -15,11 +15,12 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getWikiBySlug, getWikiPageBySlug } from "@/lib/wiki/repo";
 import { updatePage, deletePage, recordPageView } from "@/lib/wiki/service";
-import { canManageWiki, canContributeToWiki } from "@/lib/wiki/permissions";
+import { canManageWiki, canContributeToWiki, requireWikiReadAccess } from "@/lib/wiki/permissions";
 import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const updatePageSchema = z.object({
+  expectedRevision:z.number().int().positive(),
   title: z.string().trim().min(1).max(150).optional(),
   contentMarkdown: z.string().trim().min(1).max(50_000).optional(),
   contentFormat: z.enum(["markdown", "plaintext"]).optional(),
@@ -38,6 +39,7 @@ export const GET = withAuth<{ slug: string; pageSlug: string }>(async (_req: Nex
       canManageWiki(wiki, auth.user.sub),
       canContributeToWiki(wiki, auth.user.sub),
     ]);
+    await requireWikiReadAccess(wiki,auth.user.sub,page.status);
 
     recordPageView(page.id).catch(() => {});
 

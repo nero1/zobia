@@ -9,7 +9,10 @@
 
 import { useOfflineSync } from "@/lib/offline/useOfflineSync";
 
+import { useCurrentUserId } from "@/lib/hooks/useCurrentUserId";
+
 export function OfflineSyncProvider() {
-  useOfflineSync();
+  const ownerId=useCurrentUserId();
+  useOfflineSync(ownerId??null);
   return null;
 }

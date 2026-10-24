@@ -8,6 +8,7 @@
  * banned, deactivated, or deleted wikis 404 publicly.
  */
 
+import {publicOwnerVisible} from "./ownerVisibility";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
@@ -66,6 +67,7 @@ async function queryBy(column: "slug" | "id", value: string): Promise<PublicWiki
       and(
         isNull(schema.wikis.deletedAt),
         inArray(schema.wikis.status, ["active", "paused"]),
+        publicOwnerVisible("wikis"),
         column === "slug" ? eq(schema.wikis.slug, value) : eq(schema.wikis.id, value)
       )
     )

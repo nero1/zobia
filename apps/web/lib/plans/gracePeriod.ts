@@ -15,6 +15,7 @@
  */
 
 import { getManifestValue } from "@/lib/manifest";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import { GRACE_FEATURE_KEYS } from "@/lib/plans/graceFeatures";
 
 export type GraceScope = "personal" | "business";
@@ -39,19 +40,19 @@ function manifestKeyPrefix(scope: GraceScope, planKey: string): string {
 }
 
 /** Number of days a lapsed plan/tier stays in grace before data is purged. */
-export async function getGracePeriodDays(scope: GraceScope, planKey: string): Promise<number> {
+export async function getGracePeriodDays(scope: GraceScope, planKey: string, tx?: DbOrTx): Promise<number> {
   const suffix = manifestKeyPrefix(scope, planKey);
-  const raw = await getManifestValue(`grace_period_days_${suffix}`);
+  const raw = await getManifestValue(`grace_period_days_${suffix}`, tx);
   const parsed = raw != null ? parseInt(raw, 10) : NaN;
   if (Number.isFinite(parsed) && parsed >= 0) return parsed;
   return DEFAULT_GRACE_DAYS[suffix] ?? 7;
 }
 
 /** Grace-gated feature keys (from GRACE_FEATURE_REGISTRY) preserved for this plan/tier. */
-export async function getPreservedGraceFeatures(scope: GraceScope, planKey: string): Promise<string[]> {
+export async function getPreservedGraceFeatures(scope: GraceScope, planKey: string, tx?: DbOrTx): Promise<string[]> {
   const suffix = manifestKeyPrefix(scope, planKey);
   try {
-    const raw = await getManifestValue(`grace_period_features_${suffix}`);
+    const raw = await getManifestValue(`grace_period_features_${suffix}`, tx);
     if (!raw) return ["saved_games"];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return ["saved_games"];
@@ -64,8 +65,9 @@ export async function getPreservedGraceFeatures(scope: GraceScope, planKey: stri
 export async function isFeaturePreservedDuringGrace(
   scope: GraceScope,
   planKey: string,
-  featureKey: string
+  featureKey: string,
+  tx?: DbOrTx
 ): Promise<boolean> {
-  const preserved = await getPreservedGraceFeatures(scope, planKey);
+  const preserved = await getPreservedGraceFeatures(scope, planKey, tx);
   return preserved.includes(featureKey);
 }

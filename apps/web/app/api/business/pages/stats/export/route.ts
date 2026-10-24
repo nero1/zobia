@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { escapeDelimitedValue } from "@/lib/export/tabular";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
@@ -19,7 +20,7 @@ import { getBusinessDailyStats } from "@/lib/business/repo";
 
 function toCsv(rows: Awaited<ReturnType<typeof getBusinessDailyStats>>): string {
   const header = "date,page_name,views,post_views,ad_impressions,ad_clicks";
-  const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
+  const escape = (v: string) => escapeDelimitedValue(v, ",");
   const lines = rows.map((r) => [r.date, escape(r.page_name), r.views, r.post_views, r.ad_impressions, r.ad_clicks].join(","));
   return [header, ...lines].join("\n");
 }

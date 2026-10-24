@@ -8,8 +8,13 @@
  * Includes a Dead-Letter Queue tab for permanently-failed payouts (PRD §18).
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import Decimal from "decimal.js";
+import {Button} from "@/components/ui/Button";
+import {Input} from "@/components/ui/Input";
+import {getToken} from "@/lib/payments/crypto/tokens";
+import type {CryptoCurrency} from "@zobia/types";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
@@ -23,6 +28,7 @@ interface Payout {
     username: string;
     email: string | null;
   };
+  cryptoCurrency?:CryptoCurrency|null;cryptoChain?:string|null;cryptoAmountBaseUnits?:string|null;walletAddress?:string|null;
   grossKobo: number;
   netKobo: number;
   platformFeeKobo: number;
@@ -44,7 +50,7 @@ interface DlqItem {
   payout: { grossKobo: number; netKobo: number; method: string; region: string; status: string };
 }
 
-type TabKey = "awaiting_approval" | "approved" | "rejected" | "dlq";
+type TabKey = "awaiting_approval" | "pending" | "processing" | "completed" | "rejected" | "dlq";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,11 +116,13 @@ interface PayoutRowProps {
   showActions: boolean;
   onApprove: (id: string) => Promise<void>;
   onReject: (id: string) => Promise<void>;
+  onComplete:(id:string)=>Promise<void>;
   busy: string | null;
 }
 
-function PayoutRow({ payout, showActions, onApprove, onReject, busy }: PayoutRowProps) {
+function PayoutRow({ payout, showActions, onApprove, onReject, onComplete, busy }: PayoutRowProps) {
   const isBusy = busy === payout.id;
+  const crypto=payout.cryptoCurrency && payout.cryptoAmountBaseUnits ? `${new Decimal(payout.cryptoAmountBaseUnits).div(new Decimal(10).pow(getToken(payout.cryptoCurrency).decimals)).toFixed()} ${payout.cryptoCurrency}` : null;
   const statusBadge = STATUS_BADGE[payout.status] ?? STATUS_BADGE.awaiting_approval;
 
   return (
@@ -130,10 +138,10 @@ function PayoutRow({ payout, showActions, onApprove, onReject, busy }: PayoutRow
         )}
       </td>
       <td className="px-4 py-3 tabular-nums text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-        {koboToNgn(payout.grossKobo)}
+        {crypto??koboToNgn(payout.grossKobo)}
       </td>
       <td className="px-4 py-3 tabular-nums text-sm text-teal-700 dark:text-teal-400">
-        {koboToNgn(payout.netKobo)}
+        {crypto??koboToNgn(payout.netKobo)}
       </td>
       <td className="px-4 py-3 text-sm text-neutral-500">
         {payout.bankAccountLast4 ? (
@@ -173,7 +181,7 @@ function PayoutRow({ payout, showActions, onApprove, onReject, busy }: PayoutRow
               Reject
             </button>
           </div>
-        ) : (
+        ) : payout.status==="processing" ? <Button size="sm" disabled={isBusy} onClick={()=>onComplete(payout.id)}>Confirm settlement</Button> : (
           <span className="text-xs text-neutral-400">—</span>
         )}
       </td>
@@ -273,6 +281,10 @@ export default function AdminPayoutsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [action,setAction]=useState<{kind:"reject"|"complete";payout:Payout}|null>(null);
+  const [actionInput,setActionInput]=useState("");
+  const dialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{if(action && !dialog.current?.open)dialog.current?.showModal();else if(!action)dialog.current?.close();},[action]);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
@@ -369,7 +381,7 @@ export default function AdminPayoutsPage() {
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "awaiting_approval", label: "Awaiting Approval" },
-    { key: "approved", label: "Approved" },
+    {key:"pending",label:"Queued"},{key:"processing",label:"Processing"},{key:"completed",label:"Completed"},
     { key: "rejected", label: "Rejected" },
     { key: "dlq", label: "Dead-Letter Queue" },
   ];
@@ -380,6 +392,23 @@ export default function AdminPayoutsPage() {
         Creator Payouts
       </h1>
 
+      <dialog ref={dialog} aria-labelledby="payout-action-title" onCancel={event=>{event.preventDefault();if(!busy)setAction(null);}} className="w-full max-w-md rounded-xl bg-white p-6 text-neutral-900 shadow-modal backdrop:bg-black/50 dark:bg-neutral-900 dark:text-neutral-100">
+        {action && <form onSubmit={async event=>{
+          event.preventDefault();setBusy(action.payout.id);
+          try{
+            const reject=action.kind==="reject";
+            const response=await fetch(`/api/admin/payouts/${action.payout.id}/${reject?"reject":"status"}`,{method:reject?"POST":"PATCH",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify(reject?{reason:actionInput}:{status:"completed",...(actionInput?{txHash:actionInput}:{})})});
+            const body=await response.json();
+            if(!response.ok)throw new Error(body.error?.message??body.error??"The payout could not be updated");
+            setAction(null);showToast(reject?"Payout rejected and its reserved asset restored":"Settlement confirmed");await fetchPayouts(tab);
+          }catch(error){showToast(error instanceof Error?error.message:"The payout could not be updated","error");}finally{setBusy(null);}
+        }} className="space-y-4">
+          <h2 id="payout-action-title" className="text-lg font-semibold">{action.kind==="reject"?"Reject payout":"Confirm settlement"}</h2>
+          {action.payout.cryptoCurrency && <p className="break-all text-sm">{action.payout.cryptoCurrency} on {action.payout.cryptoChain}: {action.payout.walletAddress??"Wallet address unavailable"}</p>}
+          {action.kind==="reject"?<Input autoFocus label="Reason for rejection" required minLength={5} maxLength={500} value={actionInput} onChange={event=>setActionInput(event.target.value)}/>:action.payout.cryptoAmountBaseUnits?<Input autoFocus label="Transaction hash" required maxLength={100} value={actionInput} onChange={event=>setActionInput(event.target.value)}/>:<p className="text-sm">Confirm that the transfer has settled before completing this payout.</p>}
+          <div className="flex justify-end gap-2"><Button type="button" variant="secondary" disabled={!!busy} onClick={()=>setAction(null)}>Cancel</Button><Button type="submit" isLoading={!!busy}>Confirm</Button></div>
+        </form>}
+      </dialog>
       {/* Toast */}
       {toast && (
         <div
@@ -499,7 +528,8 @@ export default function AdminPayoutsPage() {
                       payout={p}
                       showActions={tab === "awaiting_approval"}
                       onApprove={(id) => handlePayout(id, "approve")}
-                      onReject={(id) => handlePayout(id, "reject")}
+                      onReject={async(id)=>{const payout=payouts.find(row=>row.id===id);if(payout){setActionInput("");setAction({kind:"reject",payout});}}}
+                      onComplete={async(id)=>{const payout=payouts.find(row=>row.id===id);if(payout){setActionInput("");setAction({kind:"complete",payout});}}}
                       busy={busy}
                     />
                   ))

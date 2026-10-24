@@ -27,7 +27,8 @@ export interface BusinessDowngradeSweepResult {
   questsStopped: number;
 }
 
-export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepResult> {
+export async function sweepBusinessDowngrades(options:{accountId?:string;expectedUserId?:string;timeBudgetMs?:number}={}): Promise<BusinessDowngradeSweepResult> {
+  const started=Date.now(),timeBudget=options.timeBudgetMs??20000;
   const result: BusinessDowngradeSweepResult = { accountsDowngraded: 0, pagesDeactivated: 0, blogsDeactivated: 0, questsStopped: 0 };
   const orm = await getDb();
 
@@ -43,15 +44,23 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
     .from(schema.businessAccounts)
     .where(
       and(
+        options.accountId?eq(schema.businessAccounts.id,options.accountId):undefined,
+        options.expectedUserId?eq(schema.businessAccounts.userId,options.expectedUserId):undefined,
         sql`${schema.businessAccounts.downgradeToTier} IS NOT NULL`,
         lte(schema.businessAccounts.downgradeEffectiveAt, sql`NOW()`)
       )
-    );
+    ).orderBy(schema.businessAccounts.id).limit(options.accountId?1:100);
 
   for (const account of due) {
+    if(!options.accountId && Date.now()-started>=timeBudget)break;
+    const before={...result};
     try {
       const newTier = account.downgradeToTier as string;
-      const limit = await getBusinessPageLimit(newTier);
+      const [limit,blogLimit]=await Promise.all([getBusinessPageLimit(newTier),getIncludedBusinessBlogCount(newTier)]);
+      await orm.transaction(async(orm)=>{
+      await orm.select({id:schema.users.id}).from(schema.users).where(eq(schema.users.id,account.userId)).for("update");
+      const [current]=await orm.select().from(schema.businessAccounts).where(eq(schema.businessAccounts.id,account.id)).for("update");
+      if(!current || current.userId!==account.userId || current.downgradeToTier!==newTier || !current.downgradeEffectiveAt || current.downgradeEffectiveAt.getTime()>Date.now())return;
 
       // Deactivate the newest pages beyond the new tier's slot limit — keep
       // the oldest `limit` active pages (first-come, first-kept).
@@ -91,7 +100,7 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
       // are deactivated the same as included ones — the grace-period
       // mechanics don't refund extra-slot purchases, matching how excess
       // business_pages above are handled without a refund either.
-      const blogLimit = await getIncludedBusinessBlogCount(newTier);
+
       const keptBlogIds = orm
         .select({ id: schema.blogs.id })
         .from(schema.blogs)
@@ -147,7 +156,7 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
         .update(schema.businessAccounts)
         .set({
           tier: newTier,
-          accountTypeSlug: account.downgradeAccountTypeSlug ?? `business_${newTier}`,
+          accountTypeSlug: current.downgradeAccountTypeSlug ?? `business_${newTier}`,
           downgradeToTier: null,
           downgradeAccountTypeSlug: null,
           downgradeEffectiveAt: null,
@@ -163,10 +172,13 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
         "Business Account Downgraded",
         `Your business account is now on the ${newTier} tier. Pages and sponsored quests beyond this tier's limits have been deactivated — you can restore them by upgrading again.`,
         { businessAccountId: account.id, tier: newTier }
-      ).catch((err) => logger.error({ err, businessAccountId: account.id }, "[downgradeSweep] failed to notify owner"));
+      );
 
       result.accountsDowngraded++;
+      });
     } catch (err) {
+      Object.assign(result,before);
+      if(options.accountId)throw err;
       logger.error({ err, businessAccountId: account.id }, "[downgradeSweep] failed to apply downgrade");
     }
   }

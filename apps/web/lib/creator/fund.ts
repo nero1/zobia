@@ -51,7 +51,7 @@ interface CreatorMetrics {
   id: string;
   gender: string | null;
   /** XP earned in the last 30 days (proxy for engagement). */
-  xp_earned_30d: number;
+  xp_earned_30d: number | string;
   /** New followers gained in the last 30 days. */
   new_followers_30d: number;
   /** Sponsored + platform quests completed in the last 30 days. */
@@ -68,11 +68,13 @@ interface CreatorMetrics {
  * When all values are equal (max === min), returns uniform weight of 1 so that
  * multiplicative boosts (e.g. IWD female-creator bonus) still take effect.
  */
-function normalise(values: number[]): number[] {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  if (max === min) return values.map(() => 1);
-  return values.map((v) => (v - min) / (max - min));
+function normalise(values: (number|string)[]): number[] {
+  if(!values.length)return [];
+  const decimals=values.map(value=>new Decimal(value));
+  const min=decimals.reduce((a,b)=>Decimal.min(a,b));
+  const max=decimals.reduce((a,b)=>Decimal.max(a,b));
+  if(max.eq(min))return values.map(()=>1);
+  return decimals.map(value=>value.sub(min).div(max.sub(min)).toNumber());
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,8 @@ export async function calculateFundDistributions(
   poolKobo: number,
   dbClient?: DbOrTx
 ): Promise<CreatorFundDistribution[]> {
+  if(!Number.isSafeInteger(poolKobo) || poolKobo<0)throw new Error("Creator Fund pool must be exact nonnegative kobo");
+  if(poolKobo===0)return [];
   const client = dbClient ?? (await getDb());
 
   // Check for an active IWD / female-creator cultural event boost
@@ -114,7 +118,7 @@ export async function calculateFundDistributions(
   const creatorsResult = await client.execute<CreatorMetrics & Record<string, unknown>>(sql`
     WITH eng AS (
        SELECT user_id,
-              COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d
+              COALESCE(SUM(amount), 0)::TEXT              AS xp_earned_30d
        FROM xp_ledger
        WHERE created_at >= NOW() - INTERVAL '30 days'
        GROUP BY user_id
@@ -153,7 +157,7 @@ export async function calculateFundDistributions(
      SELECT
        u.id,
        u.gender,
-       COALESCE(eng.xp_earned_30d, 0)        AS xp_earned_30d,
+       COALESCE(eng.xp_earned_30d, '0')      AS xp_earned_30d,
        COALESCE(grw.new_followers_30d, 0)    AS new_followers_30d,
        COALESCE(qst.quests_completed_30d, 0) AS quests_completed_30d,
        COALESCE(act.active_days_30d, 0)      AS active_days_30d
@@ -165,7 +169,9 @@ export async function calculateFundDistributions(
      WHERE u.is_creator = TRUE
        AND u.creator_tier IN ('elite', 'icon')
        AND u.deleted_at IS NULL
-       AND COALESCE(eng.xp_earned_30d, 0) > 0
+       AND COALESCE(eng.xp_earned_30d::numeric, 0) > 0
+       AND NOT COALESCE(u.is_banned,false)
+       AND NOT (COALESCE(u.is_suspended,false) AND (u.suspended_until IS NULL OR u.suspended_until>NOW()))
      ORDER BY u.id
   `);
   const creators = creatorsResult.rows;
@@ -242,7 +248,7 @@ export async function calculateFundDistributions(
 // distributeCreatorFund
 // ---------------------------------------------------------------------------
 
-export async function distributeCreatorFund(poolKobo: number): Promise<number> {
+export async function distributeCreatorFund(_requestedPoolKobo?: number): Promise<number> {
   // TASK-05: calculateFundDistributions is now called INSIDE the transaction and AFTER
   // the advisory lock is acquired so only one concurrent instance can calculate + distribute.
   // TASK-06: idempotency key uses creatorId (not rank) so re-runs with changed rankings
@@ -258,6 +264,13 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
       sql`SELECT pg_try_advisory_xact_lock(1, hashtext('distributeCreatorFund')) AS acquired`
     );
     if (!lockResult.rows[0]?.acquired) return;
+    const previous=await tx.execute(sql`SELECT 1 FROM creator_earnings WHERE source_type='creator_fund' AND reference_id LIKE ${`fund:${period}:creator:%`} LIMIT 1`);
+    if(previous.rows.length)return;
+    const balance=await tx.execute<{value:string}>(sql`SELECT value FROM x_manifest WHERE key='creator_fund_balance_kobo' FOR UPDATE`);
+    const pool=new Decimal(balance.rows[0]?.value??0);
+    if(!pool.isInteger() || pool.isNegative() || pool.gt(Number.MAX_SAFE_INTEGER))throw new Error('Invalid Creator Fund balance');
+    const poolKobo=pool.toNumber();
+    if(!poolKobo)return;
 
     // Calculate distributions INSIDE the lock so scoring uses a consistent DB snapshot
     // and concurrent instances cannot both complete scoring before either acquires the lock.
@@ -276,7 +289,7 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
            INSERT INTO creator_earnings
              (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
            VALUES (${dist.creatorId}, 'creator_fund', ${dist.amountKobo}, 0, ${dist.amountKobo}, ${ref})
-           ON CONFLICT (reference_id) DO NOTHING
+           ON CONFLICT (creator_id,reference_id) WHERE reference_id IS NOT NULL DO NOTHING
            RETURNING id
          )
          UPDATE users
@@ -286,6 +299,8 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
       `);
     }
     distributed = distributions.length;
+    const paid=distributions.reduce((sum,item)=>sum.add(item.amountKobo),new Decimal(0));
+    await tx.execute(sql`UPDATE x_manifest SET value=(value::numeric-${paid.toFixed(0)}::numeric)::text,updated_at=NOW() WHERE key='creator_fund_balance_kobo'`);
   });
 
   return distributed;

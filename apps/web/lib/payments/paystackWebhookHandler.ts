@@ -14,6 +14,8 @@ import { creditAdWallet } from "@/lib/economy/adWallet";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
+import {getManifestValue} from "@/lib/manifest";
+import {failedCommissions} from "@/lib/db/schema";
 import { loadManifest } from "@/lib/manifest";
 import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 import { logger } from "@/lib/logger";
@@ -52,9 +54,10 @@ export interface PaystackChargeEvent {
       packId: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry" | "classroom_enrolment" | "business_upgrade" | "business_signup" | "business_renewal";
+      itemType: "merch_purchase" | "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry" | "classroom_enrolment" | "business_upgrade" | "business_signup" | "business_renewal";
       /** Set on classroom_enrolment payments (POST /api/classroom/[roomId]/enroll, card). */
       roomId?: string;
+      orderId?:string;
       packName: string;
       businessAccountId?: string;
       newTier?: string;
@@ -189,6 +192,12 @@ export async function processChargeSuccess(
 
     const paymentId = existing[0].id;
     const { userId, coinsGranted, starsGranted, itemType } = metadata;
+
+    if(itemType==='merch_purchase'){
+      if(!metadata.orderId)throw Error('Merch intent is missing its order');
+      await (await import('@/lib/merch/checkout')).fulfillMerchPayment(tx,paymentId,metadata.orderId,userId);
+      return;
+    }
 
     // Admin test payment (POST /api/admin/payments/test) — just confirms the
     // provider integration works end-to-end. Not a real purchase: no coins/
@@ -613,6 +622,12 @@ export async function processChargeSuccess(
       };
     }
 
+    if(referralPayload){
+      const native=!!referralPayload.crypto && ["true","1"].includes((await getManifestValue("crypto_payouts_enabled",tx))??"") && (await getManifestValue("crypto_payout_mode",tx))==="crypto";
+      await tx.execute(sql`UPDATE payments SET metadata=COALESCE(metadata,'{}'::jsonb)||${JSON.stringify({referralSettlement:{native}})}::jsonb WHERE id=${referralPayload.paymentId}`);
+      await tx.insert(failedCommissions).values({paymentId:referralPayload.paymentId,userId:referralPayload.userId,coinAmount:BigInt(referralPayload.coins),amountKobo:BigInt(referralPayload.amountKobo),source:"settled_payment",errorMessage:"Pending referral settlement"}).onConflictDoNothing({target:failedCommissions.paymentId,where:sql`${failedCommissions.paymentId} IS NOT NULL`});
+    }
+
     // Seed the Creator Fund from gross revenue (PRD §14; percent is admin-configurable)
     await contributeToCreatorFund(amount, "coin_purchase", tx);
   });
@@ -638,6 +653,7 @@ export async function processChargeSuccess(
         capturedReferral.amountKobo,
         capturedReferral.crypto
       );
+      await orm.update(failedCommissions).set({resolvedAt:new Date()}).where(eq(failedCommissions.paymentId,capturedReferral.paymentId));
     } catch (err) {
       logger.error({ err, paymentId: capturedReferral.paymentId, userId: capturedReferral.userId }, "[webhook/paystack] Referral commission error — writing to DLQ");
       await recordFailedCommission(

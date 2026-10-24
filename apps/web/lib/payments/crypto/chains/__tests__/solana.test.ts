@@ -1,0 +1,13 @@
+const mockParsedTransaction=jest.fn();
+jest.mock('@solana/web3.js',()=>({Connection:jest.fn().mockImplementation(()=>({getParsedTransaction:mockParsedTransaction})),PublicKey:jest.fn(),LAMPORTS_PER_SOL:1000000000}));
+import {solanaAdapter} from '../solana';
+const key=(name:string,signer=true)=>({pubkey:{toBase58:()=>name},signer});
+const transfer=(source='actual-source',lamports=123)=>({program:'system',parsed:{type:'transfer',info:{source,destination:'recipient',lamports}}});
+function transaction(instructions:unknown[],keys=[key('fee-sponsor'),key('actual-source'),key('recipient',false)]){return {meta:{err:null},blockTime:123,transaction:{message:{accountKeys:keys,instructions}}};}
+beforeEach(()=>mockParsedTransaction.mockReset());
+it('attributes sponsored payments to the signed instruction source rather than the fee payer',async()=>{mockParsedTransaction.mockResolvedValue(transaction([transfer()]));expect(await solanaAdapter.getTransfer('hash','recipient',null)).toMatchObject({from:'actual-source',to:'recipient',valueBaseUnits:123n,status:'success',confirmations:1});expect(mockParsedTransaction).toHaveBeenCalledWith('hash',{commitment:'finalized',maxSupportedTransactionVersion:0});});
+it('sums same-source transfers exactly',async()=>{mockParsedTransaction.mockResolvedValue(transaction([transfer('actual-source',11),transfer('actual-source',12)]));expect((await solanaAdapter.getTransfer('hash','recipient',null)).valueBaseUnits).toBe(23n);});
+it('rejects ambiguous sources',async()=>{mockParsedTransaction.mockResolvedValue(transaction([transfer(),transfer('fee-sponsor')]));expect((await solanaAdapter.getTransfer('hash','recipient',null)).status).toBe('not_found');});
+it('does not infer a transfer from recipient balance deltas alone',async()=>{mockParsedTransaction.mockResolvedValue({...transaction([]),meta:{err:null,preBalances:[1,0],postBalances:[0,1]}});expect((await solanaAdapter.getTransfer('hash','recipient',null)).status).toBe('not_found');});
+it('rejects unsigned sources and unsafe numeric amounts',async()=>{mockParsedTransaction.mockResolvedValue(transaction([transfer('unsigned')]));await expect(solanaAdapter.getTransfer('hash','recipient',null)).rejects.toThrow('Unsupported SOL transfer');mockParsedTransaction.mockResolvedValue(transaction([transfer('actual-source',Number.MAX_SAFE_INTEGER+1)]));await expect(solanaAdapter.getTransfer('hash','recipient',null)).rejects.toThrow('Unsupported SOL transfer');});
+it('rejects failed transactions even with a plausible transfer instruction',async()=>{mockParsedTransaction.mockResolvedValue({...transaction([transfer()]),meta:{err:{InstructionError:[0,'error']}}});expect((await solanaAdapter.getTransfer('hash','recipient',null)).status).toBe('failed');});

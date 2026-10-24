@@ -1,3 +1,4 @@
+import { readBoundedFormData } from "@/lib/security/requestBody";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
@@ -14,7 +15,7 @@ export const POST = withAuth(async (req, { auth }) => {
       (await taleSetting("tales_min_level", 2))
     )
       throw forbidden("Reach the required level to upload a Tales cover.");
-    const form = await req.formData();
+    const form = await readBoundedFormData(req);
     const file = form.get("file");
     if (!(file instanceof File)) throw badRequest("No image provided.");
     return NextResponse.json({

@@ -1,3 +1,4 @@
+import {requireWikiReadAccess} from "@/lib/wiki/permissions";
 export const dynamic = "force-dynamic";
 
 /**
@@ -16,6 +17,7 @@ import { getWikiBySlug, getWikiPageBySlug, listPageRevisions } from "@/lib/wiki/
 import { restorePageRevision } from "@/lib/wiki/service";
 
 const restoreSchema = z.object({
+  expectedRevision:z.number().int().positive(),
   revisionNumber: z.number().int().positive(),
 });
 
@@ -26,8 +28,9 @@ export const GET = withAuth<{ slug: string; pageSlug: string }>(async (_req: Nex
     if (!wiki) throw notFound("Wiki not found");
     const page = await getWikiPageBySlug(wiki.id, params.pageSlug);
     if (!page) throw notFound("Page not found");
+    await requireWikiReadAccess(wiki,auth.user.sub,page.status);
     const revisions = await listPageRevisions(page.id);
-    return NextResponse.json({ success: true, data: { revisions }, error: null });
+    return NextResponse.json({ success: true, data: { revisions,currentRevision:page.revision_count }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -41,7 +44,7 @@ export const POST = withAuth<{ slug: string; pageSlug: string }>(async (req: Nex
     const page = await getWikiPageBySlug(wiki.id, params.pageSlug);
     if (!page) throw notFound("Page not found");
     const body = await validateBody(req, restoreSchema);
-    await restorePageRevision(page.id, auth.user.sub, body.revisionNumber);
+    await restorePageRevision(page.id, auth.user.sub, body.revisionNumber,body.expectedRevision);
     return NextResponse.json({ success: true, data: { restored: true }, error: null });
   } catch (err) {
     return handleApiError(err);

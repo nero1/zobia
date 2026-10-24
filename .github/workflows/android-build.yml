@@ -78,6 +78,20 @@ jobs:
         run: ./gradlew assembleDebug --no-daemon --stacktrace -PversionCode=${{ github.run_number }} -PversionName=1.0.${{ github.run_number }}
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
+          VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
+
+      - name: Show Android App Link fingerprint
+        run: |
+          fingerprint="$(keytool -list -v -keystore "$HOME/.android/debug.keystore" -alias androiddebugkey -storepass android | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p')"
+          test -n "$fingerprint"
+          {
+            echo '### Android App Links'
+            echo 'Copy this public SHA-256 fingerprint into the Vercel ANDROID_APP_LINK_SHA256 environment variable, then redeploy the website:'
+            echo
+            echo "\`$fingerprint\`"
+            echo
+            echo 'This fingerprint belongs to this debug APK. For Play Store installs use the App signing certificate from Play Console > App integrity.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -148,6 +162,7 @@ jobs:
             -PRELEASE_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
+          VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
 
       - name: Remove decoded keystore
         if: always()

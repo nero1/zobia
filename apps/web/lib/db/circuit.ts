@@ -171,14 +171,22 @@ export function wrapPoolWithCircuitBreaker(
       const value = args[0];
       const text =
         typeof value === "string" ? value : (value as { text?: string })?.text;
+      const isBegin=/^\s*begin\b/i.test(text??'');
+      const config=typeof value==='object'&&value!==null?value as {values?:unknown[];name?:string;queryMode?:string}:null;
+      const values=config?.values??(Array.isArray(args[1])?args[1]:[]);
+      // BEGIN has no bound data. The simple-query protocol can establish its
+      // local context in the same round trip, before any application SQL runs.
+      // Keep extended/prepared BEGIN requests on the compatible fallback path.
+      const combine=isBegin&&!values.length&&!config?.name&&config?.queryMode!=='extended'&&typeof args.at(-1)!=='function';
+      const context="SELECT set_config('app.is_system','true',true),set_config('statement_timeout','10000',true),set_config('idle_in_transaction_session_timeout','15000',true)";
+      if(combine)args[0]=typeof value==='string'?`${text};${context}`:{...(value as Record<string,unknown>),text:`${text};${context}`};
       const result = (query as (...args: unknown[]) => Promise<unknown>)(
         ...args,
       );
-      if (/^\s*begin\b/i.test(text ?? "")) {
+      if(combine)return result.then(value=>Array.isArray(value)?value[0]:value);
+      if (isBegin) {
         return result.then(async (value) => {
-          await query(
-            "SELECT set_config('app.is_system','true',true),set_config('statement_timeout','10000',true),set_config('idle_in_transaction_session_timeout','15000',true)",
-          );
+          await query(context);
           return value;
         });
       }

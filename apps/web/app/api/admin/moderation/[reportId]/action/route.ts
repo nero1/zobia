@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 import { removeReportedContent } from "@/lib/moderation/removeReportedContent";
 export const dynamic = 'force-dynamic';
 
@@ -213,7 +214,7 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
 
       const { reportId } = await params;
 
-      const body = await req.json().catch(() => ({}));
+      const body = await readBoundedJson(req).catch(() => ({}));
       const parsed = ActionBodySchema.safeParse(body);
       if (!parsed.success) {
         throw badRequest("Invalid action payload", parsed.error.flatten());

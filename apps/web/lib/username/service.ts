@@ -19,6 +19,7 @@ import { ApiError, badRequest, forbidden, conflict } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { checkUsernameChangeEligibility } from "@/lib/username/eligibility";
 import { checkUsernameAvailability } from "@/lib/username/availability";
+import { bindSql } from "@/lib/db/parameterized";
 
 export type UsernameChangeCurrency = "credits" | "stars";
 
@@ -85,6 +86,16 @@ export async function changeUsername(input: ChangeUsernameInput): Promise<Change
     if (oldUsername === newUsername) {
       throw conflict("That's already your username.", "USERNAME_UNCHANGED");
     }
+    const client = {
+      async query<T = Record<string,unknown>>(text:string, values:unknown[] = []) {
+        const result = await tx.execute<T & Record<string,unknown>>(bindSql(text,values));
+        return {rows: result.rows as T[]};
+      },
+    };
+    const currentEligibility = await checkUsernameChangeEligibility(input.userId,client,config);
+    if (!currentEligibility.eligible) throw forbidden(currentEligibility.reason ?? "Username change unavailable", "USERNAME_CHANGE_NOT_ELIGIBLE", {nextEligibleAt:currentEligibility.nextEligibleAt});
+    const currentAvailability = await checkUsernameAvailability(newUsername,{excludeUserId:input.userId,client});
+    if (!currentAvailability.available) throw conflict(currentAvailability.reason ?? "Username unavailable", "USERNAME_UNAVAILABLE");
 
     // 3. Charge — reuse the existing ledger primitives, never write balance
     // SQL directly.

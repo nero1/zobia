@@ -15,10 +15,10 @@ import { eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
-import { sendPushNotification } from "@/lib/notifications/push";
+import {settleMerchEarnings} from "@/lib/merch/purchase";
+import {insertNotification} from "@/lib/notifications/insert";
 import { getManifestValue } from "@/lib/manifest";
 import { awardMerchPhysicalReferralCommission } from "@/lib/referrals/commissions";
-import { logger } from "@/lib/logger";
 
 export const PATCH = withAuth(
   async (
@@ -31,23 +31,11 @@ export const PATCH = withAuth(
       const orm = await getDb();
 
       await orm.transaction(async (tx) => {
-        const orderRows = await tx
-          .select({
-            id: schema.merchOrders.id,
-            buyerId: schema.merchOrders.buyerId,
-            creatorId: schema.merchOrders.creatorId,
-            status: schema.merchOrders.status,
-            amountKobo: schema.merchOrders.amountKobo,
-            creatorShareKobo: schema.merchOrders.creatorShareKobo,
-            platformFeeKobo: schema.merchOrders.platformFeeKobo,
-            productId: schema.merchOrders.productId,
-          })
-          .from(schema.merchOrders)
-          .where(eq(schema.merchOrders.id, orderId))
-          .for("update");
+        const orderRows = await tx.select().from(schema.merchOrders).where(eq(schema.merchOrders.id,orderId)).for("update");
         const order = orderRows[0];
         if (!order) throw notFound("Order not found");
         if (order.buyerId !== userId) throw forbidden("Only the buyer can confirm receipt");
+        if(order.status==="completed")return;
         if (order.status !== "delivered") {
           throw conflict(`Cannot confirm receipt of an order in status '${order.status}'`);
         }
@@ -64,22 +52,7 @@ export const PATCH = withAuth(
         const creatorId = order.creatorId;
         if (!creatorId) throw notFound("Order has no associated creator");
 
-        // Credit creator earnings (deferred from purchase for physical orders)
-        await tx.insert(schema.creatorEarnings).values({
-          creatorId,
-          sourceType: "merch",
-          grossAmountKobo: amountKobo,
-          platformFeeKobo,
-          netAmountKobo: creatorShareKobo,
-          referenceId: orderId,
-        });
-        await tx
-          .update(schema.users)
-          .set({
-            availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${creatorShareKobo}`,
-            updatedAt: sql`NOW()`,
-          })
-          .where(eq(schema.users.id, creatorId));
+        await settleMerchEarnings(tx,order);
 
         // Physical-item referral commission — deferred to this point (not
         // purchase time) since a physical order can still be refunded or
@@ -93,7 +66,7 @@ export const PATCH = withAuth(
           .where(eq(schema.merchProducts.id, order.productId))
           .limit(1);
         const product = productRows[0];
-        if (product?.referralEnabled && product.referralCommissionPct) {
+        if (amountKobo>0n && product?.referralEnabled && product.referralCommissionPct) {
           const physicalReferralsEnabled = await getManifestValue("market_referral_physical_enabled", tx as never);
           if (physicalReferralsEnabled === "true") {
             await awardMerchPhysicalReferralCommission(
@@ -102,31 +75,12 @@ export const PATCH = withAuth(
               Number(amountKobo),
               parseFloat(product.referralCommissionPct),
               orderId
-            ).catch((err) => {
-              logger.error({ err, orderId }, "[merch] Physical referral commission failed (non-fatal)");
-            });
+            );
           }
         }
 
-        // Notify seller of confirmed receipt
-        void (async () => {
-          try {
-            await orm.insert(schema.notifications).values({
-              userId: creatorId,
-              type: "order_confirmed",
-              title: "Order confirmed by buyer",
-              body: "A buyer has confirmed receipt of their order. Earnings have been credited.",
-              metadata: { orderId },
-              isRead: false,
-            });
-            await sendPushNotification(
-              creatorId,
-              "Order confirmed!",
-              "A buyer confirmed receipt. Your earnings have been credited.",
-              { action: `/creator/orders`, priority: "normal" }
-            );
-          } catch { /* non-fatal */ }
-        })();
+        await insertNotification(tx,creatorId,"order_confirmed","Order confirmed by buyer","A buyer confirmed receipt. Earnings have been credited.",{orderId},orderId);
+
       });
 
       return NextResponse.json({

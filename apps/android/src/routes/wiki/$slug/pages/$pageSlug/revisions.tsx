@@ -25,7 +25,7 @@ function WikiPageRevisionsPage() {
   const revisionsQuery = useQuery({ queryKey: ['wiki', 'revisions', slug, pageSlug], queryFn: () => fetchPageRevisions(slug, pageSlug) });
 
   const restore = useMutation({
-    mutationFn: (revisionNumber: number) => apiClient.post(`/wiki/${slug}/pages/${pageSlug}/revisions`, { revisionNumber }),
+    mutationFn: (revisionNumber: number) => apiClient.post(`/wiki/${slug}/pages/${pageSlug}/revisions`, { revisionNumber,expectedRevision:pageQuery.data?.page.revision_count }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['wiki', 'page', slug, pageSlug] });
       qc.invalidateQueries({ queryKey: ['wiki', 'revisions', slug, pageSlug] });

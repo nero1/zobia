@@ -43,7 +43,8 @@ export interface SubscriptionSweepResult {
   groupChatsDeactivated: number;
 }
 
-export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
+export async function sweepSubscriptions(options:{kind?:"personal"|"business";userId?:string;accountId?:string;expectedUserId?:string;timeBudgetMs?:number}={}): Promise<SubscriptionSweepResult> {
+  const started=Date.now(),timeBudget=options.timeBudgetMs??20000;
   const result: SubscriptionSweepResult = {
     personalLapsedToGrace: 0,
     personalGraceExpired: 0,
@@ -58,9 +59,10 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
 
   // Snapshot only candidates. Recheck expiry under the same user-first locks
   // as activation; renewal must never lose its plan or saves to stale cleanup.
-  const candidates = await orm.select({ userId: schema.subscriptions.userId }).from(schema.subscriptions)
-    .where(sql`(${schema.subscriptions.status} IN ('active','cancelled','trialing') AND ${schema.subscriptions.endsAt} < NOW()) OR (${schema.subscriptions.status} = 'grace' AND ${schema.subscriptions.gracePeriodEndsAt} < NOW())`);
+  const candidates = options.kind==="business"?[]:await orm.select({ userId: schema.subscriptions.userId }).from(schema.subscriptions)
+    .where(and(sql`((${schema.subscriptions.status} IN ('active','cancelled','trialing') AND ${schema.subscriptions.endsAt} < NOW()) OR (${schema.subscriptions.status} = 'grace' AND ${schema.subscriptions.gracePeriodEndsAt} < NOW()))`,options.userId?eq(schema.subscriptions.userId,options.userId):undefined)).orderBy(schema.subscriptions.id).limit(options.userId?1:100);
   for (const candidate of candidates) {
+    if(!options.userId && Date.now()-started>=timeBudget)break;
     const changes = await orm.transaction(async tx => {
       const [user] = await tx.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, candidate.userId)).for("update");
       if (!user) return null;
@@ -68,12 +70,12 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
       if (!sub || !PERSONAL_GRACE_PLANS.includes(sub.plan as typeof PERSONAL_GRACE_PLANS[number])) return null;
       const now = new Date();
       if (["active", "cancelled", "trialing"].includes(sub.status) && sub.endsAt && sub.endsAt < now) {
-        const days = await getGracePeriodDays("personal", sub.plan);
+        const days = await getGracePeriodDays("personal", sub.plan, tx);
         await tx.update(schema.subscriptions).set({ status: "grace", gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`, updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, sub.id));
         const downgraded = user.plan === sub.plan;
         if (downgraded) await tx.update(schema.users).set({ plan: "free", updatedAt: sql`NOW()` }).where(eq(schema.users.id, candidate.userId));
         let purged = 0;
-        if ((downgraded || user.plan === "free") && !await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games")) {
+        if ((downgraded || user.plan === "free") && !await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games", tx)) {
           purged = (await reconcileSavesForUser(candidate.userId, 0, undefined, tx)).length > 0 ? 1 : 0;
         }
         return { grace: 1, lapsed: 0, immediate: purged, after: 0, groups: 0 };
@@ -82,10 +84,10 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
         await tx.update(schema.subscriptions).set({ status: "lapsed", updatedAt: sql`NOW()` }).where(eq(schema.subscriptions.id, sub.id));
         let purged = 0, groups = 0;
         if (user.plan === "free") {
-          if (await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games")) {
-            purged = (await reconcileSavesForUser(candidate.userId, await getSaveSlotLimit("free"), undefined, tx)).length > 0 ? 1 : 0;
+          if (await isFeaturePreservedDuringGrace("personal", sub.plan, "saved_games", tx)) {
+            purged = (await reconcileSavesForUser(candidate.userId, await getSaveSlotLimit("free", tx), undefined, tx)).length > 0 ? 1 : 0;
           }
-          if (!await isFeaturePreservedDuringGrace("personal", sub.plan, "group_chats")) groups = await deactivateGroupsForUser(candidate.userId, tx);
+          if (!await isFeaturePreservedDuringGrace("personal", sub.plan, "group_chats", tx)) groups = await deactivateGroupsForUser(candidate.userId, tx);
         }
         return { grace: 0, lapsed: 1, immediate: 0, after: purged, groups };
       }
@@ -102,23 +104,24 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
 
   // Business expiry uses the directly tracked billing period. Keep destructive
   // cleanup in the account transaction so renewal and expiry cannot interleave.
-  const businessCandidates = await orm.select({ id: schema.businessAccounts.id, userId: schema.businessAccounts.userId }).from(schema.businessAccounts)
-    .where(sql`(${schema.businessAccounts.status} = 'active' AND ${schema.businessAccounts.currentPeriodEndsAt} < NOW()) OR (${schema.businessAccounts.status} = 'grace' AND ${schema.businessAccounts.gracePeriodEndsAt} < NOW())`);
+  const businessCandidates = options.kind==="personal"?[]:await orm.select({ id: schema.businessAccounts.id, userId: schema.businessAccounts.userId }).from(schema.businessAccounts)
+    .where(and(sql`((${schema.businessAccounts.status} = 'active' AND ${schema.businessAccounts.currentPeriodEndsAt} < NOW()) OR (${schema.businessAccounts.status} = 'grace' AND ${schema.businessAccounts.gracePeriodEndsAt} < NOW()))`,options.accountId?eq(schema.businessAccounts.id,options.accountId):undefined,options.expectedUserId?eq(schema.businessAccounts.userId,options.expectedUserId):undefined)).orderBy(schema.businessAccounts.id).limit(options.accountId?1:100);
   for (const candidate of businessCandidates) {
+    if(!options.accountId && Date.now()-started>=timeBudget)break;
     const changes = await orm.transaction(async tx => {
       await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, candidate.userId)).for("update");
       const [account] = await tx.select().from(schema.businessAccounts).where(eq(schema.businessAccounts.id, candidate.id)).for("update");
-      if (!account || !BUSINESS_GRACE_TIERS.includes(account.tier as typeof BUSINESS_GRACE_TIERS[number])) return null;
+      if (!account || account.userId!==candidate.userId || !BUSINESS_GRACE_TIERS.includes(account.tier as typeof BUSINESS_GRACE_TIERS[number])) return null;
       const now = new Date();
       if (account.status === "active" && account.currentPeriodEndsAt && account.currentPeriodEndsAt < now) {
-        const days = await getGracePeriodDays("business", account.tier);
+        const days = await getGracePeriodDays("business", account.tier, tx);
         await tx.update(schema.businessAccounts).set({ status: "grace", gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`, updatedAt: sql`NOW()` }).where(eq(schema.businessAccounts.id, account.id));
         return { grace: 1, lapsed: 0, groups: 0 };
       }
       if (account.status === "grace" && account.gracePeriodEndsAt && account.gracePeriodEndsAt < now) {
         await tx.update(schema.businessAccounts).set({ status: "lapsed", updatedAt: sql`NOW()` }).where(eq(schema.businessAccounts.id, account.id));
         let groups = 0;
-        if (!await isFeaturePreservedDuringGrace("business", account.tier, "group_chats")) groups = await deactivateGroupsForUser(account.userId, tx);
+        if (!await isFeaturePreservedDuringGrace("business", account.tier, "group_chats", tx)) groups = await deactivateGroupsForUser(account.userId, tx);
         const quests = await tx.update(schema.sponsoredQuests).set({ isActive: false, autoPaused: true, pauseReason: "Business subscription lapsed", pausedAt: sql`NOW()`, updatedAt: sql`NOW()` })
           .where(and(eq(schema.sponsoredQuests.businessAccountId, account.id), eq(schema.sponsoredQuests.isActive, true), isNull(schema.sponsoredQuests.deletedAt))).returning({ id: schema.sponsoredQuests.id });
         for (const quest of quests) await syncSponsoredQuestTemplate(tx, quest.id);

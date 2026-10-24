@@ -51,8 +51,8 @@ export async function listSavesForUser(userId: string): Promise<GameSaveRow[]> {
   return result.rows;
 }
 
-export async function getSaveForUser(userId: string, saveId: string): Promise<GameSaveWithState | null> {
-  const db = await getDb();
+export async function getSaveForUser(userId: string, saveId: string, transaction?: DbOrTx): Promise<GameSaveWithState | null> {
+  const db = transaction ?? await getDb();
   const result = await db.execute<GameSaveWithState & Record<string, unknown>>(sql`
     SELECT ${sql.raw(LIST_COLUMNS)}, gs.state
     FROM game_saves gs
@@ -119,9 +119,9 @@ export async function upsertSave(params: SaveGameParams): Promise<GameSaveRow> {
 
   const orm = await getDb();
   return orm.transaction(async (tx) => {
-    // FOR UPDATE can't be applied to an aggregate (COUNT(*)) — lock the
-    // actual rows and count them in application code instead. This also
-    // serializes concurrent creates for the same user against each other.
+    // The user row exists even before their first save, so the quota has a
+    // stable lock shared by concurrent creates and reconciliation.
+    await tx.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
     const existingResult = await tx.execute<{ id: string }>(
       sql`SELECT id FROM game_saves WHERE user_id = ${userId} FOR UPDATE`
     );
@@ -139,7 +139,7 @@ export async function upsertSave(params: SaveGameParams): Promise<GameSaveRow> {
       VALUES (${userId}, ${gameId}, ${label ?? null}, ${stateJson}, ${score})
       RETURNING id
     `);
-    const created = await getSaveForUser(userId, insertResult.rows[0].id);
+    const created = await getSaveForUser(userId, insertResult.rows[0].id, tx);
     if (!created) throw notFound("Save not found.");
     return created;
   });
@@ -168,7 +168,12 @@ export async function reconcileSavesForUser(
   deleteIds?: string[],
   transaction?: DbOrTx
 ): Promise<string[]> {
-  const db = transaction ?? await getDb();
+  if (!transaction) {
+    const orm = await getDb();
+    return orm.transaction(tx => reconcileSavesForUser(userId,limit,deleteIds,tx));
+  }
+  const db = transaction;
+  await db.execute(sql`SELECT id FROM users WHERE id=${userId} FOR UPDATE`);
   if (deleteIds && deleteIds.length > 0) {
     const result = await db.execute<{ id: string }>(
       sql`DELETE FROM game_saves WHERE id = ANY(${sql.param(deleteIds)}::uuid[]) AND user_id = ${userId} RETURNING id`

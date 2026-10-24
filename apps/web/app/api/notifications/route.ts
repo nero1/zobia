@@ -1,3 +1,4 @@
+import {decodePageCursor,encodePageCursor,cursorTime,cursorTimestamp} from "@/lib/api/pageCursor";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -15,7 +16,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { and, desc, eq, lt, count as drizzleCount } from "drizzle-orm";
+import { and, desc, eq, sql, count as drizzleCount } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -30,10 +31,7 @@ import { deriveNotificationActionUrl } from "@/lib/notifications/actionRoute";
 const NOTIFICATION_LIMIT = 50;
 
 const listNotificationsQuerySchema = z.object({
-  limit: z
-    .string()
-    .optional()
-    .transform((v) => (v ? Math.min(Math.max(parseInt(v, 10), 1), NOTIFICATION_LIMIT) : 20)),
+  limit:z.coerce.number().int().min(1).max(NOTIFICATION_LIMIT).default(20),
   after: z.string().optional(),
   type: z.string().max(64).optional(),
   unread: z
@@ -97,12 +95,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       conditions.push(eq(schema.notifications.isRead, false));
     }
     if (after) {
-      conditions.push(lt(schema.notifications.createdAt, new Date(after)));
+      const cur=decodePageCursor(after,`notifications:${userId}:${type??""}:${unread}`,z.tuple([cursorTimestamp,z.string().uuid()]))!;
+      conditions.push(sql`(${schema.notifications.createdAt},${schema.notifications.id})<(${cur[0]}::timestamptz,${cur[1]}::uuid)`);
     }
 
     const [rows, countResult] = await Promise.all([
       db
         .select({
+          cursorCreated:cursorTime(schema.notifications.createdAt),
           id: schema.notifications.id,
           type: schema.notifications.type,
           payload: schema.notifications.payload,
@@ -114,8 +114,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         })
         .from(schema.notifications)
         .where(and(...conditions))
-        .orderBy(desc(schema.notifications.createdAt))
-        .limit(limit),
+        .orderBy(desc(schema.notifications.createdAt),desc(schema.notifications.id))
+        .limit(limit+1),
       db
         .select({ count: drizzleCount() })
         .from(schema.notifications)
@@ -127,7 +127,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         ),
     ]);
 
-    const notifications: Notification[] = rows.map((row) => ({
+    const page=rows.slice(0,limit);
+    const notifications: Notification[] = page.map((row) => ({
       id: row.id,
       type: row.type,
       payload: row.payload as Record<string, unknown> | null,
@@ -143,8 +144,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const unreadCount = countResult[0]?.count ?? 0;
     const nextCursor =
-      notifications.length === limit
-        ? notifications[notifications.length - 1]?.createdAt ?? null
+      rows.length > limit
+        ? encodePageCursor(`notifications:${userId}:${type??""}:${unread}`,[page.at(-1)!.cursorCreated,page.at(-1)!.id])
         : null;
 
     return NextResponse.json({

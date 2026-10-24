@@ -1,3 +1,5 @@
+import {enqueueTask,processTask} from "@/lib/tasks/outbox";
+import {readBoundedBytes} from "@/lib/security/requestBody";
 /**
  * lib/kyc/service.ts
  *
@@ -38,7 +40,7 @@ import { randomUUID } from "crypto";
 import { eq, and, inArray, sql, desc } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
-import { checkAndDebit, creditCoins } from "@/lib/economy/coins";
+import { checkAndDebit } from "@/lib/economy/coins";
 import { insertNotification } from "@/lib/notifications/insert";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
@@ -135,7 +137,7 @@ async function getApprovedTierCount(userId: string, tier: number): Promise<boole
   return !!rows[0];
 }
 
-async function chargeCredits(userId: string, submissionId: string, costCredits: number): Promise<void> {
+async function chargeCredits(userId: string, submissionId: string, costCredits: number, tx:DbOrTx): Promise<void> {
   if (costCredits <= 0) return;
   try {
     const entry = await checkAndDebit(
@@ -144,10 +146,9 @@ async function chargeCredits(userId: string, submissionId: string, costCredits: 
       "kyc_verification_fee",
       submissionId,
       "KYC verification fee",
-      { submissionId }
+      { submissionId },tx
     );
-    const orm = await getDb();
-    await orm
+    await tx
       .update(schema.kycSubmissions)
       .set({ creditLedgerReferenceId: entry.id, updatedAt: sql`NOW()` })
       .where(eq(schema.kycSubmissions.id, submissionId));
@@ -157,13 +158,6 @@ async function chargeCredits(userId: string, submissionId: string, costCredits: 
     }
     throw err;
   }
-}
-
-async function refundCredits(userId: string, submissionId: string, costCredits: number): Promise<void> {
-  if (costCredits <= 0) return;
-  await creditCoins(userId, costCredits, "refund", submissionId, "KYC submission cancelled/rejected — fee refunded").catch((err) => {
-    logger.error({ err: err instanceof Error ? err.name : "Identity processing error", submissionId }, "[kyc] Credit refund failed");
-  });
 }
 
 async function attachDocuments(tx: DbOrTx, submissionId: string, userId: string, documentIds: string[]): Promise<void> {
@@ -257,15 +251,10 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
         submittedAt: sql`NOW()`,
       });
       await attachDocuments(tx, submissionId, userId, input.documentIds);
+      await chargeCredits(userId,submissionId,manifest.kyc.costCredits,tx);
     })
   );
 
-  try {
-    await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
-  } catch (err) {
-    await orm.delete(schema.kycSubmissions).where(eq(schema.kycSubmissions.id, submissionId));
-    throw err;
-  }
 
   try {
     const customer = await createCustomer(user.email, input.firstName, input.lastName);
@@ -287,7 +276,7 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
     await orm
       .update(schema.kycSubmissions)
       .set({ status: "manual_review", paystackVerificationStatus: "failed", aiNotes: "Paystack BVN request failed — routed to manual review.", updatedAt: sql`NOW()` })
-      .where(eq(schema.kycSubmissions.id, submissionId));
+      .where(and(eq(schema.kycSubmissions.id, submissionId),inArray(schema.kycSubmissions.status,["pending","ai_review"])));
   }
 
   await notifyUser(userId, "kyc_submitted", "KYC submitted", "Your Tier 1 verification is under review. This can take a few days.", { submissionId, tier: 1 });
@@ -314,23 +303,19 @@ export async function handleBvnIdentificationResult(params: {
     return;
   }
 
-  await orm
-    .update(schema.kycSubmissions)
-    .set({
-      paystackVerificationStatus: params.success ? "success" : "failed",
-      bvnLast4: params.bvnLast4 ?? sql`${schema.kycSubmissions.bvnLast4}`,
-      updatedAt: sql`NOW()`,
-    })
-    .where(eq(schema.kycSubmissions.id, submission.id));
-
-  if (!params.success) {
-    await rejectSubmission(submission.id, null, params.failureReason ?? "BVN identity validation failed.");
+  if(!params.success){
+    await rejectSubmission(submission.id,null,params.failureReason??"BVN identity validation failed.");
     return;
   }
-
-  // Paystack confirmed the BVN/bank-account owner matches the submitted name.
-  // Layer the AI ID-document cross-check on top before finalizing.
-  await runTier1AiReview(submission.id);
+  let taskId:string|null=null;
+  await orm.transaction(async tx=>{
+    const changed=await tx.update(schema.kycSubmissions).set({
+      paystackVerificationStatus:"success",bvnLast4:params.bvnLast4??sql`${schema.kycSubmissions.bvnLast4}`,
+      status:submission.review_mode==="ai"?"ai_review":"manual_review",updatedAt:sql`NOW()`
+    }).where(and(eq(schema.kycSubmissions.id,submission.id),inArray(schema.kycSubmissions.status,["pending","ai_review"]))).returning({id:schema.kycSubmissions.id});
+    if(changed.length && submission.review_mode==="ai")taskId=await enqueueTask(tx,"kyc_review",submission.id,submission.user_id,{submissionId:submission.id});
+  });
+  if(taskId)await processTask(taskId).catch(()=>{});
 }
 
 // ---------------------------------------------------------------------------
@@ -352,6 +337,7 @@ export async function submitTier1International(userId: string, input: SubmitTier
   const orm = await getDb();
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
+  let reviewTaskId:string|null=null;
   const initialStatus = manifest.kyc.tier1ReviewMode === "ai" ? "ai_review" : "manual_review";
 
   await runInsertOrActiveConflict(1, () =>
@@ -371,23 +357,16 @@ export async function submitTier1International(userId: string, input: SubmitTier
         submittedAt: sql`NOW()`,
       });
       await attachDocuments(tx, submissionId, userId, input.documentIds);
+      await chargeCredits(userId,submissionId,manifest.kyc.costCredits,tx);
+      if(initialStatus==="ai_review")reviewTaskId=await enqueueTask(tx,"kyc_review",submissionId,userId,{submissionId});
     })
   );
 
-  try {
-    await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
-  } catch (err) {
-    await orm.delete(schema.kycSubmissions).where(eq(schema.kycSubmissions.id, submissionId));
-    throw err;
-  }
 
   await notifyUser(userId, "kyc_submitted", "KYC submitted", "Your Tier 1 verification is under review. This can take a few days.", { submissionId, tier: 1 });
 
   if (initialStatus === "ai_review") {
-    // Fire-and-forget — the submitter already got the "under review" notice above.
-    runTier1AiReview(submissionId).catch((err) =>
-      logger.error({ err: err instanceof Error ? err.name : "Identity processing error", submissionId }, "[kyc] AI review failed")
-    );
+    if(reviewTaskId)await processTask(reviewTaskId).catch(()=>{});
   } else {
     await alertAdmins("kyc_submission", `New Tier 1 KYC submission awaiting manual review`, { submissionId, userId });
   }
@@ -402,9 +381,9 @@ export async function submitTier1International(userId: string, input: SubmitTier
 async function fetchDocumentBuffer(storageKey: string): Promise<{ buffer: Buffer; contentType: string } | null> {
   try {
     const url = await storage.getSignedUrl(storageKey, 300);
-    const res = await fetch(url);
+    const res = await fetch(url,{signal:AbortSignal.timeout(8000),redirect:"error"});
     if (!res.ok) return null;
-    const buffer = Buffer.from(await res.arrayBuffer());
+    const buffer = Buffer.from(await readBoundedBytes(res,8*1024*1024));
     return { buffer, contentType: res.headers.get("content-type") ?? "image/jpeg" };
   } catch {
     return null;
@@ -429,7 +408,7 @@ export async function runTier1AiReview(submissionId: string): Promise<void> {
       paystack_verification_status: schema.kycSubmissions.paystackVerificationStatus,
     })
     .from(schema.kycSubmissions)
-    .where(eq(schema.kycSubmissions.id, submissionId));
+    .where(and(eq(schema.kycSubmissions.id,submissionId),eq(schema.kycSubmissions.tier,1),inArray(schema.kycSubmissions.status,["pending","ai_review"])));
   const submission = rows[0];
   if (!submission) return;
 
@@ -484,25 +463,15 @@ async function finalizeAiReview(
 ): Promise<void> {
   const manifest = await loadManifest();
   const orm = await getDb();
-  await orm
-    .update(schema.kycSubmissions)
-    .set({ aiNameMatchScore: String(nameMatchScore), aiDocumentConfidence: String(documentConfidence), aiProvider: "deepseek/gemini", aiNotes: notes, updatedAt: sql`NOW()` })
-    .where(eq(schema.kycSubmissions.id, submissionId));
+  const changed=await orm.update(schema.kycSubmissions).set({aiNameMatchScore:String(nameMatchScore),aiDocumentConfidence:String(documentConfidence),aiProvider:"deepseek/gemini",aiNotes:notes,status:"manual_review",aiEscalated:combinedScore<manifest.kyc.aiEscalateBelowThreshold,updatedAt:sql`NOW()`}).where(and(eq(schema.kycSubmissions.id,submissionId),inArray(schema.kycSubmissions.status,["pending","ai_review"]))).returning({id:schema.kycSubmissions.id});
+  if(!changed.length)return;
 
   if (combinedScore < manifest.kyc.aiEscalateBelowThreshold) {
-    await orm
-      .update(schema.kycSubmissions)
-      .set({ status: "manual_review", aiEscalated: true, updatedAt: sql`NOW()` })
-      .where(eq(schema.kycSubmissions.id, submissionId));
     await notifyUser(userId, "kyc_escalated", "KYC under review", "We need a bit more time to review your verification. This may take a few days.", { submissionId });
     await alertAdmins("kyc_ai_escalation", "AI-reviewed KYC submission escalated to manual review", { submissionId, combinedScore }, 5);
   } else {
     // Mid-confidence band: not confident enough to auto-approve, not low enough to
     // treat as likely-fraudulent — still a human call, but not flagged as an escalation.
-    await orm
-      .update(schema.kycSubmissions)
-      .set({ status: "manual_review", updatedAt: sql`NOW()` })
-      .where(eq(schema.kycSubmissions.id, submissionId));
     await alertAdmins("kyc_submission", "KYC submission awaiting manual review", { submissionId, combinedScore });
   }
 }
@@ -565,7 +534,7 @@ export async function submitTier2(userId: string, input: SubmitTier2Input): Prom
         await orm
           .update(schema.kycSubmissions)
           .set({ livenessStatus: "manual_review", livenessScore: String(score), livenessNotes: analysis.notes, updatedAt: sql`NOW()` })
-          .where(eq(schema.kycSubmissions.id, submissionId));
+          .where(and(eq(schema.kycSubmissions.id, submissionId),inArray(schema.kycSubmissions.status,["pending","ai_review","manual_review"])));
       }
     }
   }
@@ -636,91 +605,56 @@ export async function scheduleTier3PhysicalCheck(
     throw badRequest("This submission has already been finalized.", "KYC_NOT_SCHEDULABLE");
   }
 
-  await orm
+  const updated=await orm
     .update(schema.kycSubmissions)
     .set({ physicalVerificationScheduledAt: scheduledAt ? new Date(scheduledAt) : null, physicalVerificationNotes: notes, updatedAt: sql`NOW()` })
-    .where(eq(schema.kycSubmissions.id, submissionId));
+    .where(and(eq(schema.kycSubmissions.id, submissionId),eq(schema.kycSubmissions.tier,3),inArray(schema.kycSubmissions.status,["pending","ai_review","manual_review"]))).returning({id:schema.kycSubmissions.id});
+  if(!updated.length)throw conflict("This verification has already been decided.","KYC_ALREADY_DECIDED");
 }
 
 // ---------------------------------------------------------------------------
 // Approve / reject (shared by AI finalize + admin review routes)
 // ---------------------------------------------------------------------------
 
-export async function approveSubmission(submissionId: string, reviewedBy: string | null): Promise<void> {
-  const orm = await getDb();
-  const rows = await orm
-    .select({ user_id: schema.kycSubmissions.userId, tier: schema.kycSubmissions.tier })
-    .from(schema.kycSubmissions)
-    .where(eq(schema.kycSubmissions.id, submissionId));
-  const submission = rows[0];
-  if (!submission) throw notFound("KYC submission not found");
-
-  const manifest = await loadManifest();
-
-  await orm.transaction(async (tx) => {
-    await tx
-      .update(schema.kycSubmissions)
-      .set({ status: "approved", reviewedBy, reviewedAt: sql`NOW()`, updatedAt: sql`NOW()` })
-      .where(eq(schema.kycSubmissions.id, submissionId));
-    await tx
-      .update(schema.users)
-      .set({ kycTier: sql`GREATEST(${schema.users.kycTier}, ${submission.tier})`, updatedAt: sql`NOW()` })
-      .where(eq(schema.users.id, submission.user_id));
-    if (submission.tier >= manifest.kyc.badgeMinTier) {
-      await tx.update(schema.users).set({ isVerified: true }).where(eq(schema.users.id, submission.user_id));
+async function decideSubmission(submissionId:string, status:"approved"|"rejected"|"cancelled", reviewedBy:string|null, reason:string|null, ownerId?:string):Promise<void>{
+  const db=await getDb(), manifest=await loadManifest();
+  let refundTaskId:string|null=null;
+  await db.transaction(async tx=>{
+    const [identity]=await tx.select({userId:schema.kycSubmissions.userId}).from(schema.kycSubmissions).where(eq(schema.kycSubmissions.id,submissionId));
+    if(!identity || (ownerId && identity.userId!==ownerId))throw notFound("KYC submission not found");
+    await tx.select({id:schema.users.id}).from(schema.users).where(eq(schema.users.id,identity.userId)).for("update");
+    const [submission]=await tx.select().from(schema.kycSubmissions).where(eq(schema.kycSubmissions.id,submissionId)).for("update");
+    if(!submission)throw notFound("KYC submission not found");
+    if(submission.status===status)return;
+    if(!["pending","ai_review","manual_review"].includes(submission.status)){
+      if(reviewedBy===null && !ownerId)return;
+      throw conflict("This verification has already been decided.","KYC_ALREADY_DECIDED");
     }
+    await tx.update(schema.kycSubmissions).set({status,reviewedBy,reviewedAt:sql`NOW()`,rejectionReason:reason,updatedAt:sql`NOW()`}).where(eq(schema.kycSubmissions.id,submissionId));
+    if(status==="approved"){
+      await tx.update(schema.users).set({kycTier:sql`GREATEST(${schema.users.kycTier},${submission.tier})`,...(submission.tier>=manifest.kyc.badgeMinTier?{isVerified:true}:{}),updatedAt:sql`NOW()`}).where(eq(schema.users.id,submission.userId));
+    }else{
+      const paid=await tx.execute<{amount:string}>(sql`SELECT amount::text FROM coin_ledger WHERE user_id=${submission.userId} AND transaction_type='kyc_verification_fee' AND reference_id=${submissionId} UNION ALL SELECT amount::text FROM coin_ledger_archive WHERE user_id=${submission.userId} AND transaction_type='kyc_verification_fee' AND reference_id=${submissionId}`);
+      // The active and archive ledgers must contain exactly one original debit.
+      if(paid.rows.length>1)throw new Error("Ambiguous KYC fee ledger");
+      if(paid.rows.length){
+        const amount=-Number(paid.rows[0].amount);
+        if(!Number.isSafeInteger(amount)||amount<=0)throw new Error("Invalid KYC fee ledger");
+        refundTaskId=await enqueueTask(tx,"coin_credit",`kyc-refund:${submissionId}`,submission.userId,{amount,transactionType:"refund",referenceId:`kyc-refund:${submissionId}`,description:"KYC verification fee refund"});
+      }
+    }
+    await insertNotification(tx,submission.userId,`kyc_${status}`,`Tier ${submission.tier} verification ${status}`,reason??(status==="approved"?"Your verification was approved.":"Your verification was cancelled."),{submissionId,tier:submission.tier},`kyc:${submissionId}:${status}`);
   });
-
-  await notifyUser(
-    submission.user_id, "kyc_approved", `Tier ${submission.tier} verification approved`,
-    submission.tier >= manifest.kyc.badgeMinTier
-      ? "You're verified! Your blue checkmark is now live on your profile."
-      : "Your verification was approved.",
-    { submissionId, tier: submission.tier }
-  );
+  if(refundTaskId)await processTask(refundTaskId).catch(()=>{});
 }
-
-export async function rejectSubmission(submissionId: string, reviewedBy: string | null, reason: string): Promise<void> {
-  const orm = await getDb();
-  const rows = await orm
-    .select({ user_id: schema.kycSubmissions.userId, tier: schema.kycSubmissions.tier, credits_charged: schema.kycSubmissions.creditsCharged })
-    .from(schema.kycSubmissions)
-    .where(eq(schema.kycSubmissions.id, submissionId));
-  const submission = rows[0];
-  if (!submission) throw notFound("KYC submission not found");
-
-  await orm
-    .update(schema.kycSubmissions)
-    .set({ status: "rejected", reviewedBy, reviewedAt: sql`NOW()`, rejectionReason: reason, updatedAt: sql`NOW()` })
-    .where(eq(schema.kycSubmissions.id, submissionId));
-
-  if (submission.credits_charged > 0) {
-    await refundCredits(submission.user_id, submissionId, submission.credits_charged);
-  }
-
-  await notifyUser(
-    submission.user_id, "kyc_rejected", `Tier ${submission.tier} verification rejected`,
-    reason || "Your verification could not be approved. You may resubmit.",
-    { submissionId, tier: submission.tier, reason }
-  );
+export async function approveSubmission(submissionId:string,reviewedBy:string|null):Promise<void>{
+  await decideSubmission(submissionId,"approved",reviewedBy,null);
 }
-
-export async function cancelSubmission(userId: string, submissionId: string): Promise<void> {
-  const orm = await getDb();
-  const rows = await orm
-    .select({ user_id: schema.kycSubmissions.userId, status: schema.kycSubmissions.status, credits_charged: schema.kycSubmissions.creditsCharged })
-    .from(schema.kycSubmissions)
-    .where(eq(schema.kycSubmissions.id, submissionId));
-  const submission = rows[0];
-  if (!submission || submission.user_id !== userId) throw notFound("KYC submission not found");
-  if (!["pending", "ai_review", "manual_review"].includes(submission.status)) {
-    throw badRequest("This submission can no longer be cancelled.", "KYC_NOT_CANCELLABLE");
-  }
-
-  await orm.update(schema.kycSubmissions).set({ status: "cancelled", updatedAt: sql`NOW()` }).where(eq(schema.kycSubmissions.id, submissionId));
-  if (submission.credits_charged > 0) {
-    await refundCredits(userId, submissionId, submission.credits_charged);
-  }
+export async function rejectSubmission(submissionId:string,reviewedBy:string|null,reason:string):Promise<void>{
+  await decideSubmission(submissionId,"rejected",reviewedBy,reason);
+}
+export async function cancelSubmission(userId:string,submissionId:string):Promise<void>{
+  await decideSubmission(submissionId,"cancelled",null,null,userId);
 }
 
 /** Decrypts an encrypted PII field for display to an authorized admin/mod. */

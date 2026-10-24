@@ -1,3 +1,4 @@
+import {enqueueMaintenanceScan} from "@/lib/tasks/maintenance";
 import {claimCronRun} from '@/lib/cron/lease';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -44,7 +45,7 @@ export const GET = async (req: NextRequest) => {
   // batch step here: lib/creator/fundContribution.ts's contributeToCreatorFund()
   // credits x_manifest.creator_fund_balance_kobo live, per-transaction, from
   // every contributing activity (room subscriptions/entry fees, coin
-  // purchases, branded-room sponsorships, rewarded ads — see that file's doc
+  // purchases and branded-room sponsorships — see that file's doc
   // comment) plus any admin manual top-up
   // (POST /api/admin/creator-fund/topup). The day-1 step this replaced read
   // an `ad_revenue_{year}_{month}_kobo` x_manifest key that nothing in the
@@ -58,10 +59,6 @@ export const GET = async (req: NextRequest) => {
       const poolKobo = parseInt(fundRows[0]?.value ?? "0", 10);
       if (poolKobo > 0) {
         const fundResult = await distributeCreatorFund(poolKobo);
-        await orm.execute(sql`
-          INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', '0')
-          ON CONFLICT (key) DO UPDATE SET value = '0', updated_at = NOW()
-        `);
         results.creatorFundDistribution = { creatorsRewarded: fundResult, poolKobo };
       } else {
         results.creatorFundDistribution = { skipped: true, reason: 'Pool is empty' };
@@ -293,48 +290,8 @@ export const GET = async (req: NextRequest) => {
 
     const qualifyingAction = (await getManifestValue("referral_qualifying_action")) ?? "coin_purchase";
     if (qualifyingAction === "login_streak_7" || qualifyingAction === "both") {
-      const xpBonus = parseInt((await getManifestValue("referral_tier1_xp_bonus")) ?? "500", 10) || 500;
-      const coinBonus = parseInt((await getManifestValue("referral_tier1_coin_bonus")) ?? "100", 10) || 100;
-      const { safeAwardXP: _safeXP } = await import("@/lib/xp/safeAwardXP");
-      const cronDate = nowDate.toISOString().slice(0, 10);
-      let streakQualified = 0;
-
-      // The SELECT ... FOR UPDATE OF r SKIP LOCKED must stay inside a
-      // transaction to hold the row lock, so it (and the matching UPDATE)
-      // run in a Drizzle transaction here. safeAwardXP/creditCoins still take
-      // a raw TransactionClient (not yet migrated to Drizzle), so they are
-      // called standalone below rather than sharing this tx — each manages
-      // its own transaction internally, matching this loop's original
-      // per-referral try/catch (an award failure here was already only
-      // logged, never rolled back against the qualified-flag UPDATE).
-      const streakReferrals = await orm.transaction(async (tx) => {
-        const { rows } = await tx.execute<{ id: string; referrer_id: string; referred_id: string }>(sql`
-          SELECT r.id, r.referrer_id, r.referred_id
-          FROM referrals r JOIN users u ON u.id = r.referred_id
-          WHERE r.qualified = false AND r.tier = 1 AND u.login_streak_days >= 7 AND u.deleted_at IS NULL
-          FOR UPDATE OF r SKIP LOCKED
-        `);
-
-        for (const referral of rows) {
-          await tx.execute(sql`
-            UPDATE referrals SET qualified = true, qualified_at = NOW(), coin_reward = ${coinBonus}, xp_reward = ${xpBonus} WHERE id = ${referral.id}
-          `);
-        }
-        return rows;
-      });
-
-      for (const referral of streakReferrals) {
-        try {
-          await _safeXP(referral.referrer_id, xpBonus, "social", "referral_qualified_streak", `referral_streak_${referral.id}_${cronDate}`);
-          if (coinBonus > 0) {
-            await creditCoins(referral.referrer_id, coinBonus, "referral_bonus", referral.id, "One-time referral bonus (7-day streak)", {});
-          }
-          streakQualified++;
-        } catch (err) {
-          logger.error({ err, referrerId: referral.referrer_id, referralId: referral.id }, "[cron/daily-economy] Referral streak qualification failed");
-        }
-      }
-      results.referralStreakQualifying = { qualified: streakQualified };
+      await enqueueMaintenanceScan("streak_referrals");
+      results.referralStreakQualifying={queued:true};
     }
 
     },()=>errors.length===stepErrors);
@@ -347,8 +304,9 @@ export const GET = async (req: NextRequest) => {
     const stepErrors=errors.length;
     await lease.runStep("subscriptionSweep",async()=>{
 
-    const { sweepSubscriptions } = await import("@/lib/plans/subscriptionSweep");
-    results.subscriptionSweep = await sweepSubscriptions();
+    await enqueueMaintenanceScan("personal_subscriptions");
+    await enqueueMaintenanceScan("business_subscriptions");
+    results.subscriptionSweep={queued:true};
 
     },()=>errors.length===stepErrors);
   } catch (err) {
@@ -360,8 +318,8 @@ export const GET = async (req: NextRequest) => {
     const stepErrors=errors.length;
     await lease.runStep("businessDowngradeSweep",async()=>{
 
-    const { sweepBusinessDowngrades } = await import("@/lib/business/downgradeSweep");
-    results.businessDowngradeSweep = await sweepBusinessDowngrades();
+    await enqueueMaintenanceScan("business_downgrades");
+    results.businessDowngradeSweep={queued:true};
 
     },()=>errors.length===stepErrors);
   } catch (err) {

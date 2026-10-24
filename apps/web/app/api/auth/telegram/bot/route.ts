@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -127,7 +128,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   let update: TelegramUpdate;
   try {
-    update = await req.json();
+    update = await readBoundedJson(req);
   } catch {
     return NextResponse.json({ ok: true }); // Always 200 to Telegram
   }

@@ -13,8 +13,7 @@ import type { Metadata, ResolvingMetadata } from "next";
 import Image from "next/image";
 import { notFound, permanentRedirect } from "next/navigation";
 import { cache } from "react";
-import { getDb, schema } from "@/lib/db/drizzle";
-import { and,eq,isNull } from "drizzle-orm";
+import {resolvePublicProfile} from "@/lib/public/resolveProfile";
 import { serializeJsonLd } from "@/lib/seo/metadata";
 import { resolveOldUsername } from "@/lib/username/availability";
 
@@ -26,29 +25,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 // DB row type
 // ---------------------------------------------------------------------------
 
-interface PublicProfile {
-  id: string;
-  username: string;
-  display_name: string | null;
-  bio: string | null;
-  avatar_url: string | null;
-  is_creator: boolean;
-  created_at: string;
-  xp_total: number;
-}
-
-// ---------------------------------------------------------------------------
-// Data fetching
-// ---------------------------------------------------------------------------
-
-const getPublicProfile = cache(async (username:string):Promise<PublicProfile|null>=>{
-  const db=await getDb();
-  const rows=await db.select({id:schema.users.id,username:schema.users.username,display_name:schema.users.displayName,
-    bio:schema.users.bio,avatar_url:schema.users.avatarUrl,is_creator:schema.users.isCreator,
-    created_at:schema.users.createdAt,xp_total:schema.users.xpTotal}).from(schema.users)
-    .where(and(eq(schema.users.username,username),isNull(schema.users.deletedAt),eq(schema.users.isBanned,false),eq(schema.users.profilePrivate,false))).limit(1);
-  const row=rows[0];return row?{...row,created_at:row.created_at?.toISOString()??"",xp_total:Number(row.xp_total)}:null;
-});
+const getPublicProfile=cache(resolvePublicProfile);
 
 // ---------------------------------------------------------------------------
 // generateMetadata
@@ -88,6 +65,7 @@ export async function generateMetadata(
   const hreflangLanguages = { "x-default": `${APP_URL}/u/${username}` };
 
   return {
+    robots: profile.sitemap_opt_out ? {index:false,follow:true}:undefined,
     title: { absolute: title },
     description,
     openGraph: {

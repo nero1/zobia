@@ -1,3 +1,4 @@
+import {restorePayoutReservation} from "@/lib/payments/payoutAccounting";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -44,7 +45,8 @@ export const POST = withAdminAuth(
 
       const orm = await getDb();
 
-      const [payoutRow] = await orm
+      const payout=await orm.transaction(async(tx)=>{
+      const [payoutRow] = await tx
         .select({
           id: schema.creatorPayouts.id,
           creator_id: schema.creatorPayouts.creatorId,
@@ -53,7 +55,7 @@ export const POST = withAdminAuth(
         })
         .from(schema.creatorPayouts)
         .where(eq(schema.creatorPayouts.id, payoutId))
-        .limit(1);
+        .limit(1).for("update");
 
       if (!payoutRow) {
         throw notFound("Payout not found");
@@ -67,7 +69,7 @@ export const POST = withAdminAuth(
       }
 
       // Atomically: mark rejected and restore earnings
-      await orm.transaction(async (tx) => {
+      {
         await tx
           .update(schema.creatorPayouts)
           .set({
@@ -79,16 +81,12 @@ export const POST = withAdminAuth(
           })
           .where(eq(schema.creatorPayouts.id, payoutId));
 
-        // Restore the gross amount to the creator's available earnings
-        await tx
-          .update(schema.users)
-          .set({
-            availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${grossKobo}`,
-            updatedAt: new Date(),
-          })
-          .where(eq(schema.users.id, payout.creator_id));
+        await restorePayoutReservation(tx,payoutId);
+      }
+      return payout;
       });
 
+      const grossKobo=payout.gross_kobo??BigInt(0);
       // Notify creator
       await orm
         .insert(schema.notifications)

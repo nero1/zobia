@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -32,7 +33,7 @@ export const GET = withAdminAuth(async () => {
 
 export const POST = withAdminAuth(async (req: NextRequest) => {
   try {
-    const body = await req.json();
+    const body = await readBoundedJson(req);
     const parsed = createSchema.safeParse(body);
     if (!parsed.success) throw badRequest("Invalid request body", parsed.error.flatten());
 

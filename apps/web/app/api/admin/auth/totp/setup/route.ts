@@ -77,7 +77,7 @@ async function resolveAdminUserId(req: NextRequest, consume: boolean): Promise<s
 
   const payload = await verifyAccessToken(accessToken);
   const session = await getSessionFresh(payload.sid!);
-  if (!session || session.uid!==payload.sub || !(await getStaffRoles(payload.sub)).isAdmin) throw unauthorized("Admin access required");
+  if (payload.type === "pre_auth" || !session?.adminSession || session.uid!==payload.sub || !(await getStaffRoles(payload.sub)).isAdmin) throw unauthorized("Administrator sign-in required");
 
   if(consume && !(await requirePinVerified(payload.sub,payload.sid!)))throw unauthorized("Verify your PIN before replacing your authenticator");
   return payload.sub as string;

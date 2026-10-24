@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -57,7 +58,7 @@ export const PUT = withAdminAuth(
 
       const { modalId } = params;
 
-      const body = await req.json().catch(() => ({}));
+      const body = await readBoundedJson(req).catch(() => ({}));
       const parsed = UpdateModalSchema.safeParse(body);
       if (!parsed.success) {
         throw badRequest("Invalid update payload", parsed.error.flatten());

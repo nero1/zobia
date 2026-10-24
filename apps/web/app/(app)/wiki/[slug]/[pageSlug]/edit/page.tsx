@@ -27,13 +27,15 @@ function RevisionHistory({ wikiSlug, pageSlug }: { wikiSlug: string; pageSlug: s
   const router = useRouter();
   const [revisions, setRevisions] = useState<Revision[]>([]);
   const [loading, setLoading] = useState(true);
+  const [restoreError,setRestoreError]=useState<string|null>(null);
+  const [currentRevision,setCurrentRevision]=useState<number|null>(null);
   const [restoring, setRestoring] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     fetch(`/api/wiki/${wikiSlug}/pages/${pageSlug}/revisions`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((json) => setRevisions(json?.data?.revisions ?? []))
+      .then((json) => {setRevisions(json?.data?.revisions ?? []);setCurrentRevision(json?.data?.currentRevision??null);})
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [wikiSlug, pageSlug]);
@@ -42,16 +44,18 @@ function RevisionHistory({ wikiSlug, pageSlug }: { wikiSlug: string; pageSlug: s
 
   async function handleRestore(revisionNumber: number) {
     if (!confirm(t("wiki.history.confirmRestore", "Restore this version? It will become the current version of the page."))) return;
-    setRestoring(revisionNumber);
+    setRestoreError(null);setRestoring(revisionNumber);
     try {
-      await fetch(`/api/wiki/${wikiSlug}/pages/${pageSlug}/revisions`, {
+      const response=await fetch(`/api/wiki/${wikiSlug}/pages/${pageSlug}/revisions`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revisionNumber }),
+        body: JSON.stringify({ revisionNumber,expectedRevision:currentRevision }),
       });
+      if(!response.ok){const result=await response.json();setRestoreError(result?.error?.message??"Unable to restore this revision.");return;}
       router.refresh();
       window.location.reload();
+    } catch(error){setRestoreError(error instanceof Error?error.message:"Unable to restore this revision.");
     } finally {
       setRestoring(null);
     }
@@ -60,6 +64,7 @@ function RevisionHistory({ wikiSlug, pageSlug }: { wikiSlug: string; pageSlug: s
   return (
     <div className="mx-auto max-w-3xl px-4 pb-10">
       <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.history.title", "Revision history")}</h2>
+      {restoreError && <p role="alert" className="text-sm text-destructive mb-2">{restoreError}</p>}
       {loading ? (
         <div className="space-y-1.5">{Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-12 rounded-xl bg-neutral-800 animate-pulse" />)}</div>
       ) : revisions.length === 0 ? (
@@ -103,19 +108,23 @@ export default function EditWikiPagePage() {
   const [canContribute, setCanContribute] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
+    let cancelled=false;setInitial(null);setCanContribute(undefined);
     fetch(`/api/wiki/${slug}/pages/${pageSlug}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
+        if(cancelled)return;
         const page = json?.data?.page;
         if (!page) { router.replace(`/wiki/${slug}`); return; }
         setCanContribute(!!json?.data?.canContribute);
         setInitial({
           title: page.title,
+          expectedRevision:page.revision_count,
           contentMarkdown: page.content_markdown,
           contentFormat: page.content_format === "plaintext" ? "plaintext" : "markdown",
         });
       })
-      .catch(() => router.replace(`/wiki/${slug}`));
+      .catch(() => {if(!cancelled)router.replace(`/wiki/${slug}`);});
+    return()=>{cancelled=true;};
   }, [slug, pageSlug, router]);
 
   if (canContribute === undefined || !initial) return null;

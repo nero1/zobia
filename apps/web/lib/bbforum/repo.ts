@@ -1,3 +1,6 @@
+import {z} from "zod";
+import {decodePageCursor,encodePageCursor,cursorTimestamp} from "@/lib/api/pageCursor";
+import {creditCoins} from "@/lib/economy/coins";
 /**
  * lib/bbforum/repo.ts
  *
@@ -202,17 +205,18 @@ export interface ThreadListPage {
 
 export async function listThreadsInBoard(boardId: string, limit = 30, cursor: string | null = null): Promise<ThreadListPage> {
   const orm = await getDb();
-  const cursorClause = cursor ? sql`AND t.last_reply_at < ${cursor}` : sql``;
+  const scope=`board-threads:${boardId}`,cur=decodePageCursor(cursor,scope,z.tuple([z.boolean(),cursorTimestamp,z.string().uuid()]));
+  const cursorClause=cur?sql`AND (t.is_pinned,t.last_reply_at,t.id)<(${cur[0]},${cur[1]}::timestamptz,${cur[2]}::uuid)`:sql``;
   const { rows } = await orm.execute(sql`
-    SELECT t.* FROM bb_threads t
+    SELECT t.*,to_char(t.last_reply_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') cursor_time FROM bb_threads t
     WHERE t.board_id = ${boardId} AND t.deleted_at IS NULL ${cursorClause}
-    ORDER BY t.is_pinned DESC, t.last_reply_at DESC
+    ORDER BY t.is_pinned DESC, t.last_reply_at DESC,t.id DESC
     LIMIT ${limit + 1}
   `);
-  const allRows = rows as unknown as ThreadRow[];
+  const allRows = rows as unknown as (ThreadRow & {cursor_time:string})[];
   const hasMore = allRows.length > limit;
   const threads = hasMore ? allRows.slice(0, limit) : allRows;
-  return { threads, hasMore, nextCursor: hasMore ? threads[threads.length - 1].last_reply_at : null };
+  return { threads, hasMore, nextCursor: hasMore ? encodePageCursor(scope,[threads.at(-1)!.is_pinned,threads.at(-1)!.cursor_time,threads.at(-1)!.id]) : null };
 }
 
 export async function getThreadBySlug(slug: string): Promise<ThreadRow | null> {
@@ -334,9 +338,8 @@ export interface CreateReplyInput {
  * ahead of or behind the reply itself. Returns the pot amount claimed (0 if
  * none) alongside the created post.
  */
-export async function createReply(input: CreateReplyInput): Promise<{ post: PostRow; potClaimedCredits: number }> {
-  const orm = await getDb();
-  return orm.transaction(async (tx) => {
+export async function createReply(input: CreateReplyInput, dbClient?:DbOrTx): Promise<{ post: PostRow; potClaimedCredits: number }> {
+  const run=async (tx:DbOrTx)=>{
     const { rows: threadRows } = await tx.execute(sql`SELECT * FROM bb_threads WHERE id = ${input.threadId} AND deleted_at IS NULL FOR UPDATE`);
     const thread = threadRows[0] as unknown as ThreadRow | undefined;
     if (!thread) throw notFound("Thread not found");
@@ -359,8 +362,10 @@ export async function createReply(input: CreateReplyInput): Promise<{ post: Post
 
     const potClaimedCredits = await tryClaimPot(tx, input.threadId, post.id, input.authorId);
 
+    if(potClaimedCredits>0)await creditCoins(input.authorId,potClaimedCredits,"bbforum_pot_claim",`bbforum_pot_claim:${post.id}`,"Claimed a forum thread reply pot",{},tx);
     return { post, potClaimedCredits };
-  });
+  };
+  return dbClient?run(dbClient):(await getDb()).transaction(run);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +474,7 @@ export async function tryClaimPot(
 ): Promise<number> {
   const { rows: threadRows } = await tx.execute(sql`
     SELECT pot_per_claim_credits, pot_max_claims, pot_claims_count, author_id
-    FROM bb_threads WHERE id = ${threadId} FOR UPDATE
+    FROM bb_threads WHERE id = ${threadId} AND pot_refunded_at IS NULL FOR UPDATE
   `);
   const thread = threadRows[0] as unknown as {
     pot_per_claim_credits: number;

@@ -38,7 +38,7 @@ async function paystackRequest<T>(
     throw new Error("[paystack] PAYSTACK_SECRET_KEY is not configured");
   }
 
-  return paystackBreaker.execute(async () => {
+  return paystackBreaker.execute(async (signal) => {
     const res = await fetch(`${PAYSTACK_BASE}${path}`, {
       method,
       headers: {
@@ -46,11 +46,12 @@ async function paystackRequest<T>(
         "Content-Type": "application/json",
       },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
     });
 
     const json = (await res.json()) as { status: boolean; message: string; data: T };
 
-    if (!json.status) {
+    if (!res.ok || !json.status) {
       throw new Error(`[paystack] API error on ${method} ${path}: ${json.message}`);
     }
 

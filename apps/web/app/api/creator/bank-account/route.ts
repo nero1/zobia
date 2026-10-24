@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -357,7 +358,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const userId = auth.user.sub;
-    const body = await req.json().catch(() => ({})) as { pinOrCode?: string };
+    const body = await readBoundedJson(req).catch(() => ({})) as { pinOrCode?: string };
     const orm = await getDb();
 
     // Auth gate always required for delete

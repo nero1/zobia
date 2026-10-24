@@ -158,6 +158,8 @@ async function findExistingLedgerEntry(
   return archived[0] ? toLedgerEntry(archived[0]) : null;
 }
 
+function ledgerConflict(message:string):Error & {code:string;statusCode:number}{return Object.assign(new Error(message),{code:"IDEMPOTENCY_CONFLICT",statusCode:409});}
+
 // ---------------------------------------------------------------------------
 // Exported operations
 // ---------------------------------------------------------------------------
@@ -188,13 +190,13 @@ export async function creditCoins(
   txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
   const dec = new Decimal(amount);
-  if (!dec.isInteger() || dec.lte(0)) {
+  if (!Number.isSafeInteger(amount) || !dec.isInteger() || dec.lte(0)) {
     throw new Error(`[coins] creditCoins: amount must be a positive integer, got ${amount}`);
   }
 
   const run = async (tx: DbOrTx): Promise<CoinLedgerEntry> => {
     const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
-    if (dup) return dup;
+    if(dup){if(!new Decimal(dup.amount).eq(dec))throw ledgerConflict("This credit operation key was already used for another amount");return dup;}
 
     const balanceBefore = await lockAndGetBalance(userId, tx);
     const balanceAfter = balanceBefore.plus(dec);
@@ -246,13 +248,13 @@ export async function debitCoins(
   txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
   const dec = new Decimal(amount);
-  if (!dec.isInteger() || dec.lte(0)) {
+  if (!Number.isSafeInteger(amount) || !dec.isInteger() || dec.lte(0)) {
     throw new Error(`[coins] debitCoins: amount must be a positive integer, got ${amount}`);
   }
 
   const run = async (tx: DbOrTx): Promise<CoinLedgerEntry> => {
     const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
-    if (dup) return dup;
+    if(dup){if(!new Decimal(dup.amount).eq(dec.negated()))throw ledgerConflict("This debit operation key was already used for another amount");return dup;}
 
     const balanceBefore = await lockAndGetBalance(userId, tx);
 
@@ -392,8 +394,10 @@ export async function transferCoins(
   senderTransactionType: CoinTransactionType = "gift_sent",
   recipientTransactionType: CoinTransactionType = "gift_received"
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
+  if(fromUserId===toUserId)throw new Error("A transfer requires two different accounts");
+  if(!Number.isFinite(feePercent)||feePercent<0||feePercent>=100)throw new Error("Invalid transfer fee");
   const gross = new Decimal(amount);
-  if (!gross.isInteger() || gross.lte(0)) {
+  if (!Number.isSafeInteger(amount) || !gross.isInteger() || gross.lte(0)) {
     throw new Error(`[coins] transferCoins: amount must be a positive integer, got ${amount}`);
   }
   const fee = gross.times(feePercent).dividedBy(100).floor();
@@ -409,6 +413,14 @@ export async function transferCoins(
       : [toUserId, fromUserId];
     await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, firstId)).for("no key update");
     await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, secondId)).for("no key update");
+    const priorDebit=await findExistingLedgerEntry(tx,fromUserId,senderTransactionType,debitRef);
+    if(priorDebit){
+      const metadata=priorDebit.metadata as {toUserId?:string;feePercent?:number}|null;
+      if(!new Decimal(priorDebit.amount).eq(gross.negated()) || metadata?.toUserId!==toUserId || metadata?.feePercent!==feePercent)throw ledgerConflict("This transfer key was already used for a different transfer");
+      const priorCredit=await findExistingLedgerEntry(tx,toUserId,recipientTransactionType,creditRef);
+      if(!priorCredit || !new Decimal(priorCredit.amount).eq(net))throw ledgerConflict("The original transfer needs ledger reconciliation");
+      return {debit:priorDebit,credit:priorCredit,feeCoins:fee.toNumber()};
+    }
     // debitCoins and creditCoins will re-lock their rows (already locked above)
 
     const debit = await debitCoins(

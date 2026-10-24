@@ -61,7 +61,7 @@ vi.spyOn(axios, "post").mockResolvedValue({
 // a real `fetch` — stub it so tests don't attempt a real network call.
 vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("no network in test")));
 
-import { refreshAccessToken } from "../client";
+import { refreshAccessToken, setCachedToken, getCachedToken } from "../client";
 
 describe("refreshAccessToken", () => {
   beforeEach(() => {
@@ -87,5 +87,18 @@ describe("refreshAccessToken", () => {
 
     await refreshAccessToken();
     expect(axios.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("discards a refresh belonging to an account that has signed out or switched", async () => {
+    let resolve!: (value: unknown) => void;
+    const response=new Promise(resolveResponse=>{resolve=resolveResponse;});
+    vi.mocked(axios.post).mockReturnValueOnce(response as ReturnType<typeof axios.post>);
+    setCachedToken("ACCOUNT_A");
+    const pending=refreshAccessToken();
+    await vi.waitFor(()=>expect(axios.post).toHaveBeenCalledTimes(1));
+    setCachedToken("ACCOUNT_B");
+    resolve({status:200,data:{accessToken:"ACCOUNT_A_REFRESHED",refreshToken:"OLD_ACCOUNT_REFRESH"}});
+    expect(await pending).toBeNull();
+    expect(getCachedToken()).toBe("ACCOUNT_B");
   });
 });

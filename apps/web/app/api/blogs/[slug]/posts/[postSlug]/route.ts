@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { paywallPreview } from "@/lib/blogs/preview";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
@@ -36,9 +37,7 @@ const updateSchema = z.object({
 });
 
 function previewHtml(bodyMarkdown: string, wordCount: number, contentFormat: string): { html: string; previewWords: number } {
-  const previewWords = Math.max(100, Math.round(wordCount * 0.2));
-  const words = bodyMarkdown.trim().split(/\s+/);
-  const truncated = words.slice(0, previewWords).join(" ");
+  const {text: truncated, wordCount: previewWords} = paywallPreview(bodyMarkdown);
   const html = contentFormat === "plaintext" ? plainTextToBlogPostHtml(truncated) : sanitizeBlogPostHtml(truncated);
   return { html, previewWords };
 }

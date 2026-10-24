@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -85,7 +86,7 @@ export const PATCH = withAdminAuth<RouteParams>(
     try {
       const { brandedRoomId } = params;
 
-      const body = await req.json().catch(() => ({}));
+      const body = await readBoundedJson(req).catch(() => ({}));
       const parsed = PatchBrandedRoomSchema.safeParse(body);
       if (!parsed.success) {
         throw badRequest("Invalid update payload", parsed.error.flatten());

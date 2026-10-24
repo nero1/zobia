@@ -11,6 +11,7 @@ import { getDb, schema } from "@/lib/db/drizzle";
 import { and, eq, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
+import {publicOwnerVisible} from "./ownerVisibility";
 import { normalizeMenuConfig, type BlogMenuConfig } from "@/lib/blogs/menu";
 
 export interface PublicBlog {
@@ -72,6 +73,7 @@ async function queryBy(column: "slug" | "id", value: string): Promise<PublicBlog
       and(
         isNull(schema.blogs.deletedAt),
         eq(schema.blogs.status, "active"),
+        publicOwnerVisible("blogs"),
         column === "slug" ? eq(schema.blogs.slug, value) : eq(schema.blogs.id, value)
       )
     )

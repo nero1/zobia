@@ -86,6 +86,7 @@ const envSchema = z.object({
   // Optional — Google OAuth login is only enabled when both are set.
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_CLIENT_SECRET: z.string().optional(),
+  ANDROID_APP_LINK_SHA256:z.string().optional(),
 
   // ---- Telegram -----------------------------------------------------------
   // Optional — Telegram login is only enabled when set.

@@ -11,7 +11,7 @@
  * - Coin transfer panel (opened via ?transfer=<userId>)
  */
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
@@ -552,12 +552,13 @@ interface TransferRecipient {
 }
 
 interface CoinTransferPanelProps {
+  senderId:string|null;
   recipientId: string;
   onSuccess: (msg: string) => void;
   onClose: () => void;
 }
 
-function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTransferPanelProps & { currency: CurrencyNames }) {
+function CoinTransferPanel({ senderId,recipientId, onSuccess, onClose, currency }: CoinTransferPanelProps & { currency: CurrencyNames }) {
   const { t } = useTranslation();
   const [recipient, setRecipient] = useState<TransferRecipient | null>(null);
   const [loadingRecipient, setLoadingRecipient] = useState(true);
@@ -593,8 +594,10 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
     }
   }, [amount]);
 
+  const pendingTransfer=useRef<{fingerprint:string;key:string}|null>(null);
   async function handleTransfer() {
     setTransferError(null);
+    if(!senderId){setTransferError("Reload the wallet to verify your account before transferring.");return;}
     const n = parseInt(amount, 10);
     if (isNaN(n) || n < 10) {
       setTransferError(`Minimum transfer amount is 10 ${currency.softPlural.toLowerCase()}`);
@@ -604,13 +607,15 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
       setTransferError(`Maximum single transfer is 100,000 ${currency.softPlural.toLowerCase()}`);
       return;
     }
+    const fingerprint=`${recipientId}:${n}`;
+    if(pendingTransfer.current?.fingerprint!==fingerprint)pendingTransfer.current={fingerprint,key:crypto.randomUUID()};
     setSending(true);
     try {
       const res = await fetch("/api/economy/coins/transfer", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientId, amount: n }),
+        body: JSON.stringify({ expectedSenderId:senderId,recipientId, amount: n,idempotencyKey:pendingTransfer.current.key }),
       });
       const data = (await res.json()) as { success?: boolean; message?: string; error?: string | { code?: string; message?: string }; transfer?: { netAmount: number; recipient: { username: string } } };
       if (!res.ok) {
@@ -620,6 +625,7 @@ function CoinTransferPanel({ recipientId, onSuccess, onClose, currency }: CoinTr
         err.code = errCode;
         throw err;
       }
+      pendingTransfer.current=null;
       const label = data.transfer?.recipient?.username ?? "user";
       onSuccess(`Sent ${n} ${currency.softPlural.toLowerCase()} to @${label} (they received ${data.transfer?.netAmount ?? n - Math.floor(n * 0.05)})`);
       onClose();
@@ -978,6 +984,7 @@ function WalletContent() {
 
       {transferRecipientId && (
         <CoinTransferPanel
+          senderId={rank?.userId??null}
           recipientId={transferRecipientId}
           onSuccess={showToast}
           onClose={dismissTransfer}

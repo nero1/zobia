@@ -1,3 +1,4 @@
+import { readBoundedFormData } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -34,7 +35,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: { user: 
       throw badRequest(`You need ${imageCostStars} Stars to attach an image.`, "INSUFFICIENT_BBFORUM_IMAGE_FUNDS");
     }
 
-    const formData = await req.formData();
+    const formData = await readBoundedFormData(req);
     const file = formData.get("file");
     if (!(file instanceof File)) throw badRequest("No file provided");
 

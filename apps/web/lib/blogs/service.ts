@@ -1663,7 +1663,7 @@ export async function listGiftTiersForOwner(ownerId: string, blogId: string): Pr
 export async function listPublicGiftTiers(blogId: string): Promise<BlogGiftTierRow[]> {
   const manifest = await loadManifest();
   if (!manifest.features.blogs || !manifest.features.blogGifts || !manifest.features.blogMonetization) return [];
-  return repoListPublicGiftTiers(blogId);
+  return (await repoListPublicGiftTiers(blogId)).map(tier=>({...tier,benefit_config:{}}));
 }
 
 export async function listGiftPurchasesForBlog(ownerId: string, blogId: string): Promise<Awaited<ReturnType<typeof repoListGiftPurchasesForBlog>>> {
@@ -1764,6 +1764,7 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
 
   const referenceId = `blog_gift:${tierId}:${buyerId}:${Date.now()}`;
 
+  const settleEarnings=await prepareGiftEarnings(tier.owner_id,price,currency,referenceId);
   const outcome = await orm.transaction(async (tx) => {
     const { rows: lockRows } = await tx.execute<
       { enabled: boolean; expires_at: string | null; max_redemptions: number | null; redemption_count: number } & Record<string, unknown>
@@ -1835,12 +1836,10 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
       result.textInstructions = textInstructions;
     }
 
+    await settleEarnings(tx);
     return result;
   });
 
-  await creditGiftEarnings(tier.owner_id, price, currency, referenceId).catch((err) => {
-    logger.error({ err, tierId, ownerId: tier.owner_id }, "[blogs/service] failed to credit gift earnings");
-  });
 
   await insertNotificationBatch(
     orm, [tier.owner_id], "blog_gift_received",
@@ -1860,7 +1859,7 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
 }
 
 /** Credits the blog owner's earnings for a gift purchase, using the same revenue-share convention as paywall unlocks. */
-async function creditGiftEarnings(creatorId: string, amountPaid: number, currency: GiftCurrency, referenceId: string): Promise<void> {
+async function prepareGiftEarnings(creatorId: string, amountPaid: number, currency: GiftCurrency, referenceId: string): Promise<(tx:DbOrTx)=>Promise<void>> {
   const orm = await getDb();
   const rows = await orm
     .select({ plan: schema.users.plan })
@@ -1874,9 +1873,7 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
     // No Stars->cash conversion rate exists in this codebase (unlike coinToCashRate
     // for Credits) — credit the owner Stars directly, net of the same rev-share %.
     const netStars = new Decimal(amountPaid).mul(revSharePct).div(100).floor();
-    if (netStars.lte(0)) return;
-    await creditStars(creatorId, netStars.toNumber(), "blog_gift_earnings", `${referenceId}:earnings`, "Gift earnings share");
-    return;
+    return async(tx)=>{if(netStars.gt(0))await creditStars(creatorId,netStars.toNumber(),"blog_gift_earnings",`${referenceId}:earnings`,"Gift earnings share",tx);};
   }
 
   const [economy, manifest] = await Promise.all([getBlogEconomyConfig(), loadManifest()]);
@@ -1885,9 +1882,9 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
   const afterVat = afterProviderFee.mul(new Decimal(1).minus(new Decimal(economy.vatPct).div(100)));
   const netKobo = afterVat.mul(new Decimal(revSharePct).div(100)).floor();
   const platformFeeKobo = grossKobo.minus(netKobo);
-  if (netKobo.lte(0)) return;
+  if (netKobo.lte(0)) return async()=>{};
 
-  await orm.transaction(async (tx) => {
+  return async(tx)=>{
     const [earning] = await tx
       .insert(schema.creatorEarnings)
       .values({
@@ -1903,5 +1900,5 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
       .update(schema.users)
       .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo.toFixed(0)}`, updatedAt: sql`NOW()` })
       .where(eq(schema.users.id, creatorId));
-  });
+  };
 }

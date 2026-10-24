@@ -24,7 +24,7 @@ beforeEach(() => {
 describe('isCacheableRead', () => {
   it('accepts listed GETs and only the allowed query strings', () => {
     expect(isCacheableRead(cfg('/users/me'))).toBe(true);
-    expect(isCacheableRead(cfg('/ads/serve?placement=home_top'))).toBe(true);
+    expect(isCacheableRead(cfg('/ads/serve?placement=home_top'))).toBe(false);
     expect(isCacheableRead(cfg('/users/me', 'put'))).toBe(false);
     expect(isCacheableRead(cfg('/users/me?x=1'))).toBe(false);
     expect(isCacheableRead(cfg('/users/me', 'get', 'Bearer a', { x: 1 }))).toBe(false);

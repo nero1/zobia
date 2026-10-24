@@ -29,6 +29,7 @@ const mockQuery = jest.fn();
 const fakeClient = {
   query: (queryConfig: unknown, params?: unknown[]) => {
     const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    if(!/^\s*DELETE/i.test(text))return Promise.resolve({rows:[],rowCount:0});
     return mockQuery(text, params);
   },
 };

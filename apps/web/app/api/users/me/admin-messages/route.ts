@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -81,7 +82,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
-    const body = (await req.json().catch(() => ({}))) as { messageId?: string };
+    const body = (await readBoundedJson(req).catch(() => ({}))) as { messageId?: string };
     if (!body.messageId) {
       return NextResponse.json({ error: "messageId is required" }, { status: 400 });
     }

@@ -105,10 +105,11 @@ export interface RewardResult {
   amount: number;
 }
 
-export async function showRewarded(): Promise<RewardResult | null> {
+export async function showRewarded(ssv:{userId:string;customData:string}): Promise<RewardResult | null> {
   const config = await getConfig();
   if (!(await ensureInitialized()) || !config) return null;
   await AdMob.prepareRewardVideoAd({
+    ssv,
     adId: config.testMode || !config.rewardedUnitId ? TEST_UNIT_IDS.rewarded : config.rewardedUnitId,
     isTesting: config.testMode,
   });

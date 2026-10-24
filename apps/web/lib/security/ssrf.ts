@@ -1,5 +1,7 @@
 import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
+import type {LookupFunction} from 'node:net';
+import type {LookupAddress} from 'node:dns';
 import ipaddr from "ipaddr.js";
 import { Agent, fetch as request } from "undici";
 
@@ -58,6 +60,17 @@ export function isPublicAddress(raw: string): boolean {
   } catch {
     return false;
   }
+}
+/** Node's automatic IPv4/IPv6 selection requests lookup({all:true}). */
+export function createPinnedLookup(pinnedIp:string):LookupFunction{
+ const family=isIP(pinnedIp);
+ if(family!==4&&family!==6)throw new SSRFError('Invalid pinned address');
+ return (_hostname,options,callback)=>{
+  if(options.all){
+   const allCallback=callback as unknown as (error:null,addresses:LookupAddress[])=>void;
+   allCallback(null,[{address:pinnedIp,family}]);
+  }else callback(null,pinnedIp,family);
+ };
 }
 async function resolveHost(hostname: string): Promise<string> {
   const literal = hostname.replace(/^\[|\]$/g, "");
@@ -140,9 +153,7 @@ export async function safeFetch(
       throw new SSRFError("Host is not allowlisted");
     const dispatcher = new Agent({
       connect: {
-        lookup(_host, _options, callback) {
-          callback(null, pinnedIp, isIP(pinnedIp));
-        },
+        lookup:createPinnedLookup(pinnedIp),
       },
     });
     let response: Awaited<ReturnType<typeof request>> | undefined;

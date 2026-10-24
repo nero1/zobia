@@ -1,3 +1,4 @@
+import { readBoundedFormData } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -63,7 +64,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: { user: 
   try {
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
-    const formData = await req.formData();
+    const formData = await readBoundedFormData(req);
     const file = formData.get("file");
     if (!(file instanceof File)) throw badRequest("No file provided");
     if (file.size > MAX_UPLOAD_BYTES) throw badRequest("Image is too large (max 8MB).");
@@ -89,14 +90,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: { user: 
       }
     }
 
-    const compressed = await compressImage(rawBuffer, { profile: "avatar" }).catch((err) => {
-      logger.error({ err, userId }, "[users/me/avatar] compression failed, using uncompressed frame");
-      return {
-        buffer: rawBuffer,
-        mimeType: sourceMimeType,
-        originalSizeBytes: rawBuffer.length,
-        compressedSizeBytes: rawBuffer.length,
-      };
+    const compressed = await compressImage(rawBuffer,{profile:"avatar"}).catch((err)=>{
+      logger.warn({err,userId},"Avatar image could not be decoded");
+      throw badRequest("The image could not be decoded. Please upload a valid JPEG, PNG, WebP or GIF image.","INVALID_IMAGE");
     });
 
     const ext = compressed.mimeType === "image/webp" ? "webp" : compressed.mimeType.split("/")[1] || "jpg";

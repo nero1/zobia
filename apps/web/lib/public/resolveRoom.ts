@@ -18,6 +18,7 @@ import { getDb, schema } from "@/lib/db/drizzle";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
+import {publicOwnerVisible} from "./ownerVisibility";
 
 export interface PublicRoom {
   id: string;
@@ -64,6 +65,11 @@ async function queryBy(
       and(
         isNull(schema.rooms.deletedAt),
         eq(schema.rooms.isActive, true),
+        eq(schema.rooms.status,"active"),
+        eq(schema.rooms.isPublic,true),
+        eq(schema.rooms.isBanned,false),
+        eq(schema.rooms.isSuspended,false),
+        publicOwnerVisible("rooms"),
         inArray(schema.rooms.type, types),
         column === "slug" ? eq(schema.rooms.slug, value) : eq(schema.rooms.id, value)
       )

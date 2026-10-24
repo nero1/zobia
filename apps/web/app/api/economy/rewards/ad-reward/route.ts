@@ -1,180 +1,61 @@
-export const dynamic = 'force-dynamic';
-
-/**
- * app/api/economy/rewards/ad-reward/route.ts
- *
- * POST /api/economy/rewards/ad-reward
- *
- * Claim a rewarded ad coin bonus (free and Plus plan users).
- *
- * Rules:
- *  - Only free and Plus plan users may call this endpoint (PRD §3).
- *  - Maximum 5 rewarded-ad claims per calendar day (UTC), tracked in Redis.
- *  - Each claim awards a random integer between 10 and 20 coins (inclusive).
- *  - The Redis counter key expires at midnight UTC to reset daily.
- *  - Coin credit is written to coin_ledger within the same db transaction
- *    as the users.coin_balance update (atomic).
- *
- * Response: { coinsAwarded: number, remainingToday: number }
- */
-
-import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
-import { getDb, schema } from "@/lib/db/drizzle";
-import { redis } from "@/lib/redis";
-import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, forbidden } from "@/lib/api/errors";
-import { loadManifest } from "@/lib/manifest";
-import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns an inclusive random integer between min and max.
- */
-function randomIntInclusive(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/**
- * Computes the number of seconds until the next midnight UTC.
- * Used to set the Redis counter TTL so it resets at midnight.
- */
-function secondsUntilMidnightUTC(): number {
-  const now = new Date();
-  const midnight = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1)
-  );
-  return Math.ceil((midnight.getTime() - now.getTime()) / 1000);
-}
-
-/**
- * Builds the Redis key for today's rewarded ad counter for a given user.
- */
-function adRewardRedisKey(userId: string): string {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
-  return `ad_reward:${userId}:${today}`;
-}
-
-// ---------------------------------------------------------------------------
-// Route handler
-// ---------------------------------------------------------------------------
-
-/**
- * Claim a rewarded ad coin bonus.
- * Only callable by authenticated free or Plus plan users (PRD §3).
- */
-export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
-  try {
-    const userId = auth.user.sub;
-    const orm = await getDb();
-
-    // 1. Verify user is on the free plan (fetch from DB for accuracy)
-    const [user] = await orm
-      .select({ plan: schema.users.plan, coinBalance: schema.users.coinBalance })
-      .from(schema.users)
-      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
-      .limit(1);
-    if (!user) throw forbidden("User not found");
-
-    if (user.plan !== "free" && user.plan !== "plus") {
-      throw forbidden(
-        "Rewarded ads are available for free and Plus plan users.",
-        "PAID_PLAN_INELIGIBLE"
-      );
-    }
-
-    // 2. Admin-configurable cap/payout range (lib/manifest, cached — no extra Redis call).
-    const manifest = await loadManifest();
-    const dailyCap = manifest.ads.rewardedDailyCap;
-    const minCoins = manifest.ads.rewardedCreditsMin;
-    const maxCoins = manifest.ads.rewardedCreditsMax;
-
-    // 3. Atomically claim a daily slot in Redis. INCR is atomic so two concurrent
-    // requests racing at count=4 will get distinct values (5 and 6); the one that
-    // gets 6 returns the slot and is rejected. This eliminates the TOCTOU window
-    // that existed when using GET then INCR as two separate operations.
-    const redisKey = adRewardRedisKey(userId);
-    const newCount = await redis.incr(redisKey);
-    // Set TTL on the first claim so the key resets at midnight UTC.
-    if (newCount === 1) {
-      await redis.expire(redisKey, secondsUntilMidnightUTC());
-    }
-
-    if (newCount > dailyCap) {
-      // Return the slot we just claimed so the counter stays accurate.
-      await redis.decr(redisKey).catch(() => {});
-      return NextResponse.json(
-        {
-          error: {
-            code: "DAILY_LIMIT_REACHED",
-            message: `You've claimed ${dailyCap} rewarded ads today. Come back tomorrow!`,
-          },
-          remaining: 0,
-        },
-        { status: 429 }
-      );
-    }
-
-    // 4. Award random coins and write to coin_ledger atomically
-    const coinsAwarded = randomIntInclusive(minCoins, maxCoins);
-
-    try {
-      await orm.transaction(async (tx) => {
-        // Lock user row and get current balance
-        const [locked] = await tx
-          .select({ coinBalance: schema.users.coinBalance })
-          .from(schema.users)
-          .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
-          .for("update");
-        const balanceBefore = locked?.coinBalance ?? BigInt(0);
-        const balanceAfter = balanceBefore + BigInt(coinsAwarded);
-
-        // Update user balance
-        await tx
-          .update(schema.users)
-          .set({ coinBalance: balanceAfter, updatedAt: new Date() })
-          .where(eq(schema.users.id, userId));
-
-        // Append-only ledger entry
-        await tx.insert(schema.coinLedger).values({
-          userId,
-          amount: BigInt(coinsAwarded),
-          balanceBefore,
-          balanceAfter,
-          transactionType: "ad_reward",
-          description: "Rewarded ad bonus",
-        });
-
-        // Creator Fund auto-seeding, contributed to the monthly creator pool
-        // (percent is admin-configurable — see lib/creator/fundContribution.ts).
-        // NOTE: preserves the pre-existing coinsAwarded-as-kobo arithmetic
-        // unchanged (the old inline comment here claimed "100 coins = 1 kobo"
-        // but the code never divided by 100) — not touched by this refactor,
-        // which is scoped to making the split percent configurable, not
-        // auditing the coin↔kobo conversion rate.
-        await contributeToCreatorFund(coinsAwarded, "ad_reward", tx)
-          .catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
-      });
-    } catch (dbErr) {
-      // DB transaction failed — release the Redis slot so the user can retry.
-      await redis.decr(redisKey).catch(() => {});
-      throw dbErr;
-    }
-
-    const remainingToday = dailyCap - newCount;
-
-    return NextResponse.json({
-      success: true,
-      data: {
-        coinsAwarded,
-        remainingToday: Math.max(0, remainingToday),
-      },
-      error: null,
-    });
-  } catch (err) {
-    return handleApiError(err);
+export const dynamic='force-dynamic';
+import {NextResponse} from 'next/server';
+import {randomInt} from 'node:crypto';
+import {and,eq,isNull,sql} from 'drizzle-orm';
+import {z} from 'zod';
+import {getDb,schema} from '@/lib/db/drizzle';
+import {withAuth,validateBody} from '@/lib/api/middleware';
+import {badRequest,forbidden,handleApiError,ApiError} from '@/lib/api/errors';
+import {loadManifest} from '@/lib/manifest';
+import {enforceRateLimit} from '@/lib/security/rateLimit';
+import {creditCoins} from '@/lib/economy/coins';
+import {verifyAdReceipt} from '@/lib/ads/receipts';
+import {issueRewardChallenge,verifyRewardChallenge,hasAdmobCompletion} from '@/lib/ads/rewardProof';
+const bodySchema=z.discriminatedUnion('provider',[
+ z.object({provider:z.literal('in_house'),receipt:z.string().max(1024),creativeId:z.string().uuid(),placementKey:z.literal('rewarded_global')}),
+ z.object({provider:z.literal('admob'),challenge:z.string().max(1024)}),
+]);
+/** Prepare opaque account-bound custom_data for the native SDK's SSV options. */
+export const GET=withAuth(async(_request,{auth})=>{
+ try{await enforceRateLimit(auth.user.sub,'user',{name:'admob:prepare',limit:10,windowMs:60000,bypassL1:true});const manifest=await loadManifest();if(!manifest.features.rewardedAds || !manifest.ads.admob.rewardedUnitId)throw forbidden('Rewarded ads are unavailable');return NextResponse.json({success:true,data:{challenge:issueRewardChallenge(auth.user.sub)}});}catch(error){return handleApiError(error);}
+});
+export const POST=withAuth(async(request,{auth})=>{
+ try{
+  const userId=auth.user.sub;
+  await enforceRateLimit(userId,'user',{name:'ads:reward',limit:30,windowMs:60000,globalLimit:10000,bypassL1:true});
+  const body=await validateBody(request,bodySchema),manifest=await loadManifest();
+  if(!manifest.features.rewardedAds)throw forbidden('Rewarded ads are unavailable');
+  let referenceId:string;
+  if(body.provider==='in_house'){
+   const receipt=verifyAdReceipt(body.receipt,userId,body.creativeId,body.placementKey);
+   if(!receipt || Date.now()-(receipt.expires-86400000)<15000)throw badRequest('A completed rewarded ad is required','AD_COMPLETION_REQUIRED');
+   referenceId=`rewarded:${receipt.id}`;
+  }else{
+   const challenge=verifyRewardChallenge(body.challenge);
+   if(!challenge || challenge.userId!==userId)throw badRequest('Invalid rewarded-ad challenge','AD_COMPLETION_REQUIRED');
+   if(!await hasAdmobCompletion(challenge))return NextResponse.json({success:true,data:{pending:true,coinsAwarded:0}},{status:202});
+   referenceId=`admob:${challenge.id}`;
   }
+  const minimum=manifest.ads.rewardedCreditsMin,maximum=manifest.ads.rewardedCreditsMax,cap=manifest.ads.rewardedDailyCap;
+  if(![minimum,maximum,cap].every(Number.isSafeInteger)||minimum<1||maximum<minimum||maximum>100000||cap<1||cap>100)throw Error('Invalid rewarded-ad policy');
+  const db=await getDb();
+  const result=await db.transaction(async tx=>{
+   const [user]=await tx.select({plan:schema.users.plan}).from(schema.users).where(and(eq(schema.users.id,userId),isNull(schema.users.deletedAt))).for('update');
+   if(!user || !['free','plus'].includes(user.plan))throw forbidden('Rewarded ads are available for free and Plus plan users.','PAID_PLAN_INELIGIBLE');
+   const prior=await tx.execute<{amount:string}>(sql`SELECT amount::text FROM coin_ledger WHERE user_id=${userId} AND transaction_type='ad_reward' AND reference_id=${referenceId} UNION ALL SELECT amount::text FROM coin_ledger_archive WHERE user_id=${userId} AND transaction_type='ad_reward' AND reference_id=${referenceId}`);
+   const counted=await tx.execute<{n:number}>(sql`SELECT COUNT(*)::int n FROM (SELECT id FROM coin_ledger WHERE user_id=${userId} AND transaction_type='ad_reward' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' UNION ALL SELECT id FROM coin_ledger_archive WHERE user_id=${userId} AND transaction_type='ad_reward' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC') rewards`);
+   if(prior.rows[0])return {coinsAwarded:Number(prior.rows[0].amount),remainingToday:Math.max(0,cap-counted.rows[0].n),replayed:true};
+   if(counted.rows[0].n>=cap)throw new ApiError(429,'DAILY_LIMIT_REACHED','Your daily rewarded-ad limit has been reached.');
+   if(body.provider==='in_house'){
+    const receipt=verifyAdReceipt(body.receipt,userId,body.creativeId,body.placementKey)!;
+    const impression=await tx.execute(sql`SELECT id FROM ad_events WHERE client_event_id=${receipt.id} AND creative_id=${body.creativeId} AND user_id=${userId} AND placement_key='rewarded_global' AND event_type='impression' LIMIT 1`);
+    if(!impression.rows.length)throw badRequest('A recorded rewarded-ad impression is required','AD_COMPLETION_REQUIRED');
+   }
+   const amount=randomInt(minimum,maximum+1);
+   await creditCoins(userId,amount,'ad_reward',referenceId,'Verified rewarded-ad bonus',{provider:body.provider},tx);
+   // Credits issued as rewards are not verified fiat revenue.
+   return {coinsAwarded:amount,remainingToday:cap-counted.rows[0].n-1,replayed:false};
+  });
+  return NextResponse.json({success:true,data:result,error:null});
+ }catch(error){return handleApiError(error);}
 });

@@ -20,7 +20,7 @@ import Link from "@/components/ui/Link";
 import { useTranslation } from "react-i18next";
 import { Icon } from "@/components/ui/Icon";
 
-type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexpected" | "email_not_verified" | "signups_disabled";
+type ErrorCode = "account_link_required" | "session_expired" | "rate_limited" | "invalid_request" | "unexpected" | "email_not_verified" | "signups_disabled";
 
 function ErrorContent() {
   const { t } = useTranslation();
@@ -28,6 +28,12 @@ function ErrorContent() {
   const code = (searchParams?.get("code") ?? "unexpected") as ErrorCode;
 
   const config: Record<ErrorCode, { icon: string; title: string; body: string; hint: string }> = {
+    account_link_required:{
+      icon:"🔗",
+      title:t("authError.accountLinkRequired.title","Use your existing sign-in method"),
+      body:t("authError.accountLinkRequired.body","An account already uses this email address. Sign in with its existing method before linking a different Google identity."),
+      hint:t("authError.accountLinkRequired.hint","If you lost access, use account recovery to verify ownership."),
+    },
     session_expired: {
       icon: "⏱️",
       title: t("authError.sessionExpired.title"),

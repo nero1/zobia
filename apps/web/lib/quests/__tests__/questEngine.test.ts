@@ -327,8 +327,11 @@ describe("updateQuestProgress", () => {
     );
   });
 
-  it("marks quest complete and awards XP when target reached", async () => {
+  it("marks quest complete with atomic XP and a settled durable coin reward", async () => {
     mockQuery.mockImplementation((text: string) => {
+      if(text.startsWith('insert into "transactional_tasks"'))return Promise.resolve({rows:[["reward-task"]],rowCount:1});
+      if(text.includes('from "transactional_tasks"') && text.includes('"status"'))return Promise.resolve({rows:[["completed"]],rowCount:1});
+
       if (text.includes('from "quest_templates"') && text.includes('"quest_templates"."id" =')) {
         return Promise.resolve({
           rows: [questRow({ id: "q1", targetCount: 3, xpReward: 100, coinReward: 20 })],

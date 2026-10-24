@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -30,7 +31,7 @@ const patchSchema = z.object({
 export const PATCH = withAdminAuth(async (req: NextRequest, { params }: Ctx) => {
   try {
     const { id } = await params;
-    const body = await req.json();
+    const body = await readBoundedJson(req);
     const parsed = patchSchema.safeParse(body);
     if (!parsed.success) throw badRequest("Invalid request body", parsed.error.flatten());
     if (Object.keys(parsed.data).length === 0) throw badRequest("No fields to update");

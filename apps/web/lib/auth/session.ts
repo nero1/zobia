@@ -61,6 +61,8 @@ export interface SessionRecord {
   prevRefreshValidUntil?: number;
   /** Set only on an impersonation session — the admin user id who started it. */
   impersonatedBy?: string;
+  /** Browser delegation remains valid only while this source session exists. */
+  parentSid?: string;
 }
 
 /**
@@ -217,9 +219,10 @@ export async function createSession(
     is_creator?: boolean;
     onboarding_completed?: boolean;
   },
-  options: { ip?: string; ua?: string; adminSession?: boolean; impersonatedBy?: string } = {}
+  options: { ip?: string; ua?: string; adminSession?: boolean; impersonatedBy?: string; parentSid?: string } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
+  let createdAt=new Date().toISOString();
   const manifest = await loadManifest();
 
   // Always re-read is_support/is_senior_support fresh from the DB at issuance
@@ -258,10 +261,20 @@ export async function createSession(
     : "default";
   // An impersonation session is deliberately capped short (15 min) regardless
   // of the target's own role — it should not persist like a normal login.
-  const { accessTtl, refreshTtl } = options.impersonatedBy
+  let { accessTtl, refreshTtl } = options.impersonatedBy
     ? { accessTtl: 900, refreshTtl: 900 }
     : manifest.sessionTtls[ttlRole];
 
+  if (options.parentSid) {
+    const parent = await getSessionFresh(options.parentSid);
+    if (!parent || parent.uid !== user.id) throw new SessionRevokedError("Source session revoked");
+    options = {...options, impersonatedBy:parent.impersonatedBy, adminSession:parent.adminSession, parentSid:parent.parentSid ?? parent.sid};
+    createdAt = parent.created_at;
+    const remaining = Math.floor((new Date(createdAt).getTime()+(parent.impersonatedBy ? 900 : 30*86400)*1000-Date.now())/1000);
+    if (remaining <= 0) throw new SessionRevokedError("Source session expired");
+    accessTtl = Math.min(accessTtl,remaining);
+    refreshTtl = Math.min(refreshTtl,remaining);
+  }
   // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
   const [accessToken, refreshToken] = await Promise.all([
     signAccessToken({
@@ -298,11 +311,12 @@ export async function createSession(
     is_senior_support,
     is_ad_moderator,
     is_creator: user.is_creator,
-    created_at: new Date().toISOString(),
+    created_at: createdAt,
     ip: options.ip,
     ua: options.ua,
     refreshTokenHash: createHash("sha256").update(refreshToken).digest("hex"), // ZB-24: for rotation detection
     impersonatedBy: options.impersonatedBy,
+    parentSid: options.parentSid,
   };
 
   // Record daily login for Creator Fund active-day tracking (BUG-027)
@@ -391,11 +405,27 @@ export async function rotateSession(
  * chain. Token rotation is rare relative to ordinary requests, so always paying
  * the Redis read here costs almost nothing.
  */
-export async function getSessionFresh(sid: string): Promise<SessionRecord | null> {
+export async function getSessionFresh(sid: string, depth = 0): Promise<SessionRecord | null> {
+  if (depth > 2) return null;
   const raw = await redis.get(sessionKey(sid));
   if (!raw) return null;
   try {
     const record = JSON.parse(raw) as SessionRecord;
+    const age = Date.now()-new Date(record.created_at).getTime();
+    if (!Number.isFinite(age) || age >= (record.impersonatedBy ? 900 : 30*86400)*1000) return null;
+    if (record.impersonatedBy) {
+      const db = await getDb();
+      const [actor] = await db.select({id:schema.users.id}).from(schema.users).where(and(
+        eq(schema.users.id, record.impersonatedBy), eq(schema.users.isAdmin,true),sql`${schema.users.sessionValidAfter}<=${record.created_at}::timestamptz`,
+        eq(schema.users.isBanned,false), sql`${schema.users.deletedAt} IS NULL`,
+        sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
+      )).limit(1);
+      if (!actor) return null;
+    }
+    if (record.parentSid) {
+      const parent = await getSessionFresh(record.parentSid,depth+1);
+      if (!parent || parent.uid !== record.uid || parent.impersonatedBy !== record.impersonatedBy) return null;
+    }
     memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
     return record;
   } catch {
@@ -543,7 +573,7 @@ export async function refreshAccessToken(
       suspended_until: schema.users.suspendedUntil,
     })
     .from(schema.users)
-    .where(and(eq(schema.users.id, session.uid), sql`${schema.users.deletedAt} IS NULL`))
+    .where(and(eq(schema.users.id, session.uid), sql`${schema.users.deletedAt} IS NULL`,sql`${schema.users.sessionValidAfter}<=${session.created_at}::timestamptz`))
     .limit(1);
 
   // REDIS-COST-01: the per-request `user:status:<uid>` Redis read is gone from

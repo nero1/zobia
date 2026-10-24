@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -104,7 +105,7 @@ const updateKeySchema = z.object({
 export const PUT = withAdminAuth(
   async (req: NextRequest, ctx: { params: Record<string, string>; auth: AdminContext }) => {
     try {
-      const body = await req.json();
+      const body = await readBoundedJson(req);
       const parsed = updateKeySchema.safeParse(body);
       if (!parsed.success) {
         return NextResponse.json(

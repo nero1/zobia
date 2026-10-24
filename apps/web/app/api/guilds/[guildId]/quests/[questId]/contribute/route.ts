@@ -19,12 +19,12 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { calculateXPForAction } from "@/lib/xp/engine";
-import { creditCoins } from "@/lib/economy/coins";
+import {enqueueTask} from "@/lib/tasks/outbox";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
@@ -54,23 +54,24 @@ export const POST = withAuth(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
       const orm = await getDb();
 
+      const {newCount,quest}=await orm.transaction(async tx=>{
       // 1. Verify guild membership
-      const guildCheck = await orm
+      const guildCheck = await tx
         .select({ id: schema.guilds.id })
         .from(schema.guilds)
-        .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
-        .limit(1);
+        .where(and(eq(schema.guilds.id, guildId),eq(schema.guilds.isActive,true),isNull(schema.guilds.deletedAt),eq(schema.guilds.isBanned,false),eq(schema.guilds.isSuspended,false)))
+        .limit(1).for("update");
       if (!guildCheck[0]) throw notFound("Guild not found");
 
-      const memberCheck = await orm
+      const memberCheck = await tx
         .select({ role: schema.guildMembers.role })
         .from(schema.guildMembers)
-        .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId)))
-        .limit(1);
+        .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId),isNull(schema.guildMembers.leftAt)))
+        .limit(1).for("share");
       if (!memberCheck[0]) throw forbidden("You are not a member of this guild");
 
       // 2. Fetch the quest and verify it belongs to this guild and is active
-      const questResult = await orm
+      const questResult = await tx
         .select({
           id: schema.guildQuests.id,
           guildId: schema.guildQuests.guildId,
@@ -80,6 +81,8 @@ export const POST = withAuth(
           rewardCoins: schema.guildQuests.rewardCoins,
           isCompleted: schema.guildQuests.isCompleted,
           weekEnd: schema.guildQuests.weekEnd,
+          weekStart:schema.guildQuests.weekStart,
+          isActive:schema.guildQuests.isActive,
         })
         .from(schema.guildQuests)
         .where(and(eq(schema.guildQuests.id, questId), eq(schema.guildQuests.guildId, guildId)))
@@ -87,9 +90,10 @@ export const POST = withAuth(
       const quest = questResult[0];
       if (!quest) throw notFound("Quest not found");
       if (quest.isCompleted) throw badRequest("This quest has already been completed");
+      if(!quest.isActive || new Date(quest.weekStart)>new Date() || new Date(quest.weekEnd)<=new Date())throw badRequest("This quest is outside its active interval");
 
       // 3. Per-day rate limit: max 100 contributions per user per quest
-      const dailyCountResult = await orm
+      const dailyCountResult = await tx
         .select({ dailyCount: sql<number>`COUNT(*)::int` })
         .from(schema.guildQuestContributions)
         .where(
@@ -107,7 +111,7 @@ export const POST = withAuth(
       }
 
       // 4. Insert contribution and update quest in a transaction
-      const newCount = await orm.transaction(async (tx) => {
+
         // Insert contribution
         await tx.insert(schema.guildQuestContributions).values({
           questId,
@@ -145,7 +149,7 @@ export const POST = withAuth(
             const membersResult = await tx
               .select({ userId: schema.guildMembers.userId })
               .from(schema.guildMembers)
-              .where(eq(schema.guildMembers.guildId, guildId));
+              .where(and(eq(schema.guildMembers.guildId,guildId),isNull(schema.guildMembers.leftAt)));
             const memberCount = membersResult.length;
             if (memberCount > 0) {
               const coinsPerMember = Math.floor(quest.rewardCoins / memberCount);
@@ -156,15 +160,8 @@ export const POST = withAuth(
                 // constraint and rolled back the *entire* transaction for any
                 // multi-member quest. Scope the reference per member.
                 for (const member of membersResult) {
-                  await creditCoins(
-                    member.userId,
-                    coinsPerMember,
-                    "quest_reward",
-                    `guild_quest_reward:${questId}:${member.userId}`,
-                    `Quest completion reward`,
-                    { guildId, questId },
-                    tx
-                  );
+                  const ref=`guild_quest_reward:${questId}:${member.userId}`;
+                  await enqueueTask(tx,"coin_credit",ref,member.userId,{amount:coinsPerMember,transactionType:"quest_reward",referenceId:ref,description:"Guild quest completion reward"});
                 }
               }
             }
@@ -195,7 +192,7 @@ export const POST = withAuth(
           });
         }
 
-        return updatedCount;
+        return {newCount:updatedCount,quest};
       });
 
       const isCompleted = newCount >= quest.targetCount;

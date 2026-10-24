@@ -1,3 +1,4 @@
+import { insertNotification } from "@/lib/notifications/insert";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -53,15 +54,7 @@ export const POST = withAuth(
         .where(eq(schema.nemesisChallenges.id, challengeId));
 
       // Notify the challenger (fire-and-forget)
-      orm
-        .insert(schema.notifications)
-        .values({
-          userId: challenge.challengerId,
-          type: "nemesis_challenge_accepted",
-          payload: { accepted_by: userId },
-          isRead: false,
-        })
-        .catch(() => {});
+      await insertNotification(orm,challenge.challengerId,"nemesis_challenge_accepted","Challenge accepted","Your nemesis accepted your challenge.",{accepted_by:userId},`nemesis-accepted:${challengeId}`);
 
       return NextResponse.json({ success: true, data: { accepted: true }, error: null });
     } catch (err) {

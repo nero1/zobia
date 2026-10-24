@@ -1,11 +1,18 @@
 apply plugin: 'com.android.application'
 apply plugin: 'com.google.gms.google-services'
 
+def configuredWebUrl = System.getenv('VITE_WEB_BASE_URL')?.trim() ?: 'https://zobia.vercel.app'
+def webUri = new URI(configuredWebUrl)
+if (webUri.scheme != 'https' || !webUri.host || webUri.userInfo || webUri.fragment || webUri.query || !(webUri.path in ['', '/']) || !(webUri.port in [-1, 443])) {
+    throw new GradleException('VITE_WEB_BASE_URL must be the HTTPS website origin, without a path or credentials')
+}
+
 android {
     namespace "com.zobiasocial.app"
     compileSdk rootProject.ext.compileSdkVersion
 
     defaultConfig {
+        manifestPlaceholders = [zobiaWebHost: webUri.host]
         applicationId "com.zobiasocial.app"
         minSdk rootProject.ext.minSdkVersion
         targetSdk rootProject.ext.targetSdkVersion

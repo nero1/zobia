@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -34,7 +35,7 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
   try {
     const { id } = await params;
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
-    const raw = await req.json().catch(() => ({}));
+    const raw = await readBoundedJson(req).catch(() => ({}));
     const parsed = bodySchema.safeParse(raw);
     if (!parsed.success) throw badRequest("Invalid request body", parsed.error.flatten());
     const body = parsed.data;

@@ -55,10 +55,12 @@ import { calculateFundDistributions } from "@/lib/creator/fund";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCreators(count: number): { id: string; creator_earnings_30d: string }[] {
+beforeEach(()=>mockQuery.mockReset());
+
+function makeCreators(count: number) {
   return Array.from({ length: count }, (_, i) => ({
     id: `creator-${String(i + 1).padStart(4, "0")}`,
-    creator_earnings_30d: String((count - i) * 1000), // descending earnings
+    xp_earned_30d: String((count-i)*1000), new_followers_30d:count-i, quests_completed_30d:count-i, active_days_30d:30, gender:null,
   }));
 }
 

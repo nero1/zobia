@@ -1,3 +1,5 @@
+import {cursorTimestamp} from "@/lib/api/pageCursor";
+import {publicOwnerExists} from "@/lib/public/ownerVisibility";
 /**
  * lib/portals/content.ts
  *
@@ -60,6 +62,7 @@ interface Row {
   excerpt: string | null;
   image_url: string | null;
   created_at: string | Date;
+  cursor_time?:string;
   popularity: string | number;
   [k: string]: unknown;
 }
@@ -68,7 +71,14 @@ interface Row {
  * One branch per type, all with the same aliased output columns:
  * content_type, content_id, author_id, title, excerpt, image_url, created_at, popularity.
  */
-function branch(type: PortalFeedType, tagId: string, limit: number): SQL {
+interface FeedCursor{createdAt:string;id:string;type:PortalFeedType}
+function branch(type: PortalFeedType, tagId: string, limit: number, cursor:FeedCursor|null=null): SQL {
+ const ownerColumn=type==="moment"||type==="tweet"?"user_id":type==="wiki_page"?"created_by":["room","classroom","poll","quiz"].includes(type)?"creator_id":"author_id";
+ const section=({blog_post:"blogs",wiki_page:"wikis",moment:"moments",tweet:"tweets",room:"rooms",classroom:"rooms"} as Record<string,string>)[type];
+ const visibility=publicOwnerExists(sql.raw(`t.${ownerColumn}`),section);
+ const after=cursor?sql`(t.created_at,${type}::text,t.id::text)<(${cursor.createdAt}::timestamptz,${cursor.type}::text,${cursor.id}::text)`:sql`TRUE`;
+ const parent=type==="wiki_page"?sql`EXISTS(SELECT 1 FROM wikis w WHERE w.id=t.wiki_id AND w.deleted_at IS NULL AND w.status='active' AND ${publicOwnerExists(sql`w.owner_id`,"wikis")})`:type==="blog_post"?sql`EXISTS(SELECT 1 FROM blogs b WHERE b.id=t.blog_id AND b.deleted_at IS NULL AND b.status='active' AND ${publicOwnerExists(sql`b.owner_id`,"blogs")})`:type==="forum_thread"?sql`EXISTS(SELECT 1 FROM bb_boards b WHERE b.id=t.board_id AND b.is_active=TRUE)`:sql`TRUE`;
+
   // EVERY column carries an explicit alias in EVERY branch: a UNION takes its
   // output names from the first branch only, and which type comes first
   // depends on the caller (a "forum" section passes just forum_thread), so
@@ -76,76 +86,76 @@ function branch(type: PortalFeedType, tagId: string, limit: number): SQL {
   switch (type) {
     case "moment":
       return sql`(SELECT 'moment'::text AS content_type, t.id::text AS content_id, t.user_id::text AS author_id, NULL::text AS title,
-          CASE WHEN t.content_type = 'text' THEN t.content ELSE t.caption END AS excerpt, t.media_url AS image_url, t.created_at AS created_at,
+          CASE WHEN t.content_type = 'text' THEN t.content ELSE t.caption END AS excerpt, t.media_url AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.view_count + t.reactions_count * 3)::numeric AS popularity
         FROM content_hashtags ch JOIN moments t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'moment' AND t.expires_at > NOW()
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'moment' AND t.expires_at > NOW()
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "tweet":
       return sql`(SELECT 'tweet'::text AS content_type, t.id::text AS content_id, t.user_id::text AS author_id, NULL::text AS title,
-          t.content AS excerpt, t.image_url AS image_url, t.created_at AS created_at,
+          t.content AS excerpt, t.image_url AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.likes_count * 2 + t.replies_count * 3 + t.retweets_count * 2)::numeric AS popularity
         FROM content_hashtags ch JOIN tweets t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'tweet' AND t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'tweet' AND t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "blog_post":
       return sql`(SELECT 'blog_post'::text AS content_type, t.id::text AS content_id, t.author_id::text AS author_id, t.title AS title,
-          t.excerpt AS excerpt, t.featured_image_url AS image_url, t.created_at AS created_at,
+          t.excerpt AS excerpt, t.featured_image_url AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.view_count + t.like_count * 5 + t.comment_count * 4 + t.share_count * 3)::numeric AS popularity
         FROM content_hashtags ch JOIN blog_posts t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'blog_post' AND t.deleted_at IS NULL AND t.status = 'published'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'blog_post' AND t.deleted_at IS NULL AND t.status = 'published'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "forum_thread":
       return sql`(SELECT 'forum_thread'::text AS content_type, t.id::text AS content_id, t.author_id::text AS author_id, t.title AS title,
-          NULL::text AS excerpt, NULL::text AS image_url, t.created_at AS created_at,
+          NULL::text AS excerpt, NULL::text AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.view_count + t.reply_count * 4)::numeric AS popularity
         FROM content_hashtags ch JOIN bb_threads t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'forum_thread' AND t.deleted_at IS NULL AND t.status = 'visible'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'forum_thread' AND t.deleted_at IS NULL AND t.status = 'visible'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "forum_question":
       return sql`(SELECT 'forum_question'::text AS content_type, t.id::text AS content_id, t.author_id::text AS author_id, t.title AS title,
-          t.body AS excerpt, NULL::text AS image_url, t.created_at AS created_at,
+          t.body AS excerpt, NULL::text AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.vote_score * 3 + t.answer_count * 4 + t.favorite_count * 2)::numeric AS popularity
         FROM content_hashtags ch JOIN forum_questions t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'forum_question' AND t.deleted_at IS NULL AND t.status = 'visible'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'forum_question' AND t.deleted_at IS NULL AND t.status = 'visible'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "room":
       return sql`(SELECT 'room'::text AS content_type, t.id::text AS content_id, t.creator_id::text AS author_id, t.name AS title,
-          t.description AS excerpt, t.cover_image_url AS image_url, t.created_at AS created_at,
+          t.description AS excerpt, t.cover_image_url AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.member_count * 3 + t.total_messages)::numeric AS popularity
         FROM content_hashtags ch JOIN rooms t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'room' AND t.deleted_at IS NULL AND t.status = 'active'
-          AND t.is_public = true AND t.type <> 'classroom'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'room' AND t.deleted_at IS NULL AND t.status = 'active'
+          AND t.is_public = true AND NOT t.is_banned AND NOT t.is_suspended AND t.is_active = true AND t.type <> 'classroom'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "classroom":
       return sql`(SELECT 'classroom'::text AS content_type, t.id::text AS content_id, t.creator_id::text AS author_id, t.name AS title,
-          t.description AS excerpt, t.cover_image_url AS image_url, t.created_at AS created_at,
+          t.description AS excerpt, t.cover_image_url AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.member_count * 3 + t.total_messages)::numeric AS popularity
         FROM content_hashtags ch JOIN rooms t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'classroom' AND t.deleted_at IS NULL AND t.status = 'active'
-          AND t.is_public = true AND t.type = 'classroom'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'classroom' AND t.deleted_at IS NULL AND t.status = 'active'
+          AND t.is_public = true AND NOT t.is_banned AND NOT t.is_suspended AND t.is_active = true AND t.type = 'classroom'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "wiki_page":
       return sql`(SELECT 'wiki_page'::text AS content_type, t.id::text AS content_id, t.created_by::text AS author_id, t.title AS title,
-          NULL::text AS excerpt, NULL::text AS image_url, t.created_at AS created_at,
+          NULL::text AS excerpt, NULL::text AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.view_count + t.revision_count * 2)::numeric AS popularity
         FROM content_hashtags ch JOIN wiki_pages t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'wiki_page' AND t.deleted_at IS NULL AND t.status = 'published'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'wiki_page' AND t.deleted_at IS NULL AND t.status = 'published'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "poll":
       return sql`(SELECT 'poll'::text AS content_type, t.id::text AS content_id, t.creator_id::text AS author_id, t.title AS title,
-          t.description AS excerpt, NULL::text AS image_url, t.created_at AS created_at,
+          t.description AS excerpt, NULL::text AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.voter_count * 3 + t.view_count + t.share_count * 2)::numeric AS popularity
         FROM content_hashtags ch JOIN polls t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'poll' AND t.deleted_at IS NULL AND t.status = 'active'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'poll' AND t.deleted_at IS NULL AND t.status = 'active'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
     case "quiz":
       return sql`(SELECT 'quiz'::text AS content_type, t.id::text AS content_id, t.creator_id::text AS author_id, t.title AS title,
-          t.description AS excerpt, NULL::text AS image_url, t.created_at AS created_at,
+          t.description AS excerpt, NULL::text AS image_url, t.created_at AS created_at, to_char(t.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_time,
           (t.attempt_count * 3 + t.view_count + t.share_count * 2)::numeric AS popularity
         FROM content_hashtags ch JOIN quizzes t ON t.id = ch.content_id
-        WHERE ch.hashtag_id = ${tagId} AND ch.content_type = 'quiz' AND t.deleted_at IS NULL AND t.status = 'active'
-        ORDER BY ch.created_at DESC LIMIT ${limit})`;
+        WHERE ${visibility} AND ${parent} AND ${after} AND ch.hashtag_id = ${tagId} AND ch.content_type = 'quiz' AND t.deleted_at IS NULL AND t.status = 'active'
+        ORDER BY t.created_at DESC,t.id DESC LIMIT ${limit})`;
   }
 }
 
@@ -193,12 +203,14 @@ export interface TaggedFeedOptions {
 export async function fetchTaggedFeed(hashtagId: string, opts: TaggedFeedOptions): Promise<PortalFeedPage> {
   const types = opts.types && opts.types.length > 0 ? opts.types : ALL_PORTAL_FEED_TYPES;
   const limit = Math.max(1, Math.min(opts.limit, 50));
-  const union = sql.join(types.map((t) => branch(t, hashtagId, PER_TYPE_LIMIT)), sql` UNION ALL `);
+  const decoded=decodeCursor<FeedCursor>(opts.cursor);
+  const cur=decoded && typeof decoded.createdAt==="string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3,6}Z$/.test(decoded.createdAt) && cursorTimestamp.safeParse(decoded.createdAt).success && typeof decoded.id==="string" && /^[0-9a-f-]{36}$/i.test(decoded.id) && ALL_PORTAL_FEED_TYPES.includes(decoded.type)?decoded:null;
+  const union = sql.join(types.map((t) => branch(t,hashtagId,opts.sort==="new"?limit+1:PER_TYPE_LIMIT,opts.sort==="new"?cur:null)),sql` UNION ALL `);
   const orm = await getDb();
 
   if (opts.sort === "top") {
     const cur = decodeCursor<{ offset: number }>(opts.cursor);
-    const offset = Math.max(0, Math.min(cur?.offset ?? 0, MAX_TOP_OFFSET));
+    const offset = Math.max(0, Math.min(Number.isSafeInteger(cur?.offset)?cur!.offset:0, MAX_TOP_OFFSET));
     const { rows } = await orm.execute<Row>(sql`
       SELECT * FROM (${union}) feed
       ORDER BY ((popularity + 1) / POWER(GREATEST(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600.0, 0) + 2, 1.5)) DESC, created_at DESC, content_id DESC
@@ -208,20 +220,12 @@ export async function fetchTaggedFeed(hashtagId: string, opts: TaggedFeedOptions
     return { items: rows.slice(0, limit).map(toItem), nextCursor: hasMore ? encodeCursor({ offset: offset + limit }) : null };
   }
 
-  const cur = decodeCursor<{ createdAt: string; id: string }>(opts.cursor);
-  const { rows } = await orm.execute<Row>(sql`
-    SELECT * FROM (${union}) feed
-    WHERE ${cur?.createdAt ?? null}::timestamptz IS NULL
-       OR created_at < ${cur?.createdAt ?? null}::timestamptz
-       OR (created_at = ${cur?.createdAt ?? null}::timestamptz AND content_id < ${cur?.id ?? null})
-    ORDER BY created_at DESC, content_id DESC
-    LIMIT ${limit + 1}
-  `);
+  const {rows}=await orm.execute<Row>(sql`SELECT * FROM (${union}) feed ORDER BY created_at DESC,content_type DESC,content_id DESC LIMIT ${limit+1}`);
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   return {
     items: page.map(toItem),
-    nextCursor: rows.length > limit && last ? encodeCursor({ createdAt: new Date(last.created_at).toISOString(), id: last.content_id }) : null,
+    nextCursor: rows.length > limit && last ? encodeCursor({ createdAt:last.cursor_time, id:last.content_id,type:last.content_type }) : null,
   };
 }
 
@@ -245,7 +249,7 @@ export async function fetchPortalRooms(hashtagId: string, city: string | null, l
   const { rows } = await orm.execute<{ id: string; slug: string | null; name: string; description: string | null; cover_image_url: string | null; cover_emoji: string | null; member_count: number; is_classroom: boolean } & Record<string, unknown>>(sql`
     SELECT r.id::text AS id, r.slug, r.name, r.description, r.cover_image_url, r.cover_emoji, r.member_count, (r.type = 'classroom') AS is_classroom
     FROM rooms r
-    WHERE r.deleted_at IS NULL AND r.status = 'active' AND r.is_public = true
+    WHERE ${publicOwnerExists(sql`r.creator_id`,"rooms")} AND r.deleted_at IS NULL AND r.status = 'active' AND r.is_public = true AND NOT r.is_banned AND NOT r.is_suspended AND r.is_active = true
       AND (
         EXISTS (SELECT 1 FROM content_hashtags ch WHERE ch.hashtag_id = ${hashtagId} AND ch.content_type IN ('room', 'classroom') AND ch.content_id = r.id)
         OR (${pattern}::text IS NOT NULL AND r.city ILIKE ${pattern})
@@ -271,7 +275,7 @@ export async function fetchPortalGuilds(hashtagId: string, city: string | null, 
   const { rows } = await orm.execute<{ id: string; name: string; crest_emoji: string; description: string | null; city: string | null; member_count: number } & Record<string, unknown>>(sql`
     SELECT g.id::text AS id, g.name, g.crest_emoji, g.description, g.city, g.member_count
     FROM guilds g
-    WHERE g.is_active = true AND g.deleted_at IS NULL
+    WHERE g.is_active = true AND g.deleted_at IS NULL AND NOT g.is_banned AND NOT g.is_suspended AND ${publicOwnerExists(sql`g.captain_id`,"guild")}
       AND (
         EXISTS (SELECT 1 FROM content_hashtags ch WHERE ch.hashtag_id = ${hashtagId} AND ch.content_type = 'guild' AND ch.content_id = g.id)
         OR (${pattern}::text IS NOT NULL AND g.city ILIKE ${pattern})
@@ -294,7 +298,7 @@ export async function fetchPortalPeople(hashtagId: string, limit = 12): Promise<
     FROM content_hashtags ch
     JOIN users u ON u.id = ch.author_id
     WHERE ch.hashtag_id = ${hashtagId}
-      AND u.deleted_at IS NULL AND u.is_banned = false AND u.hide_from_leaderboards = false
+      AND ${publicOwnerExists(sql`u.id`)} AND u.hide_from_leaderboards = false
     GROUP BY u.id
     ORDER BY post_count DESC, MAX(ch.created_at) DESC
     LIMIT ${limit}
@@ -326,7 +330,7 @@ export async function fetchBoardThreads(boardId: string, limit = 6): Promise<Por
     SELECT 'forum_thread'::text AS content_type, t.id::text AS content_id, t.author_id::text AS author_id, t.title, NULL::text AS excerpt,
            NULL::text AS image_url, t.created_at, (t.view_count + t.reply_count * 4)::numeric AS popularity
     FROM bb_threads t
-    WHERE t.board_id = ${boardId} AND t.deleted_at IS NULL AND t.status = 'visible'
+    WHERE ${publicOwnerExists(sql`t.author_id`)} AND EXISTS(SELECT 1 FROM bb_boards b WHERE b.id=t.board_id AND b.is_active=TRUE) AND t.board_id = ${boardId} AND t.deleted_at IS NULL AND t.status = 'visible'
     ORDER BY t.created_at DESC
     LIMIT ${limit}
   `);

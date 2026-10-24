@@ -24,7 +24,7 @@ interface ServedAd {
   advertiserName: string;
 }
 
-const WATCH_SECONDS = 5;
+const WATCH_SECONDS = 15;
 
 export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAwarded: number) => void }) {
   const [phase, setPhase] = useState<"idle" | "loading" | "watching" | "claiming" | "error">("idle");
@@ -72,14 +72,14 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
   async function claim() {
     setPhase("claiming");
     try {
-      const res = await fetch("/api/economy/rewards/ad-reward", { method: "POST", credentials: "include" });
+      const res = await fetch("/api/economy/rewards/ad-reward", { method: "POST", credentials: "include",headers:{"Content-Type":"application/json"},body:JSON.stringify({provider:"in_house",receipt:ad?.receipt,creativeId:ad?.creativeId,placementKey:ad?.placementKey}) });
       const body = await res.json();
       if (!res.ok) {
         setError(body?.error?.message ?? "Could not claim reward.");
         setPhase("error");
         return;
       }
-      onRewarded?.(body.data.coinsAwarded);
+      if(!body.data.replayed)onRewarded?.(body.data.coinsAwarded);
       setPhase("idle");
       setAd(null);
       impressedRef.current = false;

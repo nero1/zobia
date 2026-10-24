@@ -1,255 +1,90 @@
-/**
- * lib/offline/messageQueue.ts
- *
- * IndexedDB-backed offline message queue for the web PWA.
- *
- * When the user sends a message while offline (or the request fails),
- * the message is stored here and replayed when connectivity is restored.
- *
- * DB: "zobia_offline" / store: "message_queue"
- */
-
-const DB_NAME = "zobia_offline";
-const DB_VERSION = 1;
-const STORE_NAME = "message_queue";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type PendingMessageStatus = "pending" | "sending" | "failed";
-
-export interface PendingMessage {
-  id: string;
-  conversationId: string | null;
-  recipientId: string;
-  content: string;
-  messageType: "text" | "gif" | "moment";
-  mediaUrl?: string;
-  idempotencyKey: string;
-  status: PendingMessageStatus;
-  attempts: number;
-  createdAt: number;
-  lastAttemptAt: number | null;
+/** Bounded, account-owned IndexedDB message storage. Legacy ownerless rows are discarded. */
+const DB_NAME='zobia_offline',DB_VERSION=3,STORE_NAME='message_queue';
+const MAX_PER_OWNER=100,MAX_TOTAL=1000,RETENTION_MS=7*86400000;
+export type PendingMessageStatus='pending'|'sending'|'failed';
+export interface PendingMessage{
+ id:string;ownerId:string;conversationId:string|null;recipientId:string;content:string;
+ messageType:'text'|'gif'|'moment';mediaUrl?:string;idempotencyKey:string;
+ status:PendingMessageStatus;attempts:number;createdAt:number;lastAttemptAt:number|null;
 }
-
-// ---------------------------------------------------------------------------
-// DB bootstrap
-// ---------------------------------------------------------------------------
-
-// BUG-IDB-01 FIX: use a lazy getter that clears the cached promise on rejection
-// so the next call retries the open. The original module-level assignment cached
-// a rejected promise permanently, breaking the offline queue for the entire
-// session with no recovery path (e.g. private-browsing IDB block, quota exceeded).
-let dbPromise: Promise<IDBDatabase> | null = null;
-
-function openDB(): Promise<IDBDatabase> {
-  if (dbPromise) return dbPromise;
-
-  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
-    if (typeof window === "undefined" || !("indexedDB" in window)) {
-      reject(new Error("IndexedDB not available"));
-      return;
-    }
-
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
-        store.createIndex("status", "status", { unique: false });
-        store.createIndex("createdAt", "createdAt", { unique: false });
-      }
-    };
-
-    req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result);
-    req.onerror = (e) => reject((e.target as IDBOpenDBRequest).error);
-  }).catch((err) => {
-    // Clear the cache so the next caller can retry the open rather than
-    // receiving the same permanent rejection for the rest of the session.
-    dbPromise = null;
-    throw err;
-  });
-
-  return dbPromise;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function txStore(
-  db: IDBDatabase,
-  mode: IDBTransactionMode
-): IDBObjectStore {
-  return db.transaction(STORE_NAME, mode).objectStore(STORE_NAME);
-}
-
-function promisify<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function generateId(): string {
-  return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
-
-/**
- * Enqueue a message for offline sending.
- */
-export async function enqueueMessage(
-  msg: Omit<PendingMessage, "id" | "status" | "attempts" | "createdAt" | "lastAttemptAt">
-): Promise<PendingMessage> {
-  const db = await openDB();
-  const pending: PendingMessage = {
-    ...msg,
-    id: generateId(),
-    status: "pending",
-    attempts: 0,
-    createdAt: Date.now(),
-    lastAttemptAt: null,
+let dbPromise:Promise<IDBDatabase>|null=null;
+function ownerKey(ownerId:string){if(!/^[a-f0-9-]{36}$/i.test(ownerId))throw Error('An account ID is required for offline messages');return ownerId;}
+function openDB():Promise<IDBDatabase>{
+ if(dbPromise)return dbPromise;
+ dbPromise=new Promise<IDBDatabase>((resolve,reject)=>{
+  if(typeof window==='undefined'||!('indexedDB' in window)){reject(Error('IndexedDB unavailable'));return;}
+  let blocked=false;
+  const request=indexedDB.open(DB_NAME,DB_VERSION);
+  request.onupgradeneeded=event=>{
+   const database=request.result;
+   const store=database.objectStoreNames.contains(STORE_NAME)?request.transaction!.objectStore(STORE_NAME):database.createObjectStore(STORE_NAME,{keyPath:'id'});
+   if((event as IDBVersionChangeEvent).oldVersion<2)store.clear();
+   for(const [name,key] of [['status','status'],['createdAt','createdAt'],['ownerId','ownerId'],['ownerStatus',['ownerId','status']],['ownerKey',['ownerId','idempotencyKey']]] as const){if(!store.indexNames.contains(name))store.createIndex(name,key as string|string[],{unique:false});}
   };
-  await promisify(txStore(db, "readwrite").put(pending));
-  return pending;
+  request.onsuccess=()=>{
+   const database=request.result;if(blocked){database.close();return;}
+   database.onversionchange=()=>{database.close();dbPromise=null;};resolve(database);
+  };
+  request.onblocked=()=>{blocked=true;reject(Error('Close other Zobia tabs to update offline storage, then retry.'));};
+  request.onerror=()=>reject(request.error);
+ }).catch(error=>{dbPromise=null;throw error;});
+ return dbPromise;
 }
-
-/**
- * Get all pending (unsent) messages, ordered by creation time.
- * Only returns messages with status === 'pending'.
- */
-export async function getPendingMessages(): Promise<PendingMessage[]> {
-  const db = await openDB();
-  const store = txStore(db, "readonly");
-  const index = store.index("status");
-  return promisify(index.getAll(IDBKeyRange.only("pending")));
+function requestValue<T>(request:IDBRequest<T>){return new Promise<T>((resolve,reject)=>{request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});}
+function changed(){window.dispatchEvent(new Event('zobia-offline-queue'));}
+/** Resolve writes only after commit; a request's success event can still be followed by abort. */
+async function write<T>(operation:(store:IDBObjectStore,result:(value:T)=>void,fail:(error:Error)=>void)=>void):Promise<T>{
+ const database=await openDB();
+ return new Promise<T>((resolve,reject)=>{
+  const tx=database.transaction(STORE_NAME,'readwrite');let result:T,failure:Error|undefined;
+  const fail=(error:Error)=>{failure=error;tx.abort();};
+  tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(failure??tx.error??Error('Offline write failed'));tx.onabort=()=>reject(failure??tx.error??Error('Offline write aborted'));
+  try{operation(tx.objectStore(STORE_NAME),value=>{result=value;},fail);}catch(error){tx.abort();reject(error);}
+ });
 }
-
-/**
- * Update the status of a queued message atomically.
- *
- * BUG-IDB-02 FIX: perform the get and put inside a single readwrite
- * transaction using raw IDB callbacks (no `await` between get and put).
- * Awaiting between two separate promisified IDB operations allows the
- * browser to auto-commit the transaction between them, and allows a
- * concurrent call to read a stale snapshot and silently overwrite the
- * first call's put with stale data (lost update).
- */
-export async function updateMessageStatus(
-  id: string,
-  updates: Partial<Pick<PendingMessage, "status" | "attempts" | "lastAttemptAt">>
-): Promise<void> {
-  const db = await openDB();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const getReq = store.get(id);
-    getReq.onsuccess = () => {
-      const existing = getReq.result as PendingMessage | undefined;
-      if (!existing) { resolve(); return; }
-      store.put({ ...existing, ...updates });
+export async function enqueueMessage(message:Omit<PendingMessage,'id'|'status'|'attempts'|'createdAt'|'lastAttemptAt'>):Promise<PendingMessage>{
+ ownerKey(message.ownerId);
+ if(message.content.length>2000 || (message.mediaUrl?.length??0)>2048 || !message.idempotencyKey || message.idempotencyKey.length>128)throw Error('Invalid offline message');
+ const pending:PendingMessage={...message,id:crypto.randomUUID(),status:'pending',attempts:0,createdAt:Date.now(),lastAttemptAt:null};
+ const result=await write<PendingMessage>((store,done,fail)=>{
+  const prune=store.index('createdAt').openCursor(IDBKeyRange.upperBound(Date.now()-RETENTION_MS));
+  prune.onsuccess=()=>{
+   const cursor=prune.result;if(cursor){cursor.delete();cursor.continue();return;}
+   const existing=store.index('ownerKey').get([message.ownerId,message.idempotencyKey]);
+   existing.onsuccess=()=>{
+    if(existing.result){
+     const previous=existing.result as PendingMessage;
+     if(previous.recipientId!==message.recipientId || previous.content!==message.content || previous.messageType!==message.messageType || previous.mediaUrl!==message.mediaUrl){fail(Error("This offline operation key already belongs to another message."));return;}
+     done(previous);return;
+    }
+    const ownerCount=store.index('ownerId').count(message.ownerId);
+    ownerCount.onsuccess=()=>{
+     if(ownerCount.result>=MAX_PER_OWNER){fail(Error("Your offline queue is full. Send or remove queued messages before adding more."));return;}
+     const total=store.count();total.onsuccess=()=>{if(total.result>=MAX_TOTAL){fail(Error("Offline storage is full on this device."));return;}store.put(pending);done(pending);};
     };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+   };
+  };
+ });
+ changed();return result;
 }
-
-/**
- * Remove a successfully sent message from the queue.
- */
-export async function dequeueMessage(id: string): Promise<void> {
-  const db = await openDB();
-  await promisify(txStore(db, "readwrite").delete(id));
+async function messages(ownerId:string,status?:PendingMessageStatus):Promise<PendingMessage[]>{
+ const database=await openDB(),store=database.transaction(STORE_NAME,'readonly').objectStore(STORE_NAME);
+ const rows=await requestValue(status?store.index('ownerStatus').getAll([ownerKey(ownerId),status],MAX_PER_OWNER):store.index('ownerId').getAll(ownerKey(ownerId),MAX_PER_OWNER));
+ return (rows as PendingMessage[]).filter(row=>row.createdAt>Date.now()-RETENTION_MS).sort((a,b)=>a.createdAt-b.createdAt);
 }
-
-/**
- * Fetch all messages in the queue regardless of status.
- */
-async function getAllMessages(): Promise<PendingMessage[]> {
-  const db = await openDB();
-  const store = txStore(db, "readonly");
-  return promisify(store.getAll());
+export async function getPendingMessages(ownerId:string){return messages(ownerId,'pending');}
+export async function updateMessageStatus(id:string,updates:Partial<Pick<PendingMessage,'status'|'attempts'|'lastAttemptAt'>>):Promise<void>{
+ await write<void>((store,done)=>{const request=store.get(id);request.onsuccess=()=>{if(request.result)store.put({...request.result,...updates});done();};});
 }
-
-/**
- * Count messages by status.
- */
-export async function getQueueCounts(): Promise<Record<PendingMessageStatus, number>> {
-  // Use getAllMessages so failed/sending counts are not always 0 (L-07)
-  const all = await getAllMessages();
-  const counts: Record<PendingMessageStatus, number> = { pending: 0, sending: 0, failed: 0 };
-  for (const m of all) {
-    if (m.status in counts) counts[m.status]++;
-  }
-  return counts;
+export async function dequeueMessage(id:string):Promise<void>{await write<void>((store,done)=>{store.delete(id);done();});}
+export async function getQueueCounts(ownerId:string):Promise<Record<PendingMessageStatus,number>>{
+ const counts={pending:0,sending:0,failed:0};for(const row of await messages(ownerId))if(row.status in counts)counts[row.status]++;return counts;
 }
-
-/**
- * Clear all queued messages (e.g., on sign-out).
- */
-export async function clearQueue(): Promise<void> {
-  const db = await openDB();
-  await promisify(txStore(db, "readwrite").clear());
+export async function clearQueue(ownerId:string):Promise<void>{
+ await write<void>((store,done)=>{const request=store.index('ownerId').openCursor(ownerKey(ownerId));request.onsuccess=()=>{const cursor=request.result;if(cursor){cursor.delete();cursor.continue();}else done();};});
 }
-
-/**
- * Reset all 'sending' messages back to 'pending'.
- * Call this on app start / reconnect to recover messages that were in-flight
- * when the tab crashed or the browser was closed mid-send.
- *
- * BUG-IDB-01 FIX: use raw IDB callbacks for both the index.getAll and the
- * subsequent store.put calls so they all execute within the same readwrite
- * transaction. Awaiting between promisified IDB requests allows the browser to
- * auto-commit the transaction before the put calls are issued.
- */
-export async function resetSendingMessages(): Promise<number> {
-  const db = await openDB();
-  return new Promise<number>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const index = store.index("status");
-    const getReq = index.getAll(IDBKeyRange.only("sending"));
-    getReq.onsuccess = () => {
-      const messages = (getReq.result ?? []) as PendingMessage[];
-      for (const msg of messages) {
-        store.put({ ...msg, status: "pending" as PendingMessageStatus });
-      }
-      // count captured synchronously; resolve when tx commits
-      tx.oncomplete = () => resolve(messages.length);
-    };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
+async function reset(ownerId:string,status:PendingMessageStatus):Promise<number>{
+ return write<number>((store,done)=>{const request=store.index('ownerStatus').getAll([ownerKey(ownerId),status],MAX_PER_OWNER);request.onsuccess=()=>{const rows=request.result as PendingMessage[];for(const row of rows)store.put({...row,status:'pending',...(status==='failed'?{attempts:0,lastAttemptAt:null}:{})});done(rows.length);};});
 }
-
-/**
- * Reset all 'failed' messages back to 'pending' so they are retried.
- * Returns the number of messages re-queued.
- *
- * BUG-IDB-01 FIX: same raw-callback pattern as resetSendingMessages.
- */
-export async function retryFailed(): Promise<number> {
-  const db = await openDB();
-  return new Promise<number>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, "readwrite");
-    const store = tx.objectStore(STORE_NAME);
-    const index = store.index("status");
-    const getReq = index.getAll(IDBKeyRange.only("failed"));
-    getReq.onsuccess = () => {
-      const messages = (getReq.result ?? []) as PendingMessage[];
-      for (const msg of messages) {
-        store.put({ ...msg, status: "pending" as PendingMessageStatus, lastAttemptAt: null });
-      }
-      tx.oncomplete = () => resolve(messages.length);
-    };
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
-}
+export async function resetSendingMessages(ownerId:string){return reset(ownerId,'sending');}
+export async function retryFailed(ownerId:string){const count=await reset(ownerId,'failed');changed();return count;}

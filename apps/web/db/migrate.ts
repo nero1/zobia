@@ -8,7 +8,7 @@ import { catalogChecksum } from "./catalog";
 const directory = path.join(__dirname, "migrations");
 const baseline = "0001_consolidated_schema.sql";
 const predecessor = JSON.parse(fs.readFileSync(path.join(__dirname, "baselines/2026-10-23.json"), "utf8")) as {
-  catalogChecksum: string; predecessors: Record<string,string>; previousBaselineChecksum:string; previousCatalogChecksum:string; upgradeFile:string; upgradeChecksum:string;
+  catalogChecksum: string; predecessors: Record<string,string>; previousBaselineChecksum:string; previousCatalogChecksum:string; upgradeFile:string; upgradeChecksum:string; additionalUpgrades?:{fromBaselineChecksum:string;fromCatalogChecksum:string;file:string;checksum:string}[];
 };
 const log = (message: string) => process.stdout.write(`[migrate] ${message}\n`);
 
@@ -53,7 +53,14 @@ async function main() {
   const files = fs.readdirSync(directory).filter(f => f.endsWith(".sql")).sort();
   const contents = new Map(files.map(f => [f,fs.readFileSync(path.join(directory,f),"utf8")]));
   if (!contents.has(baseline)) throw new Error("Consolidated baseline is missing");
-  const client = new Client({connectionString});
+  const url=new URL(connectionString);
+  const production=process.env.NODE_ENV==='production';
+  if(production){
+    if(['disable','no-verify'].includes(url.searchParams.get('sslmode')??''))throw new Error('Production migrations require verified database TLS');
+    url.searchParams.delete('sslmode');
+  }
+  const ca=process.env.DB_CA_CERT??process.env.RAILWAY_CA_CERT??process.env.DO_CA_CERT;
+  const client = new Client({connectionString:url.href,connectionTimeoutMillis:10000,...(production?{ssl:{rejectUnauthorized:true,...(ca?{ca}:{})}}:{})});
   await client.connect();
   try {
     // Serialize deploys before reading history, including a fresh database.
@@ -69,16 +76,25 @@ async function main() {
       return;
     }
     const existingApp = (await client.query("SELECT to_regclass('public.users') AS name")).rows[0].name;
-    if ((legacy && (completePredecessor || applied.get(baseline)===predecessor.previousBaselineChecksum)) || args.has("--adopt-baseline")) {
+    if ((legacy && (completePredecessor || applied.get(baseline)===predecessor.previousBaselineChecksum || predecessor.additionalUpgrades?.some(upgrade=>upgrade.fromBaselineChecksum===applied.get(baseline)))) || args.has("--adopt-baseline")) {
       if (!existingApp) throw new Error("No application schema exists to adopt; run migrate without --adopt-baseline");
-      const observed=await catalogChecksum(client);
-      if(observed!==predecessor.catalogChecksum && observed!==predecessor.previousCatalogChecksum)throw new Error("Existing schema is neither the verified previous baseline nor the current final schema. No data was changed; inspect schema drift before upgrading.");
+      let observed=await catalogChecksum(client);
+      const knownCatalogs=new Set([predecessor.catalogChecksum,predecessor.previousCatalogChecksum,...(predecessor.additionalUpgrades??[]).map(upgrade=>upgrade.fromCatalogChecksum)]);
+      if(!knownCatalogs.has(observed))throw new Error("Existing schema is neither the verified previous baseline nor the current final schema. No data was changed; inspect schema drift before upgrading.");
       await client.query("BEGIN");
       try {
         if(observed===predecessor.previousCatalogChecksum){
           const upgrade=fs.readFileSync(path.join(__dirname,"upgrades",predecessor.upgradeFile),"utf8");
           if(checksum(upgrade)!==predecessor.upgradeChecksum)throw new Error("Verified upgrade file checksum mismatch");
           await client.query(migrationBody(upgrade));
+          observed=await catalogChecksum(client);
+        }
+        for(const plan of predecessor.additionalUpgrades??[]){
+          if(observed!==plan.fromCatalogChecksum)continue;
+          const upgrade=fs.readFileSync(path.join(__dirname,"upgrades",plan.file),"utf8");
+          if(checksum(upgrade)!==plan.checksum)throw new Error(`Verified upgrade checksum mismatch: ${plan.file}`);
+          await client.query(migrationBody(upgrade));
+          observed=await catalogChecksum(client);
         }
         await verifyBaseline(client);
         const text = contents.get(baseline)!;

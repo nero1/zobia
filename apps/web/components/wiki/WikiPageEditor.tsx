@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 export type WikiContentFormat = "markdown" | "plaintext";
 
 export interface WikiPageEditorInitial {
+  expectedRevision?:number;
   title: string;
   contentMarkdown: string;
   contentFormat: WikiContentFormat;
@@ -59,6 +60,7 @@ export function WikiPageEditor({
             contentMarkdown: form.contentMarkdown,
             contentFormat: form.contentFormat,
             editSummary: editSummary || undefined,
+            expectedRevision:initial?.expectedRevision,
           }
         : {
             title: form.title,

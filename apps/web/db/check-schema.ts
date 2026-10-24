@@ -2,6 +2,8 @@
 import {Client} from 'pg';
 import {getTableConfig} from 'drizzle-orm/pg-core';
 import {schema} from '../lib/db/schema';
+import {catalogChecksum} from './catalog';
+import baseline from './baselines/2026-10-23.json';
 export async function checkSchema(url:string){
  const client=new Client({connectionString:url});await client.connect();
  try{
@@ -21,7 +23,10 @@ export async function checkSchema(url:string){
   }
   for(const name of tables.keys())if(!modeled.has(name)&&!['migrations_log','_test_applied_migrations'].includes(name))issues.push(`Unmodeled table ${name}`);
   if(issues.length)throw new Error(issues.join('\n'));
-  process.stdout.write(`Drizzle contract verified: ${modeled.size} tables and every modeled column/type.\n`);
+  // A name/type match alone misses CHECKs, nullability, defaults, references,
+  // uniqueness and RLS. Compare all of those with the verified final baseline.
+  if(await catalogChecksum(client)!==baseline.catalogChecksum)throw new Error('Database contract differs from the verified final baseline (constraints, defaults, nullability, relationships, indexes, functions or RLS). Apply the verified upgrade or inspect schema drift.');
+  process.stdout.write(`Drizzle contract verified: ${modeled.size} tables and every modeled column/type; full baseline constraints, defaults, relationships and access policies match.\n`);
  }finally{await client.end();}
 }
 if(require.main===module){const url=process.env.TEST_DATABASE_URL;if(!url)throw new Error('TEST_DATABASE_URL is required');checkSchema(url).catch(error=>{process.stderr.write(String(error)+'\n');process.exitCode=1;});}

@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
@@ -80,6 +80,7 @@ export const GET = withAuth<UserParams>(async (req, { params, auth }) => {
         city: schema.users.city,
         xpTotal: schema.users.xpTotal,
         createdAt: schema.users.createdAt,
+        hiddenSections:schema.users.profileHiddenSections,
       })
       .from(schema.users)
       .where(
@@ -87,22 +88,26 @@ export const GET = withAuth<UserParams>(async (req, { params, auth }) => {
           eq(schema.users.id, userId),
           isNull(schema.users.deletedAt),
           eq(schema.users.onboardingCompleted, true),
-          eq(schema.users.isSuspended, false)
+          eq(schema.users.isBanned,false),
+          sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
+          sql`(${schema.users.id}=${auth.user.sub}::uuid OR NOT COALESCE(${schema.users.profilePrivate},false) OR EXISTS(SELECT 1 FROM friendships f WHERE f.status='accepted' AND ((f.requester_id=${auth.user.sub}::uuid AND f.addressee_id=${schema.users.id}) OR (f.addressee_id=${auth.user.sub}::uuid AND f.requester_id=${schema.users.id}))))`,
+          sql`NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=${auth.user.sub}::uuid AND b.blocked_id=${schema.users.id}) OR (b.blocked_id=${auth.user.sub}::uuid AND b.blocker_id=${schema.users.id}))`
         )
       )
       .limit(1);
 
     if (!row) throw notFound("User not found");
 
+    const hidden=auth.user.sub===userId?[]:Array.isArray(row.hiddenSections)?row.hiddenSections as string[]:[];
     const user: PublicUserProfile = {
       id: row.id,
       username: row.username,
       display_name: row.displayName,
-      bio: row.bio,
-      avatar_url: row.avatarUrl,
-      avatar_emoji: row.avatarEmoji,
+      bio:hidden.includes("bio")?null:row.bio,
+      avatar_url:hidden.includes("avatar")?null:row.avatarUrl,
+      avatar_emoji:hidden.includes("avatar")?null:row.avatarEmoji,
       city: row.city,
-      xp_total: Number(row.xpTotal),
+      xp_total:hidden.includes("xp")?0:Number(row.xpTotal),
       created_at: row.createdAt ? row.createdAt.toISOString() : "",
     };
 

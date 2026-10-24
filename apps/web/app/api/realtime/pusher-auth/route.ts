@@ -1,3 +1,5 @@
+import {readBoundedBytes} from "@/lib/security/requestBody";
+import { realtimeResourceActive } from "@/lib/realtime/channelAccess";
 import { loadClassroomContext } from "@/lib/classroom/access";
 export const runtime = "nodejs";
 
@@ -18,7 +20,7 @@ import { type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
 import { and, eq, exists, isNull, or } from "drizzle-orm";
 import { env } from "@/lib/env";
-import { verifyAccessToken } from "@/lib/auth/jwt";
+import { authenticateAccessToken } from "@/lib/auth/principal";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { getDb, schema } from "@/lib/db/drizzle";
 
@@ -44,7 +46,7 @@ export async function POST(req: NextRequest) {
 
   let userId: string;
   try {
-    const payload = await verifyAccessToken(token);
+    const { payload } = await authenticateAccessToken(token);
     userId = payload.sub;
   } catch {
     return new Response("Unauthorized", { status: 401 });
@@ -53,7 +55,7 @@ export async function POST(req: NextRequest) {
   // 2. Parse body
   let body: { socket_id?: string; channel_name?: string };
   try {
-    const text = await req.text();
+    const text = new TextDecoder("utf-8",{fatal:true}).decode(await readBoundedBytes(req,16384));
     // Pusher sends URL-encoded body: socket_id=...&channel_name=...
     const params = new URLSearchParams(text);
     body = {
@@ -102,6 +104,7 @@ export async function POST(req: NextRequest) {
     }
   } else if (roomMatch) {
     const roomId = roomMatch[1];
+    if (!await realtimeResourceActive("room",roomId,userId)) return new Response("Forbidden", {status:403});
     const [row] = await orm
       .select({ id: schema.rooms.id, type: schema.rooms.type })
       .from(schema.rooms)
@@ -136,6 +139,7 @@ export async function POST(req: NextRequest) {
     }
   } else if (groupMatch) {
     const groupId = groupMatch[1];
+    if (!await realtimeResourceActive("group",groupId,userId)) return new Response("Forbidden", {status:403});
     const [row] = await orm
       .select({ group_chat_id: schema.groupChatMembers.groupChatId })
       .from(schema.groupChatMembers)

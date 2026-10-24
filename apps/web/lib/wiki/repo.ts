@@ -1,3 +1,5 @@
+import {z} from "zod";
+import {decodePageCursor,encodePageCursor,cursorTime,cursorTimestamp} from "@/lib/api/pageCursor";
 /**
  * lib/wiki/repo.ts
  *
@@ -80,7 +82,13 @@ export async function listWikis(
 
   const conditions: SQL[] = [eq(schema.wikis.status, "active"), sql`${schema.wikis.deletedAt} IS NULL`];
   if (search?.trim()) conditions.push(ilike(schema.wikis.name, `%${search.trim()}%`));
-  if (cursor && tab !== "random") conditions.push(lt(schema.wikis.id, cursor));
+  const scope=`wiki-discovery:${tab}:${search?.trim()??""}`;
+  const cur=tab==='random'?null:decodePageCursor(cursor,scope,z.object({id:z.string().uuid(),created:cursorTimestamp,updated:cursorTimestamp,edits:z.number().int().nonnegative(),views:z.number().int().nonnegative(),pages:z.number().int().nonnegative()}));
+  if(cur){
+    if(tab==='trending')conditions.push(sql`(${schema.wikis.editCount},${schema.wikis.updatedAt},${schema.wikis.id})<(${cur.edits},${cur.updated}::timestamptz,${cur.id}::uuid)`);
+    else if(tab==='new')conditions.push(sql`(${schema.wikis.createdAt},${schema.wikis.id})<(${cur.created}::timestamptz,${cur.id}::uuid)`);
+    else conditions.push(sql`(${schema.wikis.viewCount},${schema.wikis.pageCount},${schema.wikis.id})<(${cur.views},${cur.pages},${cur.id}::uuid)`);
+  }
 
   let orderBy: SQL[];
   if (tab === "trending") orderBy = [desc(schema.wikis.editCount), desc(schema.wikis.updatedAt)];
@@ -88,8 +96,10 @@ export async function listWikis(
   else if (tab === "random") orderBy = [sql`RANDOM()`];
   else orderBy = [desc(schema.wikis.viewCount), desc(schema.wikis.pageCount)];
 
+  if(tab!=="random")orderBy.push(desc(schema.wikis.id));
   const rows = await orm
     .select({
+      cursorCreated:cursorTime(schema.wikis.createdAt),cursorUpdated:cursorTime(schema.wikis.updatedAt),editCount:schema.wikis.editCount,
       id: schema.wikis.id,
       ownerId: schema.wikis.ownerId,
       slug: schema.wikis.slug,
@@ -111,12 +121,12 @@ export async function listWikis(
     .orderBy(...orderBy)
     .limit(limit + 1);
 
-  const hasMore = rows.length > limit;
+  const hasMore = tab!=="random" && rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   const wikis = page.map(toSummary);
   return {
     wikis,
-    nextCursor: hasMore ? wikis[wikis.length - 1]?.id ?? null : null,
+    nextCursor: hasMore ? encodePageCursor(scope,{id:page.at(-1)!.id,created:page.at(-1)!.cursorCreated,updated:page.at(-1)!.cursorUpdated,edits:page.at(-1)!.editCount,views:page.at(-1)!.viewCount,pages:page.at(-1)!.pageCount}) : null,
     hasMore,
   };
 }
@@ -296,13 +306,14 @@ export async function listWikiPages(
     eq(schema.wikiPages.status, "published"),
   ];
   if (opts.search?.trim()) conditions.push(ilike(schema.wikiPages.title, `%${opts.search.trim()}%`));
-  if (opts.cursor) conditions.push(lt(schema.wikiPages.id, opts.cursor));
+  const scope=`wiki-pages:${wikiId}:${opts.search?.trim()??""}`,cur=decodePageCursor(opts.cursor,scope,z.tuple([z.string().max(150),z.string().uuid()]));
+  if(cur)conditions.push(sql`(${schema.wikiPages.title},${schema.wikiPages.id})>(${cur[0]},${cur[1]}::uuid)`);
 
   const rows = await orm
     .select()
     .from(schema.wikiPages)
     .where(and(...conditions))
-    .orderBy(asc(schema.wikiPages.title))
+    .orderBy(asc(schema.wikiPages.title),asc(schema.wikiPages.id))
     .limit(opts.limit + 1);
 
   const hasMore = rows.length > opts.limit;
@@ -310,7 +321,7 @@ export async function listWikiPages(
   const pages = page.map(toPageSummary);
   return {
     pages,
-    nextCursor: hasMore ? pages[pages.length - 1]?.id ?? null : null,
+    nextCursor: hasMore ? encodePageCursor(scope,[page.at(-1)!.title,page.at(-1)!.id]) : null,
     hasMore,
   };
 }

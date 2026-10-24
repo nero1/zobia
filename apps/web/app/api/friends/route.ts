@@ -1,3 +1,6 @@
+import {z} from "zod";
+import {decodePageCursor,encodePageCursor,cursorTime,cursorTimestamp} from "@/lib/api/pageCursor";
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -7,7 +10,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, notFound } from '@/lib/api/errors';
-import { and, eq, desc, lt, or, sql } from 'drizzle-orm';
+import { and, eq, desc, isNull, or, sql } from 'drizzle-orm';
 import { getDb, schema } from '@/lib/db/drizzle';
 import { XP_VALUES } from '@/lib/xp/engine';
 import { insertNotification } from '@/lib/notifications/insert';
@@ -19,13 +22,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const { searchParams } = new URL(req.url);
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
+  if(!Number.isSafeInteger(limit)||limit<1)throw badRequest('Invalid page size');
+  const scope=`friends:${userId}`,cur=decodePageCursor(cursor,scope,z.tuple([cursorTimestamp,z.string().uuid()]));
 
   const orm = await getDb();
+  const friendCreated=sql`COALESCE(${schema.friendships.createdAt},TIMESTAMPTZ '1970-01-01 00:00:00Z')`;
   const friendUserId = sql<string>`CASE WHEN ${schema.friendships.requesterId} = ${userId} THEN ${schema.friendships.addresseeId} ELSE ${schema.friendships.requesterId} END`;
   const rows = await orm
     .select({
       id: schema.friendships.id,
       created_at: schema.friendships.createdAt,
+      cursor_created:cursorTime(friendCreated),
       friend_id: schema.users.id,
       username: schema.users.username,
       display_name: schema.users.displayName,
@@ -42,10 +49,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       and(
         or(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, userId)),
         eq(schema.friendships.status, 'accepted'),
-        cursor ? lt(schema.friendships.id, cursor) : undefined,
+        isNull(schema.users.deletedAt),eq(schema.users.isBanned,false),
+        sql`NOT EXISTS(SELECT 1 FROM user_blocks b WHERE (b.blocker_id=${userId}::uuid AND b.blocked_id=${schema.users.id}) OR (b.blocker_id=${schema.users.id} AND b.blocked_id=${userId}::uuid))`,
+        cur?sql`(${friendCreated},${schema.friendships.id})<(${cur[0]}::timestamptz,${cur[1]}::uuid)`:undefined,
       ),
     )
-    .orderBy(desc(schema.friendships.createdAt))
+    .orderBy(desc(friendCreated),desc(schema.friendships.id))
     .limit(limit + 1);
 
   const hasNextPage = rows.length > limit;
@@ -68,7 +77,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     createdAt: r.created_at,
   }));
 
-  const nextCursor = hasNextPage ? friends[friends.length - 1]?.friendshipId ?? null : null;
+  const nextCursor=hasNextPage?encodePageCursor(scope,[rawData.at(-1)!.cursor_created,rawData.at(-1)!.id]):null;
   return NextResponse.json({
     friends,
     data: friends,
@@ -80,7 +89,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 /** POST /api/friends — send a friend request */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
-  const body = await req.json();
+  const body = await readBoundedJson(req);
   const targetId: string | undefined = body?.userId;
 
   if (!targetId) throw badRequest('userId is required');

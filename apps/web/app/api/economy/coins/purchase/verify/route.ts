@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -35,7 +36,7 @@ interface PaymentRow {
 
 export const POST = withAuth(async (req: NextRequest, { auth }): Promise<NextResponse> => {
   try {
-    const body = await req.json();
+    const body = await readBoundedJson(req);
     const parsed = bodySchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ success: false, error: { message: "Invalid reference" } }, { status: 400 });

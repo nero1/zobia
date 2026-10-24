@@ -1,3 +1,4 @@
+import { readBoundedFormData } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -22,7 +23,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: { user: 
     await requireFeatureEnabled("moments");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
-    const formData = await req.formData();
+    const formData = await readBoundedFormData(req);
     const file = formData.get("file");
     if (!(file instanceof File)) throw badRequest("No file provided");
 

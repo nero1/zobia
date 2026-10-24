@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = "force-dynamic";
 
 /**
@@ -43,7 +44,7 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(async (req: N
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { reportId } = await params;
 
-    const body = await req.json().catch(() => ({}));
+    const body = await readBoundedJson(req).catch(() => ({}));
     const parsed = ActionBodySchema.safeParse(body);
     if (!parsed.success) throw badRequest("Invalid action payload", parsed.error.flatten());
     const { action, note, duration_hours } = parsed.data;

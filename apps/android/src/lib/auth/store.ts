@@ -8,10 +8,12 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode, createElement } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { AuthUserSchema, type AuthUser } from '@zobia/shared/schemas/auth';
-import { apiClient, setCachedToken, resetUnauthenticatedFlag, onUnauthenticated, JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
+import { apiClient, beginAuthTransition, isAuthGenerationCurrent, runAuthStorageMutation, getCachedToken, setCachedToken, resetUnauthenticatedFlag, onUnauthenticated, JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
 import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 import { unregisterPushOnLogout } from '@/lib/push';
 import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
+import { enqueueSessionRevocation, flushSessionRevocations } from './revocations';
+import { Network } from '@capacitor/network';
 
 /**
  * One-time migration for installs that logged in before tokens moved to the
@@ -81,7 +83,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Load from storage on boot
   useEffect(() => {
-    (async () => {
+    const generation=beginAuthTransition();
+    let cancelled=false;
+    void flushSessionRevocations();
+    const networkSubscription=Network.addListener('networkStatusChange',status=>{if(status.connected)void flushSessionRevocations();});
+    void runAuthStorageMutation(async () => {
       try {
         const [token, { value: userJson }, { value: impersonatedBy }] = await Promise.all([
           migrateLegacyPlaintextToken(JWT_KEY),
@@ -90,7 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]);
         // Refresh token has no in-memory cache to populate, but still needs
         // migrating off the plaintext store on this same boot.
-        void migrateLegacyPlaintextToken(REFRESH_TOKEN_KEY);
+        await migrateLegacyPlaintextToken(REFRESH_TOKEN_KEY);
+        if(cancelled || !isAuthGenerationCurrent(generation))return;
         let user: AuthUser | null = null;
         if (userJson) {
           try {
@@ -99,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           } catch {}
         }
         if (token) {
-          setCachedToken(token);
+          setCachedToken(token,false);
           resetUnauthenticatedFlag();
         }
         setSessionExpiresAtFromToken(token ?? null);
@@ -107,61 +114,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // query runs, so a boot never reads another account's IndexedDB
         // entries (see lib/query/cacheOwner.ts).
         await setQueryCacheOwner(user?.id ?? null);
-        setState({ token: token ?? null, user, isLoaded: true, impersonatedBy: impersonatedBy ?? null });
+        if(!cancelled && isAuthGenerationCurrent(generation))setState({ token: token ?? null, user, isLoaded: true, impersonatedBy: impersonatedBy ?? null });
       } catch {
+        if(cancelled || !isAuthGenerationCurrent(generation))return;
         await setQueryCacheOwner(null);
         setState({ token: null, user: null, isLoaded: true, impersonatedBy: null });
       }
-    })();
+    });
+    return ()=>{cancelled=true;void networkSubscription.then(listener=>listener.remove());};
   }, []);
 
   const setAuth = async (token: string, user: AuthUser, refreshToken?: string, impersonatedBy?: string | null) => {
-    const nextImpersonatedBy = impersonatedBy ?? null;
-    const writes: Array<Promise<void>> = [
-      secureSet(JWT_KEY, token),
-      Preferences.set({ key: USER_KEY, value: JSON.stringify(user) }),
-      nextImpersonatedBy
-        ? Preferences.set({ key: IMPERSONATED_BY_KEY, value: nextImpersonatedBy })
-        : Preferences.remove({ key: IMPERSONATED_BY_KEY }),
-    ];
-    if (refreshToken) {
-      writes.push(secureSet(REFRESH_TOKEN_KEY, refreshToken));
-    }
-    await Promise.all(writes);
-    setCachedToken(token);
-    resetUnauthenticatedFlag();
-    setSessionExpiresAtFromToken(token);
-    // Switch the persisted-cache namespace to this user and drop anything the
-    // previous owner left behind, in memory and on disk. Impersonation counts
-    // as a different owner for this purpose — an admin acting as someone else
-    // must not see their own cached data attributed to the target account.
-    //
-    // Cleared unconditionally here (unlike the web provider's first-adopt case)
-    // because setAuth only ever runs on an explicit sign-in, impersonation
-    // switch, or token restore — never mid-render — so there is no in-flight
-    // page load whose results we would be throwing away.
-    queryClient.clear();
-    await setQueryCacheOwner(user.id);
-    setState((prev) => ({ ...prev, token, user, impersonatedBy: nextImpersonatedBy }));
+    const generation=beginAuthTransition();
+    await runAuthStorageMutation(async()=>{
+      if(!isAuthGenerationCurrent(generation))return;
+      const nextImpersonatedBy=impersonatedBy??null;
+      await Promise.all([
+        secureSet(JWT_KEY,token),
+        refreshToken ? secureSet(REFRESH_TOKEN_KEY,refreshToken) : secureRemove(REFRESH_TOKEN_KEY),
+        Preferences.set({key:USER_KEY,value:JSON.stringify(user)}),
+        nextImpersonatedBy ? Preferences.set({key:IMPERSONATED_BY_KEY,value:nextImpersonatedBy}) : Preferences.remove({key:IMPERSONATED_BY_KEY}),
+      ]);
+      if(!isAuthGenerationCurrent(generation))return;
+      setCachedToken(token,false);
+      resetUnauthenticatedFlag();
+      setSessionExpiresAtFromToken(token);
+      queryClient.clear();
+      await setQueryCacheOwner(user.id);
+      if(isAuthGenerationCurrent(generation))setState(prev=>({...prev,token,user,impersonatedBy:nextImpersonatedBy}));
+    });
   };
 
   const clearAuth = async () => {
-    // Best-effort — never let a push-unregister failure block sign-out.
-    void unregisterPushOnLogout();
-    await Promise.all([
-      secureRemove(JWT_KEY),
-      secureRemove(REFRESH_TOKEN_KEY),
-      Preferences.remove({ key: USER_KEY }),
-      Preferences.remove({ key: IMPERSONATED_BY_KEY }),
-    ]);
-    setCachedToken(null);
-    setSessionExpiresAtFromToken(null);
-    // Sign-out must leave nothing readable for the next person to use this
-    // device: clear the in-memory cache and purge the signed-out account's
-    // persisted entries.
-    queryClient.clear();
-    await setQueryCacheOwner(null);
-    setState((prev) => ({ ...prev, token: null, user: null, impersonatedBy: null }));
+    const generation=beginAuthTransition();
+    const token=getCachedToken();
+    await unregisterPushOnLogout().catch(()=>{});
+    await runAuthStorageMutation(async()=>{
+      if(!isAuthGenerationCurrent(generation))return;
+      const refreshToken=await secureGet(REFRESH_TOKEN_KEY);
+      await enqueueSessionRevocation(token,refreshToken);
+      await Promise.all([
+        secureRemove(JWT_KEY),secureRemove(REFRESH_TOKEN_KEY),
+        Preferences.remove({key:USER_KEY}),Preferences.remove({key:IMPERSONATED_BY_KEY}),
+      ]);
+      if(!isAuthGenerationCurrent(generation))return;
+      setCachedToken(null,false);
+      setSessionExpiresAtFromToken(null);
+      queryClient.clear();
+      await setQueryCacheOwner(null);
+      if(isAuthGenerationCurrent(generation))setState(prev=>({...prev,token:null,user:null,impersonatedBy:null}));
+    });
+    void flushSessionRevocations();
   };
 
   // ZSB-03 fix: `onUnauthenticated` (fired by client.ts/apiFetch.ts when a

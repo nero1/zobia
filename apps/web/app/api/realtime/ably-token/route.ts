@@ -1,3 +1,4 @@
+import { realtimeResourceActive } from "@/lib/realtime/channelAccess";
 import { loadClassroomContext } from "@/lib/classroom/access";
 export const runtime = "nodejs";
 
@@ -25,7 +26,7 @@ export const runtime = "nodejs";
 import { type NextRequest } from "next/server";
 import { and, eq, exists, isNull, or } from "drizzle-orm";
 import { env } from "@/lib/env";
-import { verifyAccessToken } from "@/lib/auth/jwt";
+import { authenticateAccessToken } from "@/lib/auth/principal";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { getDb, schema } from "@/lib/db/drizzle";
 
@@ -67,6 +68,7 @@ async function authorizeChannel(orm: Orm, userId: string, channel: string): Prom
   }
   if (roomMatch) {
     const roomId = roomMatch[1];
+    if (!await realtimeResourceActive("room",roomId,userId)) return "forbidden";
     const [row] = await orm
       .select({ id: schema.rooms.id, type: schema.rooms.type })
       .from(schema.rooms)
@@ -100,6 +102,7 @@ async function authorizeChannel(orm: Orm, userId: string, channel: string): Prom
   }
   if (groupMatch) {
     const groupId = groupMatch[1];
+    if (!await realtimeResourceActive("group",groupId,userId)) return "forbidden";
     const [row] = await orm
       .select({ id: schema.groupChatMembers.id })
       .from(schema.groupChatMembers)
@@ -127,9 +130,11 @@ export async function GET(req: NextRequest) {
   }
 
   let userId: string;
+  let expiresAt = 0;
   try {
-    const payload = await verifyAccessToken(token);
+    const { payload } = await authenticateAccessToken(token);
     userId = payload.sub;
+    expiresAt = (payload.exp ?? 0) * 1000;
   } catch {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -169,7 +174,8 @@ export async function GET(req: NextRequest) {
   }
 
   const [keyName] = apiKey.split(":");
-  const ttl = 3600 * 1000; // 1 hour in milliseconds
+  const ttl = Math.min(60_000,expiresAt-Date.now());
+  if (ttl <= 0) return new Response("Unauthorized", {status:401});
   const timestamp = Date.now();
   const nonce = Math.random().toString(36).slice(2, 18);
 

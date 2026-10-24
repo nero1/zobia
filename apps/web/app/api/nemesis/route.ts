@@ -1,3 +1,4 @@
+import { readBoundedJson } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -266,7 +267,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
     // Read action from request body — stale clients may POST here instead of
     // the dedicated /api/nemesis/challenge or /api/nemesis/dismiss sub-routes.
-    const body = await req.json().catch(() => ({})) as { action?: string };
+    const body = await readBoundedJson(req).catch(() => ({})) as { action?: string };
     const action = body.action;
 
     const orm = await getDb();

@@ -1,3 +1,4 @@
+import {reserveCommunityReward} from "@/lib/tasks/communityReward";
 /**
  * lib/quizzes/service.ts
  *
@@ -13,12 +14,10 @@
  */
 
 import { randomUUID } from "crypto";
-import { getDb } from "@/lib/db/drizzle";
+import { getDb,type DbOrTx } from "@/lib/db/drizzle";
 import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
-import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
-import { creditCoins } from "@/lib/economy/coins";
 import { generateUniqueSlug } from "@/lib/slug";
 import {
   fundContentTreasury,
@@ -67,29 +66,8 @@ function assertCanCreate(eligibility: QuizEligibility): void {
 // Rewards
 // ---------------------------------------------------------------------------
 
-async function awardCreditsCapped(userId: string, amount: number, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
-  if (amount <= 0) return;
-  try {
-    const orm = await getDb();
-    const { rows } = await orm.execute<{ earned: string }>(sql`
-      SELECT COALESCE(SUM(amount), 0)::text AS earned
-      FROM coin_ledger
-      WHERE user_id = ${userId} AND transaction_type LIKE 'quiz_%' AND amount > 0
-        AND created_at >= NOW() - INTERVAL '24 hours'
-    `);
-    const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
-    const headroom = dailyCapCredits - earnedToday;
-    if (headroom <= 0) return;
-    const capped = Math.min(amount, headroom);
-    await creditCoins(userId, capped, "quiz_create_reward", referenceId, description);
-  } catch (err) {
-    logger.error({ err, userId, amount }, "[quizzes/service] reward credit award failed");
-  }
-}
-
-function awardQuizRewards(userId: string, xpAmount: number, creditAmount: number, xpSource: string, referenceId: string, description: string, dailyCapCredits: number): void {
-  if (xpAmount > 0) safeAwardXPFireAndForget(userId, xpAmount, "knowledge", xpSource, referenceId);
-  if (creditAmount > 0) awardCreditsCapped(userId, creditAmount, referenceId, description, dailyCapCredits).catch(() => {});
+async function awardQuizRewards(tx:DbOrTx,userId:string,xpAmount:number,creditAmount:number,xpSource:string,referenceId:string,description:string,dailyCapCredits:number):Promise<void>{
+ await reserveCommunityReward(tx,userId,{family:"quiz",amount:creditAmount,dailyCap:dailyCapCredits,type:"quiz_create_reward",xp:xpAmount,track:"knowledge",source:xpSource,referenceId,description});
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +151,8 @@ export async function createQuiz(input: CreateQuizInput): Promise<QuizSummary> {
       authorId: input.userId,
       texts: [input.title, input.description],
     });
-  });
 
-  awardQuizRewards(
+  await awardQuizRewards(tx,
     input.userId,
     eligibility.config.rewardXpCreator,
     eligibility.config.rewardCreditsCreator,
@@ -184,6 +161,7 @@ export async function createQuiz(input: CreateQuizInput): Promise<QuizSummary> {
     "Created a quiz",
     eligibility.config.dailyRewardCapCredits
   );
+  });
 
   return { id: quizId, slug };
 }
@@ -366,6 +344,7 @@ export interface SubmitAttemptResult {
 export async function submitQuizAttempt(input: SubmitAttemptInput): Promise<SubmitAttemptResult> {
   await requireFeatureEnabled("quizzes");
 
+  const manifest=await loadManifest();
   const orm = await getDb();
   const { rows: quizRows } = await orm.execute<{ id: string; status: string; passing_score_percent: number; max_attempts_per_user: number }>(
     sql`SELECT id, status, passing_score_percent, max_attempts_per_user FROM quizzes WHERE id = ${input.quizId} AND deleted_at IS NULL LIMIT 1`
@@ -373,10 +352,6 @@ export async function submitQuizAttempt(input: SubmitAttemptInput): Promise<Subm
   const quiz = quizRows[0];
   if (!quiz) throw notFound("Quiz not found");
   if (quiz.status !== "active") throw badRequest("This quiz is no longer accepting attempts.", "QUIZ_NOT_ACTIVE");
-
-  const { rows: countRows } = await orm.execute<{ count: string }>(sql`SELECT COUNT(*)::text AS count FROM quiz_attempts WHERE quiz_id = ${input.quizId} AND user_id = ${input.userId}`);
-  const attemptsSoFar = parseInt(countRows[0]?.count ?? "0", 10);
-  if (attemptsSoFar >= quiz.max_attempts_per_user) throw badRequest("You've used all your attempts on this quiz.", "QUIZ_MAX_ATTEMPTS_REACHED");
 
   const { rows: questionRows } = await orm.execute<{ id: string; type: string; points: number }>(sql`SELECT id, type, points FROM quiz_questions WHERE quiz_id = ${input.quizId}`);
   if (questionRows.length === 0) throw badRequest("This quiz has no questions.", "QUIZ_NO_QUESTIONS");
@@ -406,6 +381,13 @@ export async function submitQuizAttempt(input: SubmitAttemptInput): Promise<Subm
   const passed = scorePercent >= quiz.passing_score_percent;
 
   await orm.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM users WHERE id=${input.userId} FOR UPDATE`);
+    const currentQuiz=await tx.execute<{max_attempts_per_user:number}>(sql`SELECT max_attempts_per_user FROM quizzes WHERE id=${input.quizId} AND deleted_at IS NULL AND status='active' FOR SHARE`);
+    if(!currentQuiz.rows[0])throw badRequest("This quiz is no longer accepting attempts.","QUIZ_NOT_ACTIVE");
+    const counts=await tx.execute<{count:string}>(sql`SELECT COUNT(*)::text count FROM quiz_attempts WHERE quiz_id=${input.quizId} AND user_id=${input.userId}`);
+    const attemptsSoFar=Number(counts.rows[0].count);
+    if(attemptsSoFar>=currentQuiz.rows[0].max_attempts_per_user)throw badRequest("You've used all your attempts on this quiz.","QUIZ_MAX_ATTEMPTS_REACHED");
+
     const { rows: attemptRows } = await tx.execute<{ id: string }>(sql`
       INSERT INTO quiz_attempts (quiz_id, user_id, attempt_number, score, total_points, score_percent, passed, completed_at)
       VALUES (${input.quizId}, ${input.userId}, ${attemptsSoFar + 1}, ${score}, ${totalPoints}, ${scorePercent}, ${passed}, NOW()) RETURNING id
@@ -415,10 +397,8 @@ export async function submitQuizAttempt(input: SubmitAttemptInput): Promise<Subm
       await tx.execute(sql`INSERT INTO quiz_attempt_answers (attempt_id, question_id, selected_option_ids, is_correct) VALUES (${attemptId}, ${a.questionId}, ${JSON.stringify(a.selectedOptionIds)}, ${a.isCorrect})`);
     }
     await tx.execute(sql`UPDATE quizzes SET attempt_count = attempt_count + 1 WHERE id = ${input.quizId}`);
-  });
 
-  const manifest = await loadManifest();
-  awardQuizRewards(
+  await awardQuizRewards(tx,
     input.userId,
     manifest.quizzes.rewardXpTaker,
     manifest.quizzes.rewardCreditsTaker,
@@ -427,6 +407,7 @@ export async function submitQuizAttempt(input: SubmitAttemptInput): Promise<Subm
     "Took a quiz",
     manifest.quizzes.dailyRewardCapCredits
   );
+  });
 
   let rewardClaimed: number | null = null;
   if (passed) {

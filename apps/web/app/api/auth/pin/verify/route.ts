@@ -68,7 +68,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     await requireCorrectPin(userId, body.pin, rows[0].pinHash);
-    await markPinVerified(userId, auth.user.sid);
+    await markPinVerified(userId, auth.user.sid, rows[0].pinHash);
 
     return NextResponse.json({ verified: true }, { status: 200 });
   } catch (err) {
