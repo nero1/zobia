@@ -139,6 +139,9 @@ export interface AccessTokenPayload extends JWTPayload {
   email?: string;    // omitted when user email is null
   username: string;
   is_admin: boolean;
+  /** Signed only by the Google OAuth callback for the pre-auth flow. */
+  auth_provider?: "google";
+  return_to?: string;
   /** True when the user holds the moderator role. Only used for the cheap
    *  edge middleware pre-filter on /gate44/forum/* (scoped moderator
    *  access) — authorization decisions always re-verify against the

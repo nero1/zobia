@@ -148,7 +148,6 @@ Use this route instead of pasting SQL into Supabase. It installs a new database 
 - Wait until the deployment says **Ready**. If it fails, open its build logs and read the first reported error.
 - Open `https://YOUR_DOMAIN/api/health`, replacing `YOUR_DOMAIN` with your website domain. Confirm the database, schema, and Redis checks are healthy.
 - Open your website and sign in with Google. Complete the account onboarding.
-- Open **Settings → Set Password** and create a password for your account.
 - In Supabase **SQL Editor**, or your database provider's query editor, run the following. Replace the sample email with the exact email of the account you just created:
 
   ```sql
@@ -159,7 +158,7 @@ Use this route instead of pasting SQL into Supabase. It installs a new database 
   ```
 
 - Confirm the query updated your account. If it updated zero rows, check the email before continuing.
-- Open `https://YOUR_DOMAIN/gate44/login`. Sign in with your email/password and complete the authenticator-app setup. Admin actions use this separate admin sign-in.
+- Sign in with Google again after promotion, then open **Admin** or `https://YOUR_DOMAIN/gate44/login`. Scan the QR code with an authenticator app and enter its six-digit code. Future Google sign-ins verify that code too; no local password is needed.
 - In the admin panel, configure the features, payment providers, moderation, and limits you want to enable.
 - Test Google sign-in in a fresh browser session. For the PWA, install the site using your browser's **Install app** / **Add to Home Screen** option and test sign-in there too.
 

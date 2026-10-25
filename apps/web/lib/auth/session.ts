@@ -44,6 +44,8 @@ export interface SessionRecord {
   username: string;
   is_admin: boolean;
   adminSession?: boolean;
+  /** Private server-established provenance, never copied from client claims. */
+  authProvider?: "google";
   is_moderator?: boolean;
   is_support?: boolean;
   is_senior_support?: boolean;
@@ -158,6 +160,7 @@ const MAX_SESSIONS = 10;
  *
  * KEYS[1] = session:{sid}
  * KEYS[2] = user_sessions:{uid}   (sorted set, scored by creation time)
+ * KEYS[3..] = optional verified Google source and its session ancestry
  * ARGV[1] = serialised SessionRecord
  * ARGV[2] = refresh TTL in seconds
  * ARGV[3] = now (ms) — the sorted-set score
@@ -182,6 +185,21 @@ local now = tonumber(ARGV[3])
 local sid = ARGV[4]
 local maxSessions = tonumber(ARGV[5])
 
+-- A verified privilege transition mints a NEW SID; the ordinary source token
+-- must never acquire admin assurance. Validate its complete live ancestry
+-- atomically with minting, so concurrent revocation cannot resurrect access.
+if #KEYS>2 then
+  local expected=cjson.decode(record)
+  for keyIndex=3,#KEYS do
+    local raw=redis.call('GET',KEYS[keyIndex])
+    if not raw then return {'__GOOGLE_SOURCE_REVOKED__'} end
+    local source=cjson.decode(raw)
+    if source.uid~=expected.uid or source.authProvider~='google' or (source.impersonatedBy and source.impersonatedBy~=cjson.null) or source.created_at~=expected.created_at or not redis.call('ZSCORE',indexKey,source.sid) then return {'__GOOGLE_SOURCE_REVOKED__'} end
+    if keyIndex<#KEYS then
+      if not source.parentSid or 'session:'..source.parentSid~=KEYS[keyIndex+1] then return {'__GOOGLE_SOURCE_REVOKED__'} end
+    elseif source.parentSid and source.parentSid~=cjson.null then return {'__GOOGLE_SOURCE_REVOKED__'} end
+  end
+end
 redis.call('SET', sessionKey, record, 'EX', ttl)
 redis.call('ZADD', indexKey, now, sid)
 
@@ -219,10 +237,19 @@ export async function createSession(
     is_creator?: boolean;
     onboarding_completed?: boolean;
   },
-  options: { ip?: string; ua?: string; adminSession?: boolean; impersonatedBy?: string; parentSid?: string } = {}
+  options: {
+    ip?: string;
+    ua?: string;
+    adminSession?: boolean;
+    authProvider?: "google";
+    verifiedGoogleSourceSid?: string;
+    impersonatedBy?: string;
+    parentSid?: string;
+  } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
-  let createdAt=new Date().toISOString();
+  let createdAt = new Date().toISOString();
+  const verifiedSourceKeys: string[] = [];
   const manifest = await loadManifest();
 
   // Always re-read is_support/is_senior_support fresh from the DB at issuance
@@ -269,12 +296,24 @@ export async function createSession(
     const parent = await getSessionFresh(options.parentSid);
     if (!parent || parent.uid !== user.id) throw new SessionRevokedError("Source session revoked");
     if (parent.parentSid) throw new SessionRevokedError("Delegated browser sessions cannot be delegated again");
-    options = {...options, impersonatedBy:parent.impersonatedBy, adminSession:parent.adminSession, parentSid:parent.sid};
+    options = {...options, impersonatedBy:parent.impersonatedBy, adminSession:parent.adminSession, authProvider:parent.authProvider, parentSid:parent.sid};
     createdAt = parent.created_at;
     const remaining = Math.floor((new Date(createdAt).getTime()+(parent.impersonatedBy ? 900 : 30*86400)*1000-Date.now())/1000);
     if (remaining <= 0) throw new SessionRevokedError("Source session expired");
     accessTtl = Math.min(accessTtl,remaining);
     refreshTtl = Math.min(refreshTtl,remaining);
+  }
+  if (options.verifiedGoogleSourceSid) {
+    const source = await getSessionFresh(options.verifiedGoogleSourceSid);
+    if (!source || source.uid !== user.id || source.authProvider !== "google" || source.impersonatedBy || !options.adminSession)
+      throw new SessionRevokedError("Google source session is unavailable");
+    createdAt = source.created_at;
+    let cursor: SessionRecord | null = source;
+    for (let depth = 0; cursor && depth < 5; depth++) {
+      verifiedSourceKeys.push(sessionKey(cursor.sid));
+      cursor = cursor.parentSid ? await getSessionFresh(cursor.parentSid) : null;
+    }
+    if (cursor) throw new SessionRevokedError("Google source ancestry is too deep");
   }
   // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
   const [accessToken, refreshToken] = await Promise.all([
@@ -307,6 +346,7 @@ export async function createSession(
     username: user.username,
     is_admin: user.is_admin,
     adminSession: options.adminSession,
+    authProvider: options.authProvider,
     is_moderator: user.is_moderator,
     is_support,
     is_senior_support,
@@ -339,15 +379,18 @@ export async function createSession(
   // eviction actually happened.
   const evictedSids = (await redis.eval(
     CREATE_SESSION_LUA,
-    2,
+    2 + verifiedSourceKeys.length,
     sessionKey(sid),
     userSessionsKey(user.id),
+    ...verifiedSourceKeys,
     JSON.stringify(record),
     String(refreshTtl),
     String(Date.now()),
     sid,
     String(MAX_SESSIONS)
   )) as string[] | null;
+  if (evictedSids?.includes("__GOOGLE_SOURCE_REVOKED__"))
+    throw new SessionRevokedError("Google source session was revoked during verification");
 
   // Evicted session records are deleted outside the script. Their key names are
   // derived from data (the evicted SIDs) rather than passed in as KEYS, so
@@ -380,7 +423,7 @@ export async function createSession(
 export async function rotateSession(
   oldSid: string | null,
   user: { id: string; email: string | null; username: string; is_admin: boolean; is_moderator?: boolean; is_creator?: boolean; onboarding_completed?: boolean },
-  options: { ip?: string; ua?: string; adminSession?: boolean } = {}
+  options: { ip?: string; ua?: string; adminSession?: boolean; authProvider?: "google" } = {}
 ): Promise<AuthTokens> {
   // Invalidate the old session before creating the new one
   if (oldSid && oldSid !== "pre_auth") {

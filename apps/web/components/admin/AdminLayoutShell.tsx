@@ -147,23 +147,14 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Status bar — magic-word reminder + maintenance-mode indicator
+// Status bar — maintenance-mode indicator
 // ---------------------------------------------------------------------------
 
 function AdminStatusBar() {
-  const [magicWordSet, setMagicWordSet] = useState<boolean | null>(null);
   const [maintenance, setMaintenance] = useState<{ enabled: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/api/admin/auth/magic-word", { credentials: "include" });
-        if (!res.ok || cancelled) return;
-        const data = (await res.json()) as { data?: { isSet: boolean } };
-        if (!cancelled) setMagicWordSet(!!data.data?.isSet);
-      } catch { /* ignore — non-critical reminder */ }
-    })();
     (async () => {
       try {
         const res = await fetch("/api/admin/maintenance", { credentials: "include" });
@@ -180,15 +171,6 @@ function AdminStatusBar() {
       {maintenance?.enabled && (
         <div role="status" className="flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-xs font-semibold text-white">
           <Icon emoji="🚧" size={16} /> Maintenance mode is ON — only admins and moderators can access Zobia right now.
-        </div>
-      )}
-      {magicWordSet === false && (
-        <div role="alert" className="flex items-center justify-center gap-2 bg-red-600 px-4 py-1.5 text-xs font-semibold text-white">
-          <Icon emoji="⚠️" size={16} /> You haven&apos;t set a Secret Magic Word — you could be locked out permanently if your
-          login is ever locked.{" "}
-          <Link href="/gate44/settings/security" className="underline underline-offset-2">
-            Set it now
-          </Link>
         </div>
       )}
     </>
@@ -385,7 +367,7 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
        * mobile instead of just the table. See admin table pages.
        */}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-56">
-        {/* Status bar — maintenance mode + magic-word reminder */}
+        {/* Status bar — maintenance mode */}
         <AdminStatusBar />
 
         {/* Top bar */}

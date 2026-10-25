@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "Hujjar kammalawa",
   "sponsoredFunding.noApplications": "Babu aikace-aikacen da ke jiran dubawa.",
   "common.pagination": "Shafuka",
-  "common.firstPage": "Shafi na farko"
+  "common.firstPage": "Shafi na farko",
+  "admin.googleTitle": "Tabbatar da damar mai gudanarwa",
+  "admin.googleIntro": "Ci gaba da Google, sannan ka tabbatar da lambar manhajar tantancewa. Ba a buƙatar kalmar sirri.",
+  "admin.googleSetup": "Duba wannan lambar QR da manhajar tantancewa ko shigar da maɓallin da ke ƙasa."
 }

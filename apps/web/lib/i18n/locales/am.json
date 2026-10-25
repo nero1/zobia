@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "የማጠናቀቅ ማረጋገጫ",
   "sponsoredFunding.noApplications": "ግምገማ የሚጠብቁ ማመልከቻዎች የሉም።",
   "common.pagination": "የገጽ አሰሳ",
-  "common.firstPage": "የመጀመሪያው ገጽ"
+  "common.firstPage": "የመጀመሪያው ገጽ",
+  "admin.googleTitle": "የአስተዳዳሪ መዳረሻን ያረጋግጡ",
+  "admin.googleIntro": "በGoogle ይቀጥሉ፣ ከዚያ የማረጋገጫ መተግበሪያዎን ኮድ ያስገቡ። የይለፍ ቃል አያስፈልግም።",
+  "admin.googleSetup": "ይህን QR ኮድ በማረጋገጫ መተግበሪያዎ ይቃኙ ወይም ከታች ያለውን ቁልፍ ያስገቡ።"
 }
