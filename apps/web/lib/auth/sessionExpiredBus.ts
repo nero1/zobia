@@ -76,6 +76,7 @@ export function clearSessionHint(): void {
   clearCachedMessages();
   if (typeof window !== "undefined") {
     void import("@/lib/realtime/ablyShared").then(({ closeAbly }) => closeAbly()).catch(() => {});
+    void import("@/lib/realtime/useRealtimeChannel").then(({disconnectPusher})=>disconnectPusher()).catch(()=>{});
   }
 }
 

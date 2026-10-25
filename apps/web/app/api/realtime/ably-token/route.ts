@@ -1,5 +1,6 @@
-import { realtimeResourceActive } from "@/lib/realtime/channelAccess";
-import { loadClassroomContext } from "@/lib/classroom/access";
+import { authorizeRealtimeChannel as authorizeChannel } from "@/lib/realtime/channelAccess";
+import { handleApiError } from "@/lib/api/errors";
+import { enforceRateLimit } from "@/lib/security/rateLimit";
 export const runtime = "nodejs";
 
 /**
@@ -24,98 +25,12 @@ export const runtime = "nodejs";
  */
 
 import { type NextRequest } from "next/server";
-import { and, eq, exists, isNull, or } from "drizzle-orm";
 import { env } from "@/lib/env";
 import { authenticateAccessToken } from "@/lib/auth/principal";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
-import { getDb, schema } from "@/lib/db/drizzle";
-
-const DM_CHANNEL_RE =
-  /^dm:conversation:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
-const ROOM_CHANNEL_RE =
-  /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
-const GROUP_CHANNEL_RE =
-  /^group:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
-// Per-user channel for account-scoped push events (reward_earned, etc.) — see
-// lib/quests/questEngine.ts and other publishRealtimeEvent(`user:${userId}`, …) callers.
-const USER_CHANNEL_RE =
-  /^user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+import { getDb } from "@/lib/db/drizzle";
 
 const MAX_CHANNELS = 20;
-
-type Orm = Awaited<ReturnType<typeof getDb>>;
-
-/** "ok" if `userId` may subscribe to `channel`, "forbidden" if not, "unsupported" for unknown formats. */
-async function authorizeChannel(orm: Orm, userId: string, channel: string): Promise<"ok" | "forbidden" | "unsupported"> {
-  const dmMatch = DM_CHANNEL_RE.exec(channel);
-  const roomMatch = ROOM_CHANNEL_RE.exec(channel);
-  const groupMatch = GROUP_CHANNEL_RE.exec(channel);
-  const userMatch = USER_CHANNEL_RE.exec(channel);
-
-  if (dmMatch) {
-    const conversationId = dmMatch[1];
-    const [row] = await orm
-      .select({ id: schema.dmConversations.id })
-      .from(schema.dmConversations)
-      .where(
-        and(
-          eq(schema.dmConversations.id, conversationId),
-          or(eq(schema.dmConversations.userId1, userId), eq(schema.dmConversations.userId2, userId))
-        )
-      )
-      .limit(1);
-    return row ? "ok" : "forbidden";
-  }
-  if (roomMatch) {
-    const roomId = roomMatch[1];
-    if (!await realtimeResourceActive("room",roomId,userId)) return "forbidden";
-    const [row] = await orm
-      .select({ id: schema.rooms.id, type: schema.rooms.type })
-      .from(schema.rooms)
-      .where(
-        and(
-          eq(schema.rooms.id, roomId),
-          eq(schema.rooms.isActive, true),
-          or(
-            eq(schema.rooms.creatorId, userId),
-            exists(
-              orm
-                .select({ id: schema.roomMembers.id })
-                .from(schema.roomMembers)
-                .where(
-                  and(
-                    eq(schema.roomMembers.roomId, schema.rooms.id),
-                    eq(schema.roomMembers.userId, userId),
-                    isNull(schema.roomMembers.leftAt)
-                  )
-                )
-            )
-          )
-        )
-      )
-      .limit(1);
-    if (row?.type === "classroom") {
-      const context = await loadClassroomContext({ id: roomId }, userId);
-      if (!context.viewer.can.viewMemberContent) return "forbidden";
-    }
-    return row ? "ok" : "forbidden";
-  }
-  if (groupMatch) {
-    const groupId = groupMatch[1];
-    if (!await realtimeResourceActive("group",groupId,userId)) return "forbidden";
-    const [row] = await orm
-      .select({ id: schema.groupChatMembers.id })
-      .from(schema.groupChatMembers)
-      .where(and(eq(schema.groupChatMembers.groupChatId, groupId), eq(schema.groupChatMembers.userId, userId)))
-      .limit(1);
-    return row ? "ok" : "forbidden";
-  }
-  if (userMatch) {
-    // A user's personal channel may only ever be subscribed to by that user.
-    return userMatch[1] === userId ? "ok" : "forbidden";
-  }
-  return "unsupported";
-}
 
 export async function GET(req: NextRequest) {
   // 1. Authenticate — accept the access-token cookie (web) OR a Bearer token
@@ -123,8 +38,7 @@ export async function GET(req: NextRequest) {
   //    Authorization header rather than cookies).
   const bearer = req.headers.get("authorization");
   const token =
-    req.cookies.get(ACCESS_TOKEN_COOKIE)?.value ??
-    (bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : undefined);
+    (bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : req.cookies.get(ACCESS_TOKEN_COOKIE)?.value);
   if (!token) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -135,12 +49,16 @@ export async function GET(req: NextRequest) {
     const { payload } = await authenticateAccessToken(token);
     userId = payload.sub;
     expiresAt = (payload.exp ?? 0) * 1000;
-  } catch {
-    return new Response("Unauthorized", { status: 401 });
+  } catch(error) {
+    return handleApiError(error);
   }
+
+  try { await enforceRateLimit(userId,"user",{name:"realtime:sign",limit:60,windowMs:60000,globalLimit:20000}); }
+  catch(error){return handleApiError(error);}
 
   // 2. Parse the requested channels
   const params = req.nextUrl.searchParams;
+  if ((params.get("channels")??params.get("channel")??"").length>2000) return new Response("Channel list too large",{status:400});
   const requested = Array.from(
     new Set(
       (params.get("channels") ?? params.get("channel") ?? "")
@@ -174,10 +92,11 @@ export async function GET(req: NextRequest) {
   }
 
   const [keyName] = apiKey.split(":");
-  const ttl = Math.min(60_000,expiresAt-Date.now());
+  const ttl = Math.min(300_000,expiresAt-Date.now());
   if (ttl <= 0) return new Response("Unauthorized", {status:401});
   const timestamp = Date.now();
-  const nonce = Math.random().toString(36).slice(2, 18);
+  const { randomBytes } = await import("node:crypto");
+  const nonce = randomBytes(16).toString("hex");
 
   // Build the token request — the Ably SDK or client POSTs this to Ably to get
   // an actual token. Capability is subscribe-only on the granted channels.

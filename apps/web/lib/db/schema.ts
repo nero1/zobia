@@ -774,6 +774,7 @@ export const groupChats = pgTable("group_chats", {
   memberCount: integer("member_count").notNull().default(1),
   maxMembers: integer("max_members").notNull().default(300),
   isActive: boolean("is_active").default(true),
+  isDeactivated: boolean("is_deactivated").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

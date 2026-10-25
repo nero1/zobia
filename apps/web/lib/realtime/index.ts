@@ -76,6 +76,6 @@ export async function publishRealtimeEvent(
       await provider.publish(channel, event, data);
     }
   } catch (err) {
-    logger.error({ err }, "[realtime] Provider publish failed");
+    logger.warn({provider:env.REALTIME_PROVIDER,errorType:err instanceof Error?err.name:"RealtimeError"}, "[realtime] Provider publish failed");
   }
 }

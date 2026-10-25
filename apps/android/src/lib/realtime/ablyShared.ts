@@ -129,8 +129,9 @@ export async function acquireAblyChannel(channel: string): Promise<{ client: any
     clearTimeout(idleTimer);
     idleTimer = null;
   }
+  const references = wanted.get(channel) ?? 0;
   wanted.delete(channel);
-  wanted.set(channel, (wanted.get(channel) ?? 0) + 1);
+  wanted.set(channel, references + 1);
 
   let released = false;
   const release = () => {

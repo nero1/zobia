@@ -1,3 +1,4 @@
+import { prepareRealtimeEvent } from "../protectedEvents";
 /**
  * lib/realtime/providers/pusher.ts
  *
@@ -29,12 +30,13 @@ export class PusherProvider implements RealtimeProvider {
       );
     }
 
+    const prepared = await prepareRealtimeEvent(channel,event,data);
     // Pusher rejects channel names containing ':' — map to the same
     // "private-…-…" shape the client subscribes to and the auth route parses.
     const body = JSON.stringify({
-      name: event,
+      name: prepared.event,
       channel: toPusherChannelName(channel),
-      data: JSON.stringify(data),
+      data: JSON.stringify(prepared.data),
     });
 
     const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -62,11 +64,12 @@ export class PusherProvider implements RealtimeProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
+      signal: AbortSignal.timeout(4000),
     });
 
+    await res.body?.cancel().catch(()=>{});
     if (!res.ok) {
-      const text = await res.text().catch(() => "(no body)");
-      throw new Error(`Pusher Events API publish failed: ${res.status} ${text}`);
+      throw new Error(`Pusher Events API publish failed: ${res.status}`);
     }
   }
 }

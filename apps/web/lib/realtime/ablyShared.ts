@@ -12,7 +12,7 @@
  * each time; every token request is billed Vercel Active CPU. Now the tab
  * holds one client whose token covers every channel currently in use: a new
  * token is requested only when a channel the current token does not cover
- * is joined, or when the token expires (1 h).
+ * is joined, or when the token expires.
  *
  * Security is unchanged: the server still authorizes every channel
  * individually and signs a subscribe-only capability for exactly the channels
@@ -21,6 +21,8 @@
  * IDLE_CLOSE_MS with no subscribers.
  */
 
+
+import { authFetch } from "@/lib/api/authFetch";
 
 const IDLE_CLOSE_MS = 30_000;
 /** Upper bound on channels in one token (matches the server's limit). */
@@ -40,7 +42,7 @@ function channelsForToken(): string[] {
 }
 
 async function fetchTokenRequest(channels: string[]): Promise<unknown> {
-  const res = await fetch(
+  const res = await authFetch(
     `/api/realtime/ably-token?channels=${encodeURIComponent(channels.join(","))}`,
     { credentials: "include" }
   );
@@ -100,8 +102,9 @@ export async function acquireAblyChannel(channel: string): Promise<{ client: any
     clearTimeout(idleTimer);
     idleTimer = null;
   }
+  const references = wanted.get(channel) ?? 0;
   wanted.delete(channel); // re-insert to mark as most recent
-  wanted.set(channel, (wanted.get(channel) ?? 0) + 1);
+  wanted.set(channel, references + 1);
 
   let released = false;
   const release = () => {

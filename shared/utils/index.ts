@@ -21,3 +21,4 @@ export * from "./quests";
 export * from "./realtimePrivacy";
 
 export {AdViewPool} from "./adViewPool";
+export * from './realtimeBatch';

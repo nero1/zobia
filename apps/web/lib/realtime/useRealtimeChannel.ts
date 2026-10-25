@@ -20,8 +20,10 @@
  *          page is not hitting the REST API every few seconds.
  */
 
-import { isProtectedRealtimeChannel } from "@zobia/shared/utils";
+import { resolveRealtimeEvent } from "./resolveEvent";
+import { realtimeEventId, isProtectedRealtimeChannel } from "@zobia/shared/utils";
 import { useEffect, useState, useRef } from "react";
+import { authorizePusherChannel } from "./pusherAuthorization";
 import { toPusherChannelName } from "./pusherChannelName";
 import { invalidateReadCache } from "@/lib/cache/readCache";
 
@@ -58,12 +60,27 @@ export function useRealtimeChannel(
       return;
     }
     let cancelled = false;
+    const deliveredIds = new Set<string>();
     let cleanup: (() => void) | undefined;
     // Events on the user's own channel (rewards, coins, XP, notifications)
     // change what the short-lived client read cache holds, so drop it first.
-    const deliver = (event: string, data: unknown) => {
+    const deliver = async (event: string, data: unknown) => {
+      if (cancelled) return;
+      if (typeof data==="string") {try {data=JSON.parse(data);}catch{/* Preserve plain public event strings. */}}
+      if (isProtectedRealtimeChannel(channel)) {
+        if (event!=="sync") return; // Never trust a legacy private body from a broker.
+        const id=realtimeEventId(data);
+        if(!id){markConnected(false);return;}
+        if(deliveredIds.has(id))return;
+        try {
+          const resolved=await resolveRealtimeEvent(id,channel);
+          if(cancelled || deliveredIds.has(id))return;
+          deliveredIds.add(id);if(deliveredIds.size>200)deliveredIds.delete(deliveredIds.values().next().value!);
+          event=resolved.event;data=resolved.data;markConnected(true);
+        } catch { markConnected(false);return; }
+      }
       if (channel.startsWith("user:")) invalidateReadCache();
-      if (!cancelled) eventRef.current(event, data);
+      if (!cancelled) { try { eventRef.current(event,data); } catch { markConnected(false); } }
     };
     // Guarded setter — never touch state after the effect has been torn down.
     const markConnected = (v: boolean) => {
@@ -158,6 +175,9 @@ export function useRealtimeChannel(
             channelAuthorization: {
               endpoint: "/api/realtime/pusher-auth",
               transport: "ajax",
+              customHandler: (params:{socketId:string;channelName:string},callback:(error:Error|null,result:unknown)=>void) => {
+                void authorizePusherChannel(params).then(result=>callback(null,result)).catch(error=>callback(error instanceof Error?error:new Error("Pusher authorization failed"),null));
+              },
             },
           });
         }

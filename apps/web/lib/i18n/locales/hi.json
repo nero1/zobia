@@ -5551,5 +5551,10 @@
   "checkout.signFailed": "Wallet signing failed",
   "checkout.proveOwnership": "Prove that you own the sending wallet",
   "checkout.signOwnership": "Sign with wallet",
-  "checkout.ownershipSignature": "Wallet ownership signature"
+  "checkout.ownershipSignature": "Wallet ownership signature",
+  "mobileBridge.title": "अपने ब्राउज़र में जारी रखें?",
+  "mobileBridge.body": "केवल तभी जारी रखें जब आपने यह कार्रवाई Zobia ऐप से शुरू की हो। यह ब्राउज़र नीचे दिखाए गए खाते में साइन इन करेगा।",
+  "mobileBridge.expiredTitle": "इस लिंक की समय-सीमा समाप्त हो गई है",
+  "mobileBridge.expiredBody": "Zobia ऐप में वापस जाएँ और पेज दोबारा खोलें।",
+  "mobileBridge.impersonation": "यह किसी अन्य खाते का उपयोग करने वाला अस्थायी सहायता सत्र है।"
 }

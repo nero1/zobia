@@ -268,7 +268,8 @@ export async function createSession(
   if (options.parentSid) {
     const parent = await getSessionFresh(options.parentSid);
     if (!parent || parent.uid !== user.id) throw new SessionRevokedError("Source session revoked");
-    options = {...options, impersonatedBy:parent.impersonatedBy, adminSession:parent.adminSession, parentSid:parent.parentSid ?? parent.sid};
+    if (parent.parentSid) throw new SessionRevokedError("Delegated browser sessions cannot be delegated again");
+    options = {...options, impersonatedBy:parent.impersonatedBy, adminSession:parent.adminSession, parentSid:parent.sid};
     createdAt = parent.created_at;
     const remaining = Math.floor((new Date(createdAt).getTime()+(parent.impersonatedBy ? 900 : 30*86400)*1000-Date.now())/1000);
     if (remaining <= 0) throw new SessionRevokedError("Source session expired");
@@ -409,28 +410,26 @@ export async function getSessionFresh(sid: string, depth = 0): Promise<SessionRe
   if (depth > 2) return null;
   const raw = await redis.get(sessionKey(sid));
   if (!raw) return null;
-  try {
-    const record = JSON.parse(raw) as SessionRecord;
-    const age = Date.now()-new Date(record.created_at).getTime();
-    if (!Number.isFinite(age) || age >= (record.impersonatedBy ? 900 : 30*86400)*1000) return null;
-    if (record.impersonatedBy) {
-      const db = await getDb();
-      const [actor] = await db.select({id:schema.users.id}).from(schema.users).where(and(
-        eq(schema.users.id, record.impersonatedBy), eq(schema.users.isAdmin,true),sql`${schema.users.sessionValidAfter}<=${record.created_at}::timestamptz`,
-        eq(schema.users.isBanned,false), sql`${schema.users.deletedAt} IS NULL`,
-        sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
-      )).limit(1);
-      if (!actor) return null;
-    }
-    if (record.parentSid) {
-      const parent = await getSessionFresh(record.parentSid,depth+1);
-      if (!parent || parent.uid !== record.uid || parent.impersonatedBy !== record.impersonatedBy) return null;
-    }
-    memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
-    return record;
-  } catch {
-    return null;
+  let record: SessionRecord;
+  try { record = JSON.parse(raw) as SessionRecord; } catch { return null; }
+  if (!record || typeof record!=="object") return null;
+  const age = Date.now()-new Date(record.created_at).getTime();
+  if (!Number.isFinite(age) || age >= (record.impersonatedBy ? 900 : 30*86400)*1000) return null;
+  if (record.impersonatedBy) {
+    const db = await getDb();
+    const [actor] = await db.select({id:schema.users.id}).from(schema.users).where(and(
+      eq(schema.users.id, record.impersonatedBy), eq(schema.users.isAdmin,true),sql`${schema.users.sessionValidAfter}<=${record.created_at}::timestamptz`,
+      eq(schema.users.isBanned,false), sql`${schema.users.deletedAt} IS NULL`,
+      sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
+    )).limit(1);
+    if (!actor) return null;
   }
+  if (record.parentSid) {
+    const parent = await getSessionFresh(record.parentSid,depth+1);
+    if (!parent || parent.uid !== record.uid || parent.impersonatedBy !== record.impersonatedBy) return null;
+  }
+  memSet(sessionCacheKey(sid), record, SESSION_CACHE_TTL_MS);
+  return record;
 }
 
 /**
