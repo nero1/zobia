@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -65,27 +66,14 @@ export const PATCH = withAuth(
         if (quest.auto_paused) {
           throw conflict("This quest was auto-paused due to an account issue — restart it from your Business panel once resolved, not here.");
         }
-        // NOTE: original raw SQL also set `updated_at = NOW()`, but
-        // lib/db/schema.ts's sponsoredQuests table has no updatedAt column
-        // (schema mismatch — flagged, not silently patched).
-        await orm
-          .update(schema.sponsoredQuests)
-          .set({ isActive: true, pauseReason: null, pausedAt: null })
-          .where(eq(schema.sponsoredQuests.id, questId));
+        await updateFundedSponsoredQuest(orm,questId,{isActive:true,pauseReason:null,pausedAt:null},auth.user.sub,{expectedOwner:auth.user.sub});
       } else if (body.action === "extend") {
         if (!body.newEndsAt) throw badRequest("newEndsAt is required for the extend action");
-        await orm
-          .update(schema.sponsoredQuests)
-          .set({ endsAt: new Date(body.newEndsAt) })
-          .where(eq(schema.sponsoredQuests.id, questId));
+        if(new Date(body.newEndsAt)<=new Date())throw badRequest('Choose a future end date');
+        await updateFundedSponsoredQuest(orm,questId,{endsAt:new Date(body.newEndsAt)},auth.user.sub,{expectedOwner:auth.user.sub});
       } else {
         if (!body.addBudgetCredits) throw badRequest("addBudgetCredits is required for the add_budget action");
-        await orm
-          .update(schema.sponsoredQuests)
-          .set({
-            totalBudgetCredits: sql`${schema.sponsoredQuests.totalBudgetCredits} + ${body.addBudgetCredits}`,
-          })
-          .where(eq(schema.sponsoredQuests.id, questId));
+        await updateFundedSponsoredQuest(orm,questId,{},auth.user.sub,{expectedOwner:auth.user.sub,addBudgetCredits:body.addBudgetCredits});
       }
 
       await syncSponsoredQuestTemplate(orm, questId);

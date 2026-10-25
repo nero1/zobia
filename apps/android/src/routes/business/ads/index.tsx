@@ -1,3 +1,6 @@
+
+import {createIdempotentSubmission} from '@zobia/shared/utils';
+import {useRef} from 'react';
 /**
  * apps/android/src/routes/business/ads/index.tsx
  *
@@ -27,6 +30,7 @@ interface SponsoredQuest {
   title: string;
   description: string;
   reward_coins: number;
+  max_applications:number;
   moderation_status: 'pending' | 'approved' | 'rejected';
   is_active: boolean;
   is_daily_quest_eligible: boolean;
@@ -365,13 +369,15 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
   const [restartingId, setRestartingId] = useState<string | null>(null);
 
   const durationDays = DURATION_PRESETS.find((p) => p.key === durationPreset)?.days ?? 7;
-  const estimatedReach = runInDailyDecks ? Math.floor((totalBudgetCredits / 500) * 1000) : 0;
+  const estimatedReach = runInDailyDecks ? Math.floor(totalBudgetCredits/(0.5+Number(rewardCoins))) : 0;
+
+  const sponsoredSubmission=useRef(createIdempotentSubmission(true)).current;
 
   const submitMutation = useMutation({
     mutationFn: () => {
       const startsAt = new Date();
       const endsAt = new Date(startsAt.getTime() + durationDays * 86_400_000);
-      return apiClient.post('/business/sponsored-quests', {
+      return apiClient.post('/business/sponsored-quests', sponsoredSubmission.prepare({
         businessPageId,
         title: title.trim(),
         description: description.trim(),
@@ -385,10 +391,11 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
         totalBudgetCredits: runInDailyDecks ? Number(totalBudgetCredits) : 0,
         dailyBudgetCredits: runInDailyDecks && dailyBudgetCredits ? Number(dailyBudgetCredits) : undefined,
         targetAction: runInDailyDecks && targetAction.trim() ? targetAction.trim() : undefined,
-      });
+      }));
     },
     onSuccess: () => {
       setShowForm(false);
+      sponsoredSubmission.clear();
       setTitle(''); setDescription(''); setRequirements(''); setDeadline('');
       setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(''); setTargetAction('');
       qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] });
@@ -397,7 +404,10 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
   });
 
   const restartMutation = useMutation({
-    mutationFn: (id: string) => apiClient.post(`/business/sponsored-quests/${id}/restart`, {}),
+    mutationFn: (id:string)=>{
+      const q=quests?.find(item=>item.id===id),funding=q?.pause_reason==='funding_required';
+      return apiClient.post(`/business/sponsored-quests/${id}/${funding?'fund':'restart'}`,funding && q?{maxReserveCoins:Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)}:{});
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] }),
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.quests.restartFailed', 'Failed to restart')),
     onSettled: () => setRestartingId(null),
@@ -467,6 +477,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
             )}
           </div>
 
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("sponsoredFunding.reserveNotice",{amount:(Number(rewardCoins)*10+Math.ceil(runInDailyDecks?Number(totalBudgetCredits):0)).toLocaleString()})}</p>
           <button
             onClick={() => businessPageId && title && description && requirements && deadline && submitMutation.mutate()}
             disabled={submitMutation.isPending}
@@ -513,7 +524,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                   disabled={restartMutation.isPending}
                   className="mt-2 rounded-lg bg-success-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                 >
-                  {restartingId === q.id && restartMutation.isPending ? '…' : t('ads.quests.restart', 'Restart')}
+                  {restartingId===q.id && restartMutation.isPending?'…':q.pause_reason==='funding_required'?t('sponsoredFunding.reserveButton',{amount:(Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)).toLocaleString()}):t('ads.quests.restart','Restart')}
                 </button>
               )}
             </div>

@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Continue apenas se iniciou esta ação no aplicativo Zobia. Este navegador entrará na conta mostrada abaixo.",
   "mobileBridge.expiredTitle": "Este link expirou",
   "mobileBridge.expiredBody": "Volte ao aplicativo Zobia e abra a página novamente.",
-  "mobileBridge.impersonation": "Esta é uma sessão temporária de suporte em nome de outra conta."
+  "mobileBridge.impersonation": "Esta é uma sessão temporária de suporte em nome de outra conta.",
+  "sponsoredFunding.reserveNotice": "O envio reserva {{amount}} Créditos da sua carteira para candidaturas e o orçamento diário. Os fundos não utilizados são reembolsados após o encerramento.",
+  "sponsoredFunding.reserveButton": "Reservar até {{amount}} Créditos",
+  "sponsoredFunding.applications": "Rever candidaturas",
+  "sponsoredFunding.proof": "Comprovativo de conclusão",
+  "sponsoredFunding.noApplications": "Não há candidaturas aguardando análise."
 }

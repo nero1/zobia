@@ -1,3 +1,4 @@
+import {createFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -39,12 +40,13 @@ import { estimateSponsoredQuestReach, syncSponsoredQuestTemplate } from "@/lib/q
 // ---------------------------------------------------------------------------
 
 const createQuestSchema = z.object({
+  idempotencyKey:z.string().uuid(),
   brandName:           z.string().min(1).max(120),
   brandLogoUrl:        z.string().url().optional().nullable(),
   title:               z.string().min(3).max(150),
   description:         z.string().min(10).max(2000),
   requirements:        z.string().min(10).max(2000),
-  rewardCoins:   z.number().int().positive(),
+  rewardCoins:   z.number().int().positive().max(100000).max(100000),
   creatorSharePercent: z.number().int().min(50).max(90).default(70),
   platformSharePercent:z.number().int().min(10).max(50).default(30),
   maxApplications:     z.number().int().positive().default(10),
@@ -175,7 +177,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.starts_at,
          sq.ends_at,
          COUNT(sqa.id)::int                                     AS application_count,
-         COUNT(sqa.id) FILTER (WHERE sqa.status = 'approved')::int AS approved_count
+         COUNT(sqa.id) FILTER (WHERE sqa.status IN ('approved','paid'))::int AS approved_count
       FROM sponsored_quests sq
       LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
       LEFT JOIN users u ON u.id = sq.submitted_by
@@ -238,12 +240,10 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       ? Math.max(1, Math.round((new Date(body.endsAt).getTime() - new Date(body.startsAt).getTime()) / 86_400_000))
       : 7;
     const estimatedReach = body.isDailyQuestEligible
-      ? estimateSponsoredQuestReach(body.totalBudgetCredits, body.cpmCredits, durationDays).totalImpressions
+      ? estimateSponsoredQuestReach(body.totalBudgetCredits, body.cpmCredits, durationDays, body.rewardCoins).totalImpressions
       : null;
 
-    const [row] = await orm
-      .insert(schema.sponsoredQuests)
-      .values({
+    const row = await createFundedSponsoredQuest(orm, {
         brandName: body.brandName,
         brandLogoUrl: body.brandLogoUrl ?? null,
         title: body.title,
@@ -268,8 +268,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         fundedByUserId: auth.user.sub,
         targetAction: body.targetAction ?? null,
         targetValue: body.targetValue ?? null,
-      })
-      .returning({ id: schema.sponsoredQuests.id });
+      }, auth.user.sub, body.idempotencyKey);
 
     if (body.isDailyQuestEligible) {
       await syncSponsoredQuestTemplate(orm, row.id);

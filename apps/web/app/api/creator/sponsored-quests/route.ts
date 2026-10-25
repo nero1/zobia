@@ -1,3 +1,4 @@
+import {createFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -51,11 +52,12 @@ interface SponsoredQuestRow {
 // ---------------------------------------------------------------------------
 
 const createSponsoredQuestSchema = z.object({
+  idempotencyKey:z.string().uuid(),
   brandName: z.string().min(1).max(100),
   title: z.string().min(3).max(150),
   description: z.string().min(1).max(2000),
   requirements: z.string().min(1).max(2000),
-  rewardCoins: z.number().int().positive(),
+  rewardCoins: z.number().int().positive().max(100000),
   creatorSharePercent: z.number().int().min(0).max(100).default(70),
   platformSharePercent: z.number().int().min(0).max(100).default(30),
   maxApplications: z.number().int().positive(),
@@ -127,9 +129,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const body = await validateBody(req, createSponsoredQuestSchema);
 
     const orm = await getDb();
-    const [quest] = await orm
-      .insert(schema.sponsoredQuests)
-      .values({
+    const quest = await createFundedSponsoredQuest(orm, {
         brandName: body.brandName,
         title: body.title,
         description: body.description,
@@ -140,8 +140,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         maxApplications: body.maxApplications,
         deadline: new Date(body.deadline),
         isActive: true,
-      })
-      .returning({ id: schema.sponsoredQuests.id });
+      }, auth.user.sub, body.idempotencyKey);
 
     return NextResponse.json(
       { success: true, data: { questId: quest.id }, error: null },

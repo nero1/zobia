@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Qhubeka kuphela uma uqale lokhu kuhlelo lwe-Zobia. Lesi siphequluli sizongena ku-akhawunti eboniswe ngezansi.",
   "mobileBridge.expiredTitle": "Lesi sixhumanisi siphelelwe yisikhathi",
   "mobileBridge.expiredBody": "Buyela kuhlelo lwe-Zobia bese uvula ikhasi futhi.",
-  "mobileBridge.impersonation": "Lesi yisikhathi sokusekela sesikhashana kusetshenziswa enye i-akhawunti."
+  "mobileBridge.impersonation": "Lesi yisikhathi sokusekela sesikhashana kusetshenziswa enye i-akhawunti.",
+  "sponsoredFunding.reserveNotice": "Ukuthumela kugodla ama-Credits angu-{{amount}} esikhwameni sakho sezicelo nesabelomali sansuku zonke. Imali engasetshenzisiwe ibuyiselwa ngemva kokuvala.",
+  "sponsoredFunding.reserveButton": "Godla ama-Credits afika ku-{{amount}}",
+  "sponsoredFunding.applications": "Buyekeza izicelo",
+  "sponsoredFunding.proof": "Ubufakazi bokuqeda",
+  "sponsoredFunding.noApplications": "Azikho izicelo ezilinde ukubuyekezwa."
 }

@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Continuez uniquement si vous avez lancé cette action depuis l’application Zobia. Ce navigateur sera connecté au compte affiché ci-dessous.",
   "mobileBridge.expiredTitle": "Ce lien a expiré",
   "mobileBridge.expiredBody": "Retournez dans l’application Zobia et ouvrez à nouveau la page.",
-  "mobileBridge.impersonation": "Il s’agit d’une session temporaire d’assistance avec usurpation de compte."
+  "mobileBridge.impersonation": "Il s’agit d’une session temporaire d’assistance avec usurpation de compte.",
+  "sponsoredFunding.reserveNotice": "L’envoi réserve {{amount}} crédits de votre portefeuille pour les candidatures et le budget quotidien. Les fonds inutilisés sont remboursés après la clôture.",
+  "sponsoredFunding.reserveButton": "Réserver jusqu’à {{amount}} crédits",
+  "sponsoredFunding.applications": "Examiner les candidatures",
+  "sponsoredFunding.proof": "Preuve de réalisation",
+  "sponsoredFunding.noApplications": "Aucune candidature en attente d’examen."
 }

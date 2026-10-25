@@ -1,3 +1,4 @@
+import {createFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -34,11 +35,12 @@ import { estimateSponsoredQuestReach, syncSponsoredQuestTemplate } from "@/lib/q
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 const createSchema = z.object({
+  idempotencyKey:z.string().uuid(),
   businessPageId: z.string().uuid(),
   title: z.string().min(3).max(150),
   description: z.string().min(10).max(2000),
   requirements: z.string().min(10).max(2000),
-  rewardCoins: z.number().int().positive(),
+  rewardCoins: z.number().int().positive().max(100000),
   maxApplications: z.number().int().positive().max(1000).default(10),
   deadline: z.string().datetime(),
   // Daily-deck distribution (in addition to the creator-application
@@ -210,12 +212,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       : 7;
     const cpmCredits = await getManifestValue("sponsored_quest_default_cpm_credits").then((v) => (v ? Number(v) : 500));
     const estimatedReach = body.isDailyQuestEligible
-      ? estimateSponsoredQuestReach(body.totalBudgetCredits, cpmCredits, durationDays).totalImpressions
+      ? estimateSponsoredQuestReach(body.totalBudgetCredits, cpmCredits, durationDays, body.rewardCoins).totalImpressions
       : null;
 
-    const [inserted] = await orm
-      .insert(schema.sponsoredQuests)
-      .values({
+    const inserted = await createFundedSponsoredQuest(orm, {
         brandName: page.name,
         brandLogoUrl: page.avatar_url,
         title: body.title,
@@ -244,8 +244,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         fundedByUserId: auth.user.sub,
         targetAction: body.targetAction ?? null,
         targetValue: body.targetValue ?? null,
-      })
-      .returning({ id: schema.sponsoredQuests.id });
+      }, auth.user.sub, body.idempotencyKey);
 
     if (body.isDailyQuestEligible && moderationStatus === "approved") {
       await syncSponsoredQuestTemplate(orm, inserted.id);

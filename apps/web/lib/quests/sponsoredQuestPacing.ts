@@ -1,3 +1,4 @@
+import {fundingMicros} from "./sponsoredFunding";
 import Decimal from "decimal.js";
 /**
  * lib/quests/sponsoredQuestPacing.ts
@@ -29,10 +30,11 @@ import { logger } from "@/lib/logger";
 export function estimateSponsoredQuestReach(
   totalBudgetCredits: number,
   cpmCredits: number,
-  durationDays: number
+  durationDays: number,
+  rewardCoins = 0
 ): { totalImpressions: number; dailyAverage: number } {
   const safeCpm = cpmCredits > 0 ? cpmCredits : 500;
-  const totalImpressions = Math.floor((totalBudgetCredits / safeCpm) * 1000);
+  const totalImpressions = Math.min(2147483647,new Decimal(totalBudgetCredits).div(new Decimal(safeCpm).div(1000).plus(Math.max(0,rewardCoins))).floor().toNumber());
   const safeDays = Math.max(1, durationDays);
   return {
     totalImpressions,
@@ -71,6 +73,7 @@ export async function syncSponsoredQuestTemplate(
         targetAction: schema.sponsoredQuests.targetAction,
         targetValue: schema.sponsoredQuests.targetValue,
         rewardCoins: schema.sponsoredQuests.rewardCoins,
+        autoPaused:schema.sponsoredQuests.autoPaused,
         isActive: schema.sponsoredQuests.isActive,
         moderationStatus: schema.sponsoredQuests.moderationStatus,
         isDailyQuestEligible: schema.sponsoredQuests.isDailyQuestEligible,
@@ -95,25 +98,20 @@ export async function syncSponsoredQuestTemplate(
       return;
     }
 
-    const now = Date.now();
-    const withinWindow =
-      (!quest.startsAt || new Date(quest.startsAt).getTime() <= now) &&
-      (!quest.endsAt || new Date(quest.endsAt).getTime() >= now);
-    const budgetRemaining = Number(quest.totalBudgetCredits) - Number(quest.spentCredits);
-
+    // Window and budget are checked live by candidate selection and reservation.
+    const [funding]=await db.select().from(schema.sponsoredQuestFunding).where(eq(schema.sponsoredQuestFunding.questId,questId));
     const eligible =
+      !!funding && !funding.marketingClosed && !quest.autoPaused &&
       quest.isActive &&
       quest.moderationStatus === "approved" &&
-      quest.flagStatus !== "flagged" &&
-      withinWindow &&
-      budgetRemaining > 0;
+      quest.flagStatus !== "flagged";
 
     // Sponsored quests reward Credits directly on completion, same as any
     // other daily quest — no XP track skew, small flat XP for consistency
     // with the deck's XP economy.
     const xpReward = 50;
     const coinReward = Math.max(0, Math.min(quest.rewardCoins ?? 0, 100_000));
-    const actionType = quest.targetAction?.trim() || "sponsored_quest_action";
+    const actionType = quest.targetAction?.trim() || "messages";
     const targetCount = quest.targetValue && quest.targetValue > 0 ? quest.targetValue : 1;
     // Prefix so a sponsored quest can never collide with a regular
     // template's globally-unique title.
@@ -172,11 +170,20 @@ export async function recordSponsoredQuestImpression(
     if(!quest || !quest.isActive || quest.moderationStatus!=="approved" || quest.flagStatus==="flagged" || !quest.isDailyQuestEligible || quest.deletedAt || (quest.startsAt && quest.startsAt>new Date()) || (quest.endsAt && quest.endsAt<=new Date()))return false;
     const cost=new Decimal(quest.cpmCredits).div(1000);
     if(cost.lte(0) || !cost.eq(costCredits) || cost.decimalPlaces()>6)return false;
-    const prior=await tx.execute(sql`SELECT id FROM sponsored_quest_events WHERE quest_id=${questId} AND user_id=${userId} AND event_type='impression' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' LIMIT 1`);
-    if(prior.rows.length)return true;
-    const daily=await tx.execute<{spent:string}>(sql`SELECT COALESCE(SUM(cost_credits),0)::text spent FROM sponsored_quest_events WHERE quest_id=${questId} AND event_type='impression' AND created_at>=date_trunc('day',NOW() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`);
-    if(new Decimal(quest.spentCredits).plus(cost).gt(quest.totalBudgetCredits) || (quest.dailyBudgetCredits!==null && new Decimal(daily.rows[0].spent).plus(cost).gt(quest.dailyBudgetCredits)))return false;
-    await tx.update(schema.sponsoredQuests).set({spentCredits:sql`${schema.sponsoredQuests.spentCredits}+${cost.toFixed(6)}`,impressionsCount:sql`${schema.sponsoredQuests.impressionsCount}+1`}).where(eq(schema.sponsoredQuests.id,questId));
+    if(quest.autoPaused)return false;
+    const [funding]=await tx.select().from(schema.sponsoredQuestFunding).where(eq(schema.sponsoredQuestFunding.questId,questId)).for('update');
+    if(!funding || funding.marketingClosed)return false;
+    const today=new Date().toISOString().slice(0,10);
+    const [prior]=await tx.select({state:schema.sponsoredDailyReservations.state}).from(schema.sponsoredDailyReservations).where(and(eq(schema.sponsoredDailyReservations.questId,questId),eq(schema.sponsoredDailyReservations.userId,userId),eq(schema.sponsoredDailyReservations.assignedDate,today)));
+    if(prior)return prior.state!=='released';
+    const reward=quest.rewardCoins??0;
+    if(!Number.isSafeInteger(reward) || reward<0 || reward>100000)return false;
+    const commitment=cost.plus(reward),micros=fundingMicros(commitment);
+    const daily=await tx.execute<{spent:string}>(sql`SELECT COALESCE((SELECT SUM(cost_credits) FROM sponsored_quest_events WHERE quest_id=${questId} AND event_type='impression' AND created_at>=${today}::date),0)+COALESCE((SELECT SUM(reward_coins) FROM sponsored_daily_reservations WHERE quest_id=${questId} AND assigned_date=${today}::date AND state IN ('reserved','paid')),0) AS spent`);
+    if(funding.marketingBalanceMicros<micros || new Decimal(quest.spentCredits).plus(commitment).gt(quest.totalBudgetCredits) || (quest.dailyBudgetCredits!==null && new Decimal(daily.rows[0].spent).plus(commitment).gt(quest.dailyBudgetCredits)))return false;
+    await tx.update(schema.sponsoredQuestFunding).set({marketingBalanceMicros:funding.marketingBalanceMicros-micros}).where(eq(schema.sponsoredQuestFunding.questId,questId));
+    await tx.insert(schema.sponsoredDailyReservations).values({questId,userId,assignedDate:today,rewardCoins:BigInt(reward),impressionMicros:fundingMicros(cost)});
+    await tx.update(schema.sponsoredQuests).set({spentCredits:sql`${schema.sponsoredQuests.spentCredits}+${commitment.toFixed(6)}`,impressionsCount:sql`${schema.sponsoredQuests.impressionsCount}+1`}).where(eq(schema.sponsoredQuests.id,questId));
     await tx.insert(schema.sponsoredQuestEvents).values({questId,userId,eventType:"impression",costCredits:cost.toFixed(6)});
     return true;
   });
@@ -243,10 +250,14 @@ export async function getEligibleSponsoredQuestTemplates(
     })
     .from(schema.questTemplates)
     .innerJoin(schema.sponsoredQuests, eq(schema.sponsoredQuests.id, schema.questTemplates.sponsoredQuestId))
+    .innerJoin(schema.sponsoredQuestFunding,eq(schema.sponsoredQuestFunding.questId,schema.sponsoredQuests.id))
     .where(
       and(
         eq(schema.questTemplates.isActive, true),
         eq(schema.sponsoredQuests.isActive, true),
+        eq(schema.sponsoredQuests.autoPaused,false),
+        eq(schema.sponsoredQuestFunding.marketingClosed,false),
+        isNull(schema.sponsoredQuests.deletedAt),
         eq(schema.sponsoredQuests.moderationStatus, "approved"),
         ne(schema.sponsoredQuests.flagStatus, "flagged"),
         eq(schema.sponsoredQuests.isDailyQuestEligible, true),

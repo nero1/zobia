@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -66,14 +67,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }: Ctx
     const approve = body.action === "approve";
     // NOTE: sponsored_quests has no updated_at column in the Drizzle schema —
     // see the same note in app/api/admin/sponsored-quests/[questId]/flag/route.ts.
-    await orm
-      .update(schema.sponsoredQuests)
-      .set({
+    await updateFundedSponsoredQuest(orm,questId,{
         moderationStatus: approve ? "approved" : "rejected",
         moderationReason: body.reason ?? null,
         isActive: approve,
-      })
-      .where(eq(schema.sponsoredQuests.id, questId));
+      },auth.user.sub);
 
     await syncSponsoredQuestTemplate(orm, questId);
 

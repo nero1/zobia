@@ -1,3 +1,8 @@
+
+import {SponsoredApplications} from '@zobia/shared/ui/SponsoredApplications';
+
+import {createIdempotentSubmission} from '@zobia/shared/utils';
+import {useRef} from 'react';
 /**
  * apps/android/src/routes/admin/sponsored-quests.tsx
  *
@@ -169,7 +174,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
   const { t } = useTranslation();
   const currency = useCurrency();
   const estimatedReach = form.isDailyQuestEligible && Number(form.cpmCredits) > 0
-    ? Math.floor((Number(form.totalBudgetCredits) / Number(form.cpmCredits)) * 1000)
+    ? Math.floor(Number(form.totalBudgetCredits)/(Number(form.cpmCredits)/1000+Number(form.rewardCoins)))
     : 0;
 
   function setPreset(key: DurationPresetKey) {
@@ -293,10 +298,12 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
   );
 }
 
+const sponsoredReviewTransport={request:async<T,>(path:string,method='GET',body?:unknown):Promise<T>=>{const response=await apiClient.request<T>({url:path,method,data:body});return response.data;}};
 function AdminSponsoredQuestsPage() {
   const { t } = useTranslation();
   const currency = useCurrency();
   const qc = useQueryClient();
+  const [reviewQuest,setReviewQuest]=useState<string|null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState<QuestForm>(EMPTY_FORM);
   const [editTarget, setEditTarget] = useState<SponsoredQuest | null>(null);
@@ -318,12 +325,15 @@ function AdminSponsoredQuestsPage() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'sponsored-quests'] });
 
+  const sponsoredSubmission=useRef(createIdempotentSubmission()).current;
+
   const createMutation = useMutation({
-    mutationFn: () => apiClient.post('/admin/sponsored-quests', questFormToBody(createForm)),
+    mutationFn: () => apiClient.post('/admin/sponsored-quests', sponsoredSubmission.prepare(questFormToBody(createForm))),
     onSuccess: () => {
       showToast(t('admin.sponsoredQuests.published', 'Sponsored quest published successfully'));
       setShowCreate(false);
       setCreateForm(EMPTY_FORM);
+      sponsoredSubmission.clear();
       invalidate();
     },
     onError: () => showToast(t('admin.sponsoredQuests.saveFailed', 'Failed to create quest'), 'error'),
@@ -371,8 +381,12 @@ function AdminSponsoredQuestsPage() {
   });
 
   const pauseMutation = useMutation({
-    mutationFn: ({ id, action, reason }: { id: string; action: 'pause' | 'resume'; reason?: string }) =>
-      apiClient.post(`/admin/sponsored-quests/${id}/pause`, { action, reason }),
+    mutationFn: ({id,action,reason}:{id:string;action:'pause'|'resume';reason?:string})=>{
+      const quest=quests?.find(item=>item.id===id);
+      const funding=action==='resume' && quest?.pause_reason==='funding_required';
+      const payload=funding && quest?{maxReserveCoins:Number(quest.reward_coins)*Number(quest.max_applications)+Math.ceil(quest.is_daily_quest_eligible?Math.max(0,Number(quest.total_budget_credits)-Number(quest.spent_credits)):0)}:{action,reason};
+      return apiClient.post(`/admin/sponsored-quests/${id}/${funding?'fund':'pause'}`,payload);
+    },
     onSuccess: (_res, vars) => {
       showToast(vars.action === 'pause' ? t('admin.sponsoredQuests.pausedFollowUp', 'Quest paused') : t('admin.sponsoredQuests.resumed', 'Quest resumed'));
       invalidate();
@@ -436,9 +450,12 @@ function AdminSponsoredQuestsPage() {
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
+      {reviewQuest && <SponsoredApplications questId={reviewQuest} transport={sponsoredReviewTransport} onClose={()=>setReviewQuest(null)} onChanged={()=>void invalidate()}/>}
+
       {showCreate && (
         <AdminCard>
           <QuestFormFields form={createForm} setForm={setCreateForm} />
+          <p className="mt-3 text-sm text-neutral-600 dark:text-neutral-300">{t("sponsoredFunding.reserveNotice",{amount:(Number(createForm.rewardCoins)*Number(createForm.maxApplications)+Math.ceil(createForm.isDailyQuestEligible?Number(createForm.totalBudgetCredits):0)).toLocaleString()})}</p>
           <button
             type="button"
             disabled={createMutation.isPending}
@@ -534,6 +551,7 @@ function AdminSponsoredQuestsPage() {
                     </button>
                   </>
                 )}
+                <button type="button" onClick={()=>setReviewQuest(q.id)} className="rounded-lg border border-neutral-200 px-3 py-1 text-xs dark:border-neutral-700">{t("sponsoredFunding.applications")}</button>
                 <button type="button" onClick={() => openEdit(q)} className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                   {t('admin.gifts.edit', 'Edit')}
                 </button>
@@ -561,7 +579,7 @@ function AdminSponsoredQuestsPage() {
                     onClick={() => pauseMutation.mutate({ id: q.id, action: 'resume' })}
                     className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50"
                   >
-                    {t('admin.sponsoredQuests.resume', 'Resume')}
+                    {q.pause_reason==='funding_required'?t('sponsoredFunding.reserveButton',{amount:(Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)).toLocaleString()}):t('admin.sponsoredQuests.resume','Resume')}
                   </button>
                 )}
                 {q.flag_status === 'flagged' ? (

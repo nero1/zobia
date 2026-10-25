@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -55,26 +56,20 @@ export const POST = withAdminAuth(
       // NOTE: sponsored_quests has no updated_at column in the Drizzle schema —
       // see the same note in app/api/admin/sponsored-quests/[questId]/flag/route.ts.
       if (body.action === "pause") {
-        await orm
-          .update(schema.sponsoredQuests)
-          .set({
+        await updateFundedSponsoredQuest(orm,questId,{
             isActive: false,
             pauseReason: body.reason ?? "Paused by admin",
             pausedBy: auth.user.sub,
             pausedAt: new Date(),
             autoPaused: false,
-          })
-          .where(eq(schema.sponsoredQuests.id, questId));
+          },auth.user.sub);
       } else {
-        await orm
-          .update(schema.sponsoredQuests)
-          .set({
+        await updateFundedSponsoredQuest(orm,questId,{
             isActive: true,
             pauseReason: null,
             pausedBy: null,
             pausedAt: null,
-          })
-          .where(eq(schema.sponsoredQuests.id, questId));
+          },auth.user.sub);
       }
 
       await syncSponsoredQuestTemplate(orm, questId);

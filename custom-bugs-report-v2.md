@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 07:56:29 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 08:45:54 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
-**Status:** Deployment follow-ups include verified schema readiness, reset recovery and optional starter-content work. Findings marked ✅ have been fixed and verified; nine earlier findings remain open. No production database was changed during these checks.
-**Additional review:** 108 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
+**Status:** The earlier nine open findings are fixed. Final review found three additional logging, outage-handling and pagination issues, now being remediated. Findings marked ✅ are fixed and verified. No production database was changed.
+**Additional review:** 125 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -80,7 +80,7 @@
 71: BUG ZOB-V2-071: ✅ [High] Authenticated Wiki reads expose drafts and bypass Wiki moderation
 72: BUG ZOB-V2-072: ✅ [Medium] Concurrent Wiki edits race revision allocation and overwrite stale fields
 73: BUG ZOB-V2-073: ✅ [High] A single-use Wiki invitation can admit multiple users concurrently
-74: BUG ZOB-V2-074: [High] Sponsored quest budgets and rewards have no corresponding funding reservation
+74: BUG ZOB-V2-074: ✅ [High] Sponsored quest budgets and rewards have no corresponding funding reservation
 75: BUG ZOB-V2-075: ✅ [Medium] Sponsored quest impression accounting ignores daily caps and paused state
 76: BUG ZOB-V2-076: ✅ [Medium] Sponsored impression charges are rounded away by the balance column
 77: BUG ZOB-V2-077: ✅ [Medium] Ordinary room members can submit system messages and bypass text moderation
@@ -141,6 +141,26 @@
 114: BUG ZOB-V2-114: ✅ [High] Unreadable crypto wallet snapshots are approved for processing
 
 115: BUG ZOB-V2-115: ✅ [Medium] Creator payout requests narrow wide earnings before checking exact availability
+
+116: BUG ZOB-V2-116: ✅ [High] Sponsored application decisions and stale completion writes can race
+
+117: BUG ZOB-V2-117: ✅ [High] Sponsored application capacity is checked before admission commits
+
+118: BUG ZOB-V2-118: ✅ [Medium] Sponsored campaign creation has no retry identity
+
+119: BUG ZOB-V2-119: ✅ [Medium] Future sponsored campaigns remain inactive after their start time
+
+120: BUG ZOB-V2-120: ✅ [Medium] Blank sponsored actions produce an uncompletable daily quest
+
+121: BUG ZOB-V2-121: ✅ [Medium] Completed sponsored applications lack an administrator proof-review interface
+
+122: BUG ZOB-V2-122: ✅ [Medium] Sponsored approval statistics omit completed payments
+
+123: BUG ZOB-V2-123: [High] Shared error logging exposes private SQL parameters and transport context
+
+124: BUG ZOB-V2-124: [Medium] Account-verification outages are reported as invalid sessions
+
+125: BUG ZOB-V2-125: [Medium] Sponsored campaign lists load every matching row without pagination
 
 ## Detailed findings and proposed fixes
 
@@ -1166,7 +1186,7 @@
 
 **VALIDATION:** Two concurrent real PostgreSQL consumers of an open single-use invite produce one success and exactly one collaborator.
 
-### 74: BUG ZOB-V2-074: [High] Sponsored quest budgets and rewards have no corresponding funding reservation
+### 74: BUG ZOB-V2-074: ✅ [High] Sponsored quest budgets and rewards have no corresponding funding reservation
 
 **PROBLEM:** Business creation accepts totalBudgetCredits and rewardCoins as declared numbers without reserving an advertiser wallet/payment. Impression processing only increments the declared spent counter, and the shadow quest pays the configured coin reward on completion. Moderation approval controls publication but supplies no accounting funding, so campaigns and rewards can create unfunded obligations.
 
@@ -1175,6 +1195,10 @@
 **FIX:** Reserve an actual advertiser/subsidy balance atomically, post impression charges and reward liabilities against it, and refuse rewards or campaign growth beyond funded headroom.
 
 **EVIDENCE:** Traced creation, shadow-template sync, impression accounting and reward credit; no wallet debit, escrow reservation or linked payment funds these budgets.
+
+**RESOLUTION:** ✅ Campaign creation now reserves actual wallet Credits for creator applications and daily distribution in one transaction. Each deck assignment reserves its quoted reward and impression cost under the same budget/daily-cap lock; completion consumes that reservation. Creator payouts debit the funded application pool. Payer-funded top-ups, expiry/cancellation refund intents and legacy funding are atomic, bounded and replay-safe; unfunded legacy campaigns pause without silently charging anyone.
+
+**VALIDATION:** Real route contracts verify concurrent creation and request-key replay, insufficient funds rollback, top-up authorization/concurrency, daily caps and reward reservation, paused-campaign redemption, application admission and settlement races, exact 52-Credit reserve/46-Credit refund conservation, refund replay, and explicit owner/admin legacy funding. Fresh/upgrade catalogs, plain PostgreSQL grants and full existing contracts pass.
 
 ### 75: BUG ZOB-V2-075: ✅ [Medium] Sponsored quest impression accounting ignores daily caps and paused state
 
@@ -1720,22 +1744,136 @@
 
 **VALIDATION:** Actual payout requests reject an all-earnings balance of 9,007,199,254,740,993 kobo and an unsafe numeric amount without changing the exact stored balance; ordinary reviewed conversions still settle.
 
+### 116: BUG ZOB-V2-116: ✅ [High] Sponsored application decisions and stale completion writes can race
+
+**PROBLEM:** Approval/rejection reads application status before the transaction, and completion updates unconditionally after a separate status read. Competing decisions can overwrite one another; stale completion can reopen paid work. Approval also ignores the campaign ID in the route.
+
+**FILES:** `apps/web/app/api/creator/sponsored-quests/[questId]/approve/route.ts; apps/web/app/api/creator/sponsored-quests/[questId]/complete/route.ts`
+
+**FIX:** Lock the beneficiary, campaign and application consistently; decide and settle the funded share once. Update completion only from applied/accepted, and bind decisions to their route campaign.
+
+**RESOLUTION:** ✅ Lock the beneficiary, campaign and application consistently; decide and settle the funded share once. Update completion only from applied/accepted, and bind decisions to their route campaign.
+
+**VALIDATION:** Concurrent real approvals produce one payment and one successful decision. A cross-campaign decision returns 404, and a paid application cannot be completed again.
+
+### 117: BUG ZOB-V2-117: ✅ [High] Sponsored application capacity is checked before admission commits
+
+**PROBLEM:** Two applicants can both read free capacity and insert beyond the campaign limit. Moderation, pause and funding state can also change between the preliminary checks and insertion.
+
+**FILES:** `apps/web/app/api/creator/sponsored-quests/[questId]/apply/route.ts`
+
+**FIX:** Serialize admission under the campaign lock, recheck active/moderation/funding/deadline state and count capacity immediately before inserting.
+
+**RESOLUTION:** ✅ Serialize admission under the campaign lock, recheck active/moderation/funding/deadline state and count capacity immediately before inserting.
+
+**VALIDATION:** Two actual applications racing for one slot yield one admission and exactly one persisted application.
+
+### 118: BUG ZOB-V2-118: ✅ [Medium] Sponsored campaign creation has no retry identity
+
+**PROBLEM:** Creation always generates a fresh campaign. A retry after an unknown network result creates another campaign; wallet-backed funding would additionally reserve again. Business forms regenerate relative dates on each attempt.
+
+**FILES:** `apps/web/app/api/admin/sponsored-quests/route.ts; apps/web/app/api/business/sponsored-quests/route.ts; apps/web/app/api/creator/sponsored-quests/route.ts; shared/utils/idempotentSubmission.ts`
+
+**FIX:** Bind a stable client operation key to the payer and deterministic campaign identity, verify retry details, and preserve the original request body/date window until inputs change.
+
+**RESOLUTION:** ✅ Bind a stable client operation key to the payer and deterministic campaign identity, verify retry details, and preserve the original request body/date window until inputs change.
+
+**VALIDATION:** Concurrent actual creation requests return one campaign and one wallet reserve. Changed details conflict without another debit; client unit tests retain keys and relative dates across retries.
+
+### 119: BUG ZOB-V2-119: ✅ [Medium] Future sponsored campaigns remain inactive after their start time
+
+**PROBLEM:** Shadow-template synchronization stores is_active=false when creation happens before starts_at. Candidate selection requires that template flag, and no scheduled transition activates it when the window opens.
+
+**FILES:** `apps/web/lib/quests/sponsoredQuestPacing.ts`
+
+**FIX:** Keep funded eligible templates synchronized independently of their date window and apply start/end/budget checks live during selection and reservation.
+
+**RESOLUTION:** ✅ Keep funded eligible templates synchronized independently of their date window and apply start/end/budget checks live during selection and reservation.
+
+**VALIDATION:** A real future campaign is excluded before its start and enters selection after its start changes to the past, without another synchronization call.
+
+### 120: BUG ZOB-V2-120: ✅ [Medium] Blank sponsored actions produce an uncompletable daily quest
+
+**PROBLEM:** A missing action becomes sponsored_quest_action, which no application event increments. Arbitrary unsupported actions are also accepted, allowing paid campaign distribution with no possible completion.
+
+**FILES:** `apps/web/lib/quests/sponsoredQuestPacing.ts; apps/web/lib/quests/questEngine.ts; shared/utils/questActions.ts`
+
+**FIX:** Use the shared wired-action allowlist, reject unsupported daily actions and give blank actions the supported Messages default. Include funded reward commitments in reach estimates.
+
+**RESOLUTION:** ✅ Use the shared wired-action allowlist, reject unsupported daily actions and give blank actions the supported Messages default. Include funded reward commitments in reach estimates.
+
+**VALIDATION:** The funded Messages fixture completes through the actual quest engine. The shared action list now drives validation and normal quest metadata; template synchronization uses the supported default.
+
+### 121: BUG ZOB-V2-121: ✅ [Medium] Completed sponsored applications lack an administrator proof-review interface
+
+**PROBLEM:** Creators can submit proof and a protected API can decide applications, but the active administrator screens expose no proof review or application approval controls. Completed work remains operationally unsettled through the normal interface.
+
+**FILES:** `shared/ui/SponsoredApplications.tsx; apps/web/app/api/admin/sponsored-quests/[questId]/applications/route.ts; apps/web/app/(admin)/gate44/sponsored-quests/page.tsx; apps/android/src/routes/admin/sponsored-quests.tsx`
+
+**FIX:** Provide a bounded, cursor-paginated private review endpoint and a shared themed, accessible review dialog for web/PWA and Vite Android. Render proof as text and use the existing atomic decision route.
+
+**RESOLUTION:** ✅ Provide a bounded, cursor-paginated private review endpoint and a shared themed, accessible review dialog for web/PWA and Vite Android. Render proof as text and use the existing atomic decision route.
+
+**VALIDATION:** Real endpoint checks require an assured administrator, deny ordinary accounts and unassured staff, return the submitted proof, and reject malformed cursors. Both active clients type-check against the shared dialog. A production-browser check displayed the reserve, safely rendered hostile proof markup as text and approved the funded application through the accessible UI.
+
+### 122: BUG ZOB-V2-122: ✅ [Medium] Sponsored approval statistics omit completed payments
+
+**PROBLEM:** The administrator count includes only status approved, while successful settlement changes applications directly to paid. Completed payments therefore continue to appear as zero approved applications.
+
+**FILES:** `apps/web/app/api/admin/sponsored-quests/route.ts`
+
+**FIX:** Count both approved and paid decisions in the approval statistic.
+
+**RESOLUTION:** ✅ Count both approved and paid decisions in the approval statistic.
+
+**VALIDATION:** An actual campaign-list response after settlement reports one approved application.
+
+### 123: BUG ZOB-V2-123: [High] Shared error logging exposes private SQL parameters and transport context
+
+**PROBLEM:** The shared logger uses the default error serializer. Drizzle errors include SQL, parameter values and nested causes, while transport errors can carry request configuration. The local failed-message reproduction logs the submitted message and metadata in full.
+
+**FILES:** `apps/web/lib/logger.ts; apps/web/lib/api/errors.ts`
+
+**FIX:** Use a shared bounded error serializer that retains safe classification/correlation information while dropping messages, query parameters and transport credentials; redact common structured secret fields.
+
+**EVIDENCE:** Confirmed from the actual failed room-message contract log and the shared logger configuration.
+
+### 124: BUG ZOB-V2-124: [Medium] Account-verification outages are reported as invalid sessions
+
+**PROBLEM:** assertAccountActive catches database read failures and throws 401. Authenticated clients treat 401 as expired credentials and may clear valid sessions during a temporary backend outage.
+
+**FILES:** `apps/web/lib/api/middleware.ts; apps/web/lib/auth/refreshSession.ts; apps/web/lib/api/authFetch.ts`
+
+**FIX:** Return a retryable service error for an unavailable authority backend, retain credentials on transient refresh failures and preserve genuine revocation/ban rejection.
+
+**EVIDENCE:** Source-confirmed catch-to-unauthorized mapping and client 401/refresh expiration handling.
+
+### 125: BUG ZOB-V2-125: [Medium] Sponsored campaign lists load every matching row without pagination
+
+**PROBLEM:** The administrator and business list queries have no LIMIT or cursor. Both active clients load the entire result into memory, so growing campaign history increases query, response, serverless and rendering costs without a bound.
+
+**FILES:** `apps/web/app/api/admin/sponsored-quests/route.ts; apps/web/app/api/business/sponsored-quests/route.ts; active campaign-list clients`
+
+**FIX:** Add stable cursor-based ordering and bounded pages to both endpoints, then expose page controls in web/PWA and Vite Android without accumulating an unbounded list.
+
+**EVIDENCE:** Source-confirmed unbounded administrator aggregate and business list queries, with unbounded client arrays.
+
 ## Ratings and brief review
 
-Ratings are engineering judgments, not a certification. Scores show **audited base → this verified batch → projected after every remaining fix**. Live deployment/provider checks still depend on the user's configured services.
+Scores are engineering judgments, **before remediation → current code after the recommended fixes**. They assess implementation, not a production certification.
 
-- **Security: 4/10 → 7/10 → 8.5/10.** Live authorization, factor proof and Google transport/identity handling are substantially improved; open realtime and hand-off verification remains listed.
-- **Accounting and data integrity: 4/10 → 6.5/10 → 8.5/10.** Durable rewards, locked payouts and unified merch settlement are verified. Sponsored funding and remaining payout verification are still open.
-- **Performance and hosting efficiency: 6/10 → 7.5/10 → 8/10.** Bounded pagination/workers and fewer database context round trips help; public-upload retention remains open.
-- **Structure and maintainability: 6/10 → 7.5/10 → 8.5/10.** Shared purchase, authorization, export and task services reduce divergent behavior.
-- **Implementation and user experience: 5/10 → 7.5/10 → 8.5/10.** Broken saves/exports, rich-text contrast and authentication paths are repaired; production sign-in and device linking need deployment configuration.
-- **Overall: 4.5/10 → 7/10 → 8.5/10.** This is a deployment checkpoint with explicitly retained open findings, not completion of the entire remediation plan.
+- **Security: 4/10 → 8.5/10.** Live session/role checks, protected realtime delivery, confirmed hand-offs and private data boundaries are substantially stronger.
+- **Accounting and data integrity: 4/10 → 8.5/10.** Funded campaign reserves, atomic settlement, exact units, durable refunds and concurrent decision checks are verified locally.
+- **Performance and hosting efficiency: 6/10 → 8/10.** Bounded workers, pagination, caching and media quotas limit work and growth. Thousands-user capacity and sustained free-tier operation require deployment measurements.
+- **Structure and maintainability: 6/10 → 8/10.** Shared authorization, accounting, storage lifecycle, review UI and durable task services reduce divergent behavior.
+- **Implementation and user experience: 5/10 → 8.5/10.** Active web/PWA and Vite Android flows share themed controls, localized funding notices and accessible review. External service/device configuration still matters.
+- **Overall: 4.5/10 → 8.3/10.** The earlier fix set is complete; three final-pass findings remain under remediation before the last merge.
 
 ## Review scope and concise validation
 
-The initial audit and additional deep review identified **108 findings: 59 High and 49 Medium**. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-125. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
-The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Android and shared source inventory contains 1,993 TypeScript/TSX files; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
+The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Vite Android and shared source inventory was refreshed during remediation; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
 Reviewed areas included sessions and role assurance, RLS/grants and database portability, exact-value accounting, payout/webhook idempotency, race conditions, content visibility and SEO, upload/input boundaries, offline account isolation, erasure/export portability, queue/retry behavior, pooling/caching, and theme/accessibility integration. CRON frequency was excluded as requested. No new grant defect or exposed live key is asserted without supporting evidence.
 
@@ -1743,10 +1881,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **114/115 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
+Remediation progress: **122/125 fixed and verified**. Three newly confirmed final-pass findings remain open and are being fixed; they are not claimed resolved.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 07:56:29 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 08:45:54 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

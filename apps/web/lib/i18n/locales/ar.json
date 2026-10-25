@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "تابع فقط إذا بدأت هذا الإجراء من تطبيق زوبيا. سيسجل هذا المتصفح الدخول إلى الحساب الموضح أدناه.",
   "mobileBridge.expiredTitle": "انتهت صلاحية هذا الرابط",
   "mobileBridge.expiredBody": "ارجع إلى تطبيق زوبيا وافتح الصفحة مرة أخرى.",
-  "mobileBridge.impersonation": "هذه جلسة دعم مؤقتة باستخدام حساب آخر."
+  "mobileBridge.impersonation": "هذه جلسة دعم مؤقتة باستخدام حساب آخر.",
+  "sponsoredFunding.reserveNotice": "يؤدي الإرسال إلى حجز {{amount}} رصيد من محفظتك للطلبات والميزانية اليومية. تُرد الأموال غير المستخدمة بعد الإغلاق.",
+  "sponsoredFunding.reserveButton": "حجز ما يصل إلى {{amount}} رصيد",
+  "sponsoredFunding.applications": "مراجعة الطلبات",
+  "sponsoredFunding.proof": "إثبات الإكمال",
+  "sponsoredFunding.noApplications": "لا توجد طلبات بانتظار المراجعة."
 }

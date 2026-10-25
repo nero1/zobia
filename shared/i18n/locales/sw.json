@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Endelea tu ikiwa ulianza hatua hii kwenye programu ya Zobia. Kivinjari hiki kitaingia kwenye akaunti iliyoonyeshwa hapa chini.",
   "mobileBridge.expiredTitle": "Kiungo hiki kimeisha muda",
   "mobileBridge.expiredBody": "Rudi kwenye programu ya Zobia na ufungue ukurasa tena.",
-  "mobileBridge.impersonation": "Hiki ni kipindi cha muda cha usaidizi kwa kutumia akaunti nyingine."
+  "mobileBridge.impersonation": "Hiki ni kipindi cha muda cha usaidizi kwa kutumia akaunti nyingine.",
+  "sponsoredFunding.reserveNotice": "Kutuma kutahifadhi Credits {{amount}} kutoka kwenye pochi yako kwa maombi na bajeti ya kila siku. Fedha zisizotumika zitarudishwa baada ya kufungwa.",
+  "sponsoredFunding.reserveButton": "Hifadhi hadi Credits {{amount}}",
+  "sponsoredFunding.applications": "Kagua maombi",
+  "sponsoredFunding.proof": "Uthibitisho wa kukamilisha",
+  "sponsoredFunding.noApplications": "Hakuna maombi yanayosubiri ukaguzi."
 }

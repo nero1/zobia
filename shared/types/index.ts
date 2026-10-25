@@ -456,6 +456,8 @@ export type CoinTransactionType =
   | 'prestige_reward'
   | 'season_reward'
   | 'sponsored_quest_payout'
+  | 'sponsored_quest_funding'
+  | 'sponsored_quest_refund'
   | 'war_reward'
   | 'welcome_bonus'
   | 'onboarding_welcome'

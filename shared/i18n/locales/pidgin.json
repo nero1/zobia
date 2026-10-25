@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Continue only if na you start this from Zobia app. This browser go sign in to the account wey show below.",
   "mobileBridge.expiredTitle": "This link don expire",
   "mobileBridge.expiredBody": "Go back to Zobia app and open the page again.",
-  "mobileBridge.impersonation": "Na temporary support session be this; support dey use another account."
+  "mobileBridge.impersonation": "Na temporary support session be this; support dey use another account.",
+  "sponsoredFunding.reserveNotice": "If you submit, we go reserve {{amount}} Credits from your wallet for applications and daily budget. We go return unused money after campaign close.",
+  "sponsoredFunding.reserveButton": "Reserve up to {{amount}} Credits",
+  "sponsoredFunding.applications": "Review applications",
+  "sponsoredFunding.proof": "Proof say work don finish",
+  "sponsoredFunding.noApplications": "No application dey wait for review."
 }
