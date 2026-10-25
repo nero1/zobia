@@ -114,6 +114,16 @@ Choose **one** route below. For a new empty Supabase project, route A is the sim
 - This creates the final tables, views, reference/configuration data, permissions, and row-level security rules in one migration. Do not run historical migration files or demo seeds afterward.
 - If SQL Editor reports an error, keep the message and resolve it before proceeding. Do not repeatedly rerun the baseline over partially created application tables.
 
+### If reinstalling after deliberately wiping the old tables
+
+Deleting tables does not necessarily delete their helper functions. If SQL Editor reports **function "app_group_member" already exists**, the wipe left functions behind.
+
+- Open [`clear-orphaned-baseline-functions.sql`](../apps/web/db/maintenance/clear-orphaned-baseline-functions.sql) on GitHub and click **Raw**. Copy the complete file.
+- Paste it into a new query in **Supabase → SQL Editor**, then click **Run**. It removes only the eight baseline helper functions, inside a transaction.
+- The cleanup refuses to run if application tables, views, or sequences remain. If it refuses, use route B for an existing installation; do not bypass the check.
+- After cleanup succeeds, run the complete `0001_consolidated_schema.sql` from route A again.
+- Do not delete Supabase's `auth` or `storage` schemas. Do not change function declarations or skip migration statements to get past the error.
+
 ### B. Existing database, or setup through GitHub's website
 
 - For an existing database, first create a backup using the provider's dashboard and confirm how you would restore it. Backup availability depends on your provider and plan.

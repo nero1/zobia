@@ -1800,6 +1800,8 @@ This ensures zero dropped requests during rolling deploys on Vercel and other co
 
 ### Database Provider Abstraction
 
+**Reinstallation:** deleting public tables can leave helper functions (`42723`). For an intentionally wiped installation, follow the [guarded cleanup steps](SETUP.md#if-reinstalling-after-deliberately-wiping-the-old-tables), then rerun the full baseline; existing installations use verified upgrades.
+
 `DATABASE_PROVIDER` env var → `lib/db/index.ts` reads it and returns the correct `DatabaseAdapter` singleton, which owns the underlying `pg.Pool` for that provider. `lib/db/drizzle.ts`'s `getDb()` wraps that *same* pool in a Drizzle ORM instance — application/business-logic code calls `const orm = await getDb();` and uses Drizzle's query builder against `schema.<table>` (see PRD §22.1.1), never a provider-specific SDK and, for new code, never the raw `db.query()`/`db.transaction()` adapter methods directly.
 
 An ESLint rule flags any direct import of `@supabase/supabase-js` or provider-specific modules from business logic files. Only the adapter file in `lib/db/providers/` may import provider SDKs.

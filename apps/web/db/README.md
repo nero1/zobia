@@ -4,6 +4,8 @@
 
 ## Fresh installation
 
+**After a table-only wipe:** `DROP TABLE … CASCADE` can leave baseline functions behind, causing error `42723`. Run [the guarded function cleanup](maintenance/clear-orphaned-baseline-functions.sql) in SQL Editor, then rerun the full baseline. Cleanup refuses remaining application tables/views/sequences; do not drop provider schemas.
+
 Use a direct PostgreSQL connection with an empty application schema. PostgreSQL 16+ and the stock `pgcrypto`, `uuid-ossp` and `pg_trgm` extensions are required. Existing extension namespaces are resolved without relocating provider-owned extensions; the migration role needs usage on those namespaces. The database owner can install missing trusted extensions; `pg_stat_statements` is optional and does not block installation when unavailable.
 
 From the repository root:

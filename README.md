@@ -4,6 +4,8 @@ Zobia Social
 
 ## Quick start
 
+For dashboard deployment, see [SETUP.md](docs/SETUP.md). A table-only wipe leaves helper functions behind; use its guarded cleanup instructions before reinstalling the baseline.
+
 ```bash
 npm install                 # always from the repo root (npm workspaces)
 cp apps/web/.env.example apps/web/.env.local   # fill in the values, see docs/SETUP.md
