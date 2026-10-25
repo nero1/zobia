@@ -5289,9 +5289,11 @@ Earlier release-note appendices are now [archived](docs/archive/PRD-HISTORICAL-R
 
 ## 49. Portable final-state database baseline
 
+**Optional starter content:** provide a separate, atomic, rerunnable SQL file owned by an existing verified administrator, covering editorial content and the supported quest-action catalog. Never manufacture accounts, balances, payments, votes or activity; leave commercial and seasonal examples inactive/drafts and preserve owner edits. See [coverage and setup](docs/SEED-CONTENT.md).
+
 **Reset recovery:** a public-table-only wipe can leave helper functions and cause `42723` on reinstall. Provide transactional cleanup of exact baseline function signatures only when no application tables/views/sequences remain; preserve unrelated functions and provider schemas. Then rerun the complete baseline. See [setup steps](docs/SETUP.md#if-reinstalling-after-deliberately-wiping-the-old-tables).
 
-The canonical fresh-install schema is `apps/web/db/migrations/0001_consolidated_schema.sql`, replacing the former 0001–0039 sequence. Declare each table once with its final columns, keys and checks. Include final views/functions/indexes, foreign keys, triggers, RLS and the resulting reference/configuration rows; omit historical alteration/backfill sequences. Optional demo users/content remain separate.
+The canonical fresh-install schema is `apps/web/db/migrations/0001_consolidated_schema.sql`, replacing the former 0001–0039 sequence. Declare each table once with its final columns, keys and checks. Include final views/functions/indexes, foreign keys, triggers, RLS and the resulting reference/configuration rows; omit historical alteration/backfill sequences. Optional starter content remains separate and uses an existing administrator; no demo accounts are created.
 
 Support PostgreSQL 16+ on Supabase, Railway, DigitalOcean and other PostgreSQL hosts using stock required extensions. Platform grants/policies are conditional on existing role names; never require or create Supabase roles or `auth` functions on another host. Revoke inherited client table grants before restoring the client allowlist, grant trusted service access explicitly, and keep private tables unavailable to public client roles. Monitoring extensions remain optional.
 

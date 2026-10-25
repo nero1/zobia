@@ -4,6 +4,8 @@ Zobia Social
 
 ## Quick start
 
+For optional content and 80 additional quest templates, follow the [SQL Editor seeding guide](docs/SEED-CONTENT.md) after administrator setup.
+
 For dashboard deployment, see [SETUP.md](docs/SETUP.md). A table-only wipe leaves helper functions behind; use its guarded cleanup instructions before reinstalling the baseline.
 
 ```bash

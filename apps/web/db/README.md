@@ -60,7 +60,7 @@ REFERENCE_DATABASE_URL='postgresql://...' BASELINE_DATABASE_URL='postgresql://..
 
 The comparison is read-only. Omit `--platform-access` when comparing a role-free installation; platform grants/policies are necessarily absent there. It compares all application tables/reference rows and the final catalog, including generated columns, constraints, indexes, functions, triggers and provider-neutral policies. Platform mode additionally compares all policies/client privileges and checks service-role grants and private-receipt denial.
 
-Add future changes as new numbered SQL files (starting with `0002_<new_name>.sql`). Do not edit an applied baseline. Optional demo accounts/content remain in `seed.sql` for local development only; `npm run migrate -- --seed` installs them separately and transactionally.
+Add future changes as new numbered SQL files (starting with `0002_<new_name>.sql`). Do not edit an applied baseline. Optional administrator-owned starter content lives in `seed.sql`; see the [SQL Editor guide](../../../docs/SEED-CONTENT.md). It adds content and 80 quest templates without accounts, privileges, balances or fabricated activity. For the developer runner, set `SEED_OWNER_EMAIL` to an active verified administrator and use `npm run seed` or the runner’s `--seed` option; this uses the same SQL transaction.
 
 ## Upgrading the previous consolidated baseline
 

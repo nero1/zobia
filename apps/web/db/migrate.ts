@@ -48,6 +48,7 @@ async function main() {
   const args = new Set(process.argv.slice(2));
   for (const arg of args) if (!["--status","--seed","--adopt-baseline"].includes(arg)) throw new Error(`Unknown argument: ${arg}`);
   if (args.has("--status") && args.size > 1) throw new Error("--status cannot be combined with write options");
+  if (args.has("--seed") && !process.env.SEED_OWNER_EMAIL?.trim()) throw new Error("Set SEED_OWNER_EMAIL to an existing active verified administrator; seeding never creates accounts");
   const connectionString = process.env.DIRECT_URL || process.env.DATABASE_URL;
   if (!connectionString) throw new Error("Set DIRECT_URL or DATABASE_URL to a direct PostgreSQL connection");
   const files = fs.readdirSync(directory).filter(f => f.endsWith(".sql")).sort();
@@ -126,9 +127,13 @@ async function main() {
       catch (error) { await client.query("ROLLBACK"); throw error; }
     }
     if (args.has("--seed")) {
-      log("Applying optional local demo data");
+      log("Applying optional administrator-owned starter content");
       await client.query("BEGIN");
-      try { await client.query(migrationBody(fs.readFileSync(path.join(__dirname,"seed.sql"),"utf8"))); await client.query("COMMIT"); }
+      try {
+        await client.query("SELECT set_config('zobia.seed_owner_email',$1,true)",[process.env.SEED_OWNER_EMAIL!.trim()]);
+        await client.query(migrationBody(fs.readFileSync(path.join(__dirname,"seed.sql"),"utf8")));
+        await client.query("COMMIT");
+      }
       catch (error) { await client.query("ROLLBACK"); throw error; }
     }
     log("Database is up to date.");
