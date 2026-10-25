@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {and,eq,sql} from 'drizzle-orm';
 import {getDb,schema,type DbOrTx} from '@/lib/db/drizzle';
 import {raiseAlert} from '@/lib/alerts/dispatch';
-export type TaskKind='maintenance_sweep'|'xp_award'|'password_reset_email'|'kyc_review'|'coin_credit'|'community_reward'|'merch_refund';
+export type TaskKind='storage_maintenance'|'maintenance_sweep'|'xp_award'|'password_reset_email'|'kyc_review'|'coin_credit'|'community_reward'|'merch_refund';
 export interface DurableTask{id:string;kind:TaskKind;operation_key:string;user_id:string|null;payload:Record<string,unknown>;attempts:number}
 export class PermanentTaskError extends Error{constructor(public readonly reason:string){super(reason);this.name='PermanentTaskError';}}
 export async function enqueueTask(tx:DbOrTx,kind:TaskKind,operationKey:string,userId:string|null,payload:Record<string,unknown>):Promise<string>{
@@ -14,6 +14,7 @@ export async function enqueueTask(tx:DbOrTx,kind:TaskKind,operationKey:string,us
 }
 async function executeTask(task:DurableTask):Promise<void>{
  switch(task.kind){
+  case 'storage_maintenance':await (await import('@/lib/storage/deletionQueue')).drainObjectDeletions(undefined,task.id);return;
   case 'maintenance_sweep':return (await import('./maintenance')).deliverMaintenanceTask(task);
   case 'xp_award':return (await import('./xpAward')).deliverXpAward(task);
   case 'community_reward':return (await import('./communityReward')).deliverCommunityReward(task);

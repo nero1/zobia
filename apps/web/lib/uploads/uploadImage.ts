@@ -8,7 +8,7 @@
  */
 
 import crypto from "crypto";
-import { storage } from "@/lib/storage";
+import { uploadPublicMedia } from "@/lib/storage/publicMedia";
 import { compressImage, type CompressionProfile } from "@/lib/storage/compress";
 import { badRequest } from "@/lib/api/errors";
 import {
@@ -55,7 +55,7 @@ export async function uploadValidatedImage(
 
   const ext = extensionForMime(finalMimeType);
   const key = `${opts.keyPrefix}/${opts.userId}/${Date.now()}-${crypto.randomUUID()}.${ext}`;
-  const result = await storage.upload(key, finalBuffer, {
+  const result = await uploadPublicMedia(opts.userId,key, finalBuffer, {
     contentType: finalMimeType,
     isPublic: true,
     maxSizeBytes: MAX_IMAGE_UPLOAD_BYTES,

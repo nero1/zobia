@@ -7272,6 +7272,12 @@ export const cryptoTransferClaims=pgTable("crypto_transfer_claims",{
  chain:text("chain").notNull(),txHash:text("tx_hash").notNull(),paymentId:uuid("payment_id").notNull().unique().references(()=>payments.id),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 },t=>[primaryKey({columns:[t.chain,t.txHash]})]);
 export const accountRestoreUses=pgTable("account_restore_uses",{jti:text("jti").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const publicMediaAssets=pgTable("public_media_assets",{
+ id:uuidPk(),userId:uuid("user_id").references(()=>users.id,{onDelete:"set null"}),storageKey:text("storage_key").notNull().unique(),publicUrl:text("public_url").notNull().unique(),sizeBytes:bigint("size_bytes",{mode:"bigint"}).notNull(),contentType:text("content_type").notNull(),state:text("state").notNull().default("pending"),unreferencedAt:timestamp("unreferenced_at",{withTimezone:true}).defaultNow(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});
+export const publicMediaReferences=pgTable("public_media_references",{
+ assetId:uuid("asset_id").notNull().references(()=>publicMediaAssets.id,{onDelete:"cascade"}),entityTable:text("entity_table").notNull(),entityId:uuid("entity_id").notNull(),expiresAt:timestamp("expires_at",{withTimezone:true}),
+},table=>[primaryKey({columns:[table.assetId,table.entityTable,table.entityId]})]);
 export const objectDeletionTasks=pgTable("object_deletion_tasks",{id:uuidPk(),storageKey:text("storage_key").notNull().unique(),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),lastError:text("last_error"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
 export const restoreEmailTasks=pgTable("restore_email_tasks",{userId:uuid("user_id").primaryKey().references(()=>users.id,{onDelete:"cascade"}),attempts:integer("attempts").notNull().default(0),availableAt:timestamp("available_at",{withTimezone:true}).notNull().defaultNow(),leaseToken:uuid("lease_token"),deliveredAt:timestamp("delivered_at",{withTimezone:true}),updatedAt:timestamp("updated_at",{withTimezone:true}).notNull().defaultNow()});
 export const cronJobRuns=pgTable("cron_job_runs",{jobKey:text("job_key").notNull(),runDate:date("run_date").notNull(),leaseToken:uuid("lease_token").notNull(),leaseUntil:timestamp("lease_until",{withTimezone:true}).notNull(),completedAt:timestamp("completed_at",{withTimezone:true})},t=>[primaryKey({columns:[t.jobKey,t.runDate]})]);
@@ -7285,7 +7291,7 @@ export const transactionalTasks=pgTable("transactional_tasks",{
 
 export const schema = {
   transactionalTasks,
-  cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
+  publicMediaAssets,publicMediaReferences,cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
   auditDiscrepanciesArchive,rankUpEventsArchive,
   accountTypePlayProducts,
   playPurchaseReceipts,

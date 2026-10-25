@@ -1,6 +1,6 @@
 # PostgreSQL baseline
 
-`migrations/0001_consolidated_schema.sql` is the complete final state including the forensic hardening review. The migration directory contains one SQL file. It declares 317 tables once, with final columns, checks, primary/unique keys, indexes, foreign keys, functions, triggers, RLS and 809 reference/configuration rows. Foreign keys follow reference inserts to resolve circular references; triggers are installed after importing their already-materialized reference data. Historical column alterations, backfills and temporary schema states are absent.
+`migrations/0001_consolidated_schema.sql` is the complete final state including the forensic hardening review. The migration directory contains one SQL file. It declares 320 tables once, with final columns, checks, primary/unique keys, indexes, foreign keys, functions, triggers, RLS and 809 reference/configuration rows. Foreign keys follow reference inserts to resolve circular references; triggers are installed after importing their already-materialized reference data. Historical column alterations, backfills and temporary schema states are absent.
 
 ## Fresh installation
 
@@ -66,4 +66,6 @@ Add future changes as new numbered SQL files (starting with `0002_<new_name>.sql
 
 The runner recognizes the verified previous baseline checksum and catalog. It applies `upgrades/2026-10-23-forensic-hardening.sql` transactionally, verifies the resulting catalog, synchronizes permissions and records the current baseline checksum. This upgrade is separate from the sole fresh-install migration. Unknown schema drift aborts without changing application data. Keep a recoverable database/object backup and validate an isolated restore before upgrading a live installation.
 
-The final schema has 317 tables and three security-invoker ledger history views. Platform roles are never created by the baseline; private tables, including phone verification and recovery queues, are not exposed to anon/authenticated roles. `service_role` receives explicit table permissions. Ordinary PostgreSQL application transactions establish transaction-local system context through the pool wrapper; request-scoped RLS contexts set both supported user settings and cannot leak through pooled connections.
+The final schema has 320 tables and three security-invoker ledger history views. Platform roles are never created by the baseline; private tables, including phone verification and recovery queues, are not exposed to anon/authenticated roles. `service_role` receives explicit table permissions. Ordinary PostgreSQL application transactions establish transaction-local system context through the pool wrapper; request-scoped RLS contexts set both supported user settings and cannot leak through pooled connections.
+
+The public-media update adds durable reservations and references. Existing verified baselines upgrade through `upgrades/2026-10-25-public-media.sql`; the runner verifies the old and final catalogs before adopting the new baseline checksum. [Media lifecycle](../../../docs/MEDIA-LIFECYCLE.md) describes quotas, cleanup and legacy objects.

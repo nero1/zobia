@@ -67,20 +67,28 @@
     "stickers": 5,
     "subscription_plans": 6,
     "x_manifest": 492,
-    "transactional_tasks": 0
+    "transactional_tasks": 0,
+    "public_media_assets": 0,
+    "public_media_references": 0
   },
-  "catalogChecksum": "e70ad03b143048a5eb1cadd22b501613bb9c62e4a9c70342eb39f499562e988d",
+  "catalogChecksum": "a070aeceba81bd12fdc80f91b87192300b87cf93e9019e0fee511aa76e5f65eb",
   "previousBaselineChecksum": "680b20e6",
   "previousCatalogChecksum": "954a61eba4276b7faecb7bc3f69770b1dd6c731b8e00104dd705748a7c1e383a",
   "upgradeFile": "2026-10-23-forensic-hardening.sql",
   "upgradeChecksum": "7558a650",
-  "tableCount": 318,
+  "tableCount": 320,
   "additionalUpgrades": [
     {
       "fromBaselineChecksum": "6ed0b86e",
       "fromCatalogChecksum": "afca9df65644a466f77e7d9d51ac61e5f437d7cf79b7e428f925b8ea308d00c1",
       "file": "2026-10-24-v2-remediation.sql",
       "checksum": "59da306f"
+    },
+    {
+      "fromBaselineChecksum": "9bf639e7",
+      "fromCatalogChecksum": "e70ad03b143048a5eb1cadd22b501613bb9c62e4a9c70342eb39f499562e988d",
+      "file": "2026-10-25-public-media.sql",
+      "checksum": "375d70bb"
     }
   ]
 }

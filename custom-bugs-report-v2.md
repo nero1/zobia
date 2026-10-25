@@ -1,6 +1,6 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 07:45:15 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 07:56:29 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** Deployment follow-ups include verified schema readiness, reset recovery and optional starter-content work. Findings marked ✅ have been fixed and verified; nine earlier findings remain open. No production database was changed during these checks.
 **Additional review:** 108 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
@@ -44,7 +44,7 @@
 35: BUG ZOB-V2-035: ✅ [High] Forum pot claims commit before claimant funds are credited
 36: BUG ZOB-V2-036: ✅ [Medium] Reward caps race and reward delivery is not durable across community features
 37: BUG ZOB-V2-037: ✅ [High] Account erasure leaves real PIN hashes and newer crypto-wallet identities
-38: BUG ZOB-V2-038: [Medium] Public media uploads have no durable orphan/retention lifecycle
+38: BUG ZOB-V2-038: ✅ [Medium] Public media uploads have no durable orphan/retention lifecycle
 39: BUG ZOB-V2-039: ✅ [Medium] Creator Fund scoring narrows BIGINT XP to INTEGER and ignores active standing
 40: BUG ZOB-V2-040: ✅ [High] Fraud-forced manual review is ignored by the earnings-to-coins payout branch
 41: BUG ZOB-V2-041: ✅ [Medium] Cached ad serves reuse a one-use billing receipt across legitimate views
@@ -662,7 +662,7 @@
 
 **VALIDATION:** Real account-erasure regression verifies deleted PIN/wallet rows, cleared avatar URL, deletion standing and the durable avatar deletion task.
 
-### 38: BUG ZOB-V2-038: [Medium] Public media uploads have no durable orphan/retention lifecycle
+### 38: BUG ZOB-V2-038: ✅ [Medium] Public media uploads have no durable orphan/retention lifecycle
 
 **PROBLEM:** Uploads publish immutable objects before a content record exists. Abandoned drafts and failed content creation leave no durable reservation or deletion job, and repeated replacements accumulate objects indefinitely. The new erasure queue only tracks private identity uploads.
 
@@ -671,6 +671,10 @@
 **FIX:** Track reservations and live references for public uploads, enforce user byte/count budgets and garbage-collect unattached/replaced objects after a safe grace period.
 
 **EVIDENCE:** Source-confirmed storage upload returns URL without reservation/reference metadata in SQL.
+
+**RESOLUTION:** ✅ Public uploads now reserve normalized bytes in PostgreSQL before storage writes, enforce serialized byte/object/draft quotas, and retain durable references from content and avatars. Replacements, deletion and Moment expiry release references; a 24-hour grace period precedes leased deletion with backoff, DLQ alerts and durable bounded continuation. A deletion claim blocks new attachments.
+
+**VALIDATION:** Real PostgreSQL contracts cover references/copies, replacements, soft deletion, expiry, failed upload acknowledgements, storage deletion retries, reattachment rejection, byte/count/draft limits, concurrent final-slot reservations and backlog continuation. Fresh and data-preserving upgrade catalogs match; plain PostgreSQL and conditional Supabase grants pass. Legacy unregistered storage inventory requires reconciliation as documented.
 
 ### 39: BUG ZOB-V2-039: ✅ [Medium] Creator Fund scoring narrows BIGINT XP to INTEGER and ignores active standing
 
@@ -1739,10 +1743,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **113/115 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
+Remediation progress: **114/115 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 07:45:15 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 07:56:29 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

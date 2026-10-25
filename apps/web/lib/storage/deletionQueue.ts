@@ -1,6 +1,8 @@
+import {enqueueTask} from "@/lib/tasks/outbox";
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { getDb, type DbOrTx } from "@/lib/db/drizzle";
+import type {StorageAdapter} from "./interface";
 import { storage } from "./index";
 import { storageKey } from "./privacy";
 import { raiseAlert } from "@/lib/alerts/dispatch";
@@ -14,9 +16,11 @@ export async function queueObjectDeletion(
     sql`INSERT INTO object_deletion_tasks(storage_key,available_at) VALUES (${key},NOW()+(${delaySeconds}*INTERVAL '1 second')) ON CONFLICT(storage_key) DO UPDATE SET available_at=LEAST(object_deletion_tasks.available_at,EXCLUDED.available_at)`,
   );
 }
-export async function drainObjectDeletions() {
+export async function drainObjectDeletions(adapter:StorageAdapter=storage,continuationKey=new Date().toISOString().slice(0,10)) {
   const db = await getDb();
   let removed = 0;
+  const {queueExpiredPublicMedia}=await import("./publicMedia");
+  await queueExpiredPublicMedia();
   // Detached identity uploads are deliberately short lived.
   await db.transaction(async (tx) => {
     const old = await tx.execute<{ storage_key: string }>(
@@ -24,7 +28,8 @@ export async function drainObjectDeletions() {
     );
     for (const row of old.rows) await queueObjectDeletion(tx, row.storage_key);
   });
-  for (let i = 0; i < 50; i++) {
+  const started=Date.now();
+  for (let i = 0; i < 50 && Date.now()-started<20000; i++) {
     const token = randomUUID();
     const claim = await db.execute<{
       id: string;
@@ -46,10 +51,21 @@ export async function drainObjectDeletions() {
         );
         continue;
       }
-      await storage.delete(task.storage_key, { ignoreNotFound: true });
-      await db.execute(
-        sql`DELETE FROM object_deletion_tasks WHERE id=${task.id} AND lease_token=${token}`,
-      );
+      const media=await db.transaction(async tx=>{
+        const asset=await tx.execute<{id:string;public_url:string;state:string}>(sql`SELECT id,public_url,state FROM public_media_assets WHERE storage_key=${task.storage_key} FOR UPDATE`);
+        const row=asset.rows[0];if(!row)return null;
+        const refs=await tx.execute(sql`SELECT 1 FROM public_media_references WHERE asset_id=${row.id} LIMIT 1`);
+        if(refs.rows.length || row.state==='pending')return false;
+        await tx.execute(sql`UPDATE public_media_assets SET state='deleting' WHERE id=${row.id}`);
+        return row;
+      });
+      if(media===false){await db.execute(sql`DELETE FROM object_deletion_tasks WHERE id=${task.id} AND lease_token=${token}`);continue;}
+      if(media && adapter.getPublicUrl(task.storage_key)!==media.public_url)throw new Error("Storage namespace changed; reconcile the original provider before deletion");
+      await adapter.delete(task.storage_key, { ignoreNotFound: true });
+      await db.transaction(async tx=>{
+        const acknowledged=await tx.execute(sql`DELETE FROM object_deletion_tasks WHERE id=${task.id} AND lease_token=${token} RETURNING id`);
+        if(acknowledged.rows.length && media)await tx.execute(sql`DELETE FROM public_media_assets WHERE id=${media.id} AND state='deleting'`);
+      });
       removed++;
     } catch (error) {
       const delay =
@@ -67,9 +83,11 @@ export async function drainObjectDeletions() {
       type: "object_deletion_dlq",
       category: "security",
       priorityLevel: 2,
-      title: "Private object erasure needs review",
+      title: "Storage object deletion needs review",
       message: `${depth.rows[0].n} storage deletions exhausted retries.`,
       dedupeKey: "object-deletion:dlq",
     });
-  return { removed, dead: depth.rows[0].n };
+  const backlog=await db.execute(sql`SELECT 1 FROM object_deletion_tasks WHERE attempts<10 AND available_at<=NOW() UNION ALL SELECT 1 FROM public_media_assets a WHERE a.state<>'deleting' AND ((a.unreferenced_at<NOW()-INTERVAL '24 hours') OR EXISTS(SELECT 1 FROM public_media_references r WHERE r.asset_id=a.id AND r.expires_at<=NOW())) LIMIT 1`);
+  if(backlog.rows.length)await enqueueTask(db,"storage_maintenance",`storage-maintenance:${continuationKey}`,null,{});
+  return { removed, dead: depth.rows[0].n, continued:backlog.rows.length>0 };
 }

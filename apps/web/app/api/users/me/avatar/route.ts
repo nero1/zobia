@@ -30,7 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { storage } from "@/lib/storage";
+import { uploadPublicMedia } from "@/lib/storage/publicMedia";
 import { compressImage, extractGifSecondFrame } from "@/lib/storage/compress";
 import { getAvatarEligibility, applyCustomAvatar, type AvatarCurrency } from "@/lib/profile/avatarService";
 import { logger } from "@/lib/logger";
@@ -97,16 +97,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: { user: 
 
     const ext = compressed.mimeType === "image/webp" ? "webp" : compressed.mimeType.split("/")[1] || "jpg";
     const key = `avatars/${userId}/${Date.now()}-${randomUUID()}.${ext}`;
-    const uploaded = await storage.upload(key, compressed.buffer, {
+    const uploaded = await uploadPublicMedia(userId,key, compressed.buffer, {
       contentType: compressed.mimeType,
       isPublic: true,
       maxSizeBytes: MAX_UPLOAD_BYTES,
     });
 
-    // Charge (if required) and persist atomically. If this throws (cooldown
-    // race, insufficient funds), the object above is left orphaned in
-    // storage but the user is never charged for a change that didn't apply —
-    // same trade-off lib/moments/service.ts makes for its media uploads.
+    // Charge and persistence share a transaction; a failed change leaves a
+    // reserved object for the bounded orphan sweep.
     const result = await applyCustomAvatar(userId, uploaded.publicUrl, currency);
 
     return NextResponse.json(
