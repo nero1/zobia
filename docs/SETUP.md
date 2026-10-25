@@ -130,7 +130,7 @@ Choose **one** route below. For a new empty Supabase project, route A is the sim
 
 - Return to Vercel. Click **Deploy**, or open **Deployments → latest deployment → ⋯ → Redeploy** after saving all variables.
 - Wait until the deployment says **Ready**. If it fails, open its build logs and read the first reported error.
-- Open `https://YOUR_DOMAIN/api/health`, replacing `YOUR_DOMAIN` with your website domain. Confirm the database and Redis checks are healthy.
+- Open `https://YOUR_DOMAIN/api/health`, replacing `YOUR_DOMAIN` with your website domain. Confirm the database, schema, and Redis checks are healthy.
 - Open your website and sign in with Google. Complete the account onboarding.
 - Open **Settings → Set Password** and create a password for your account.
 - In Supabase **SQL Editor**, or your database provider's query editor, run the following. Replace the sample email with the exact email of the account you just created:
@@ -190,6 +190,19 @@ Set only the variables needed by the features you enable, then redeploy Vercel:
 The full optional variable list is in [`apps/web/.env.example`](../apps/web/.env.example). Vercel's daily jobs are already declared in `apps/web/vercel.json`. Keep your existing external schedules; authenticate their requests with `Authorization: Bearer YOUR_CRON_SECRET`. Include `/api/cron/tasks` for durable email/reward/review/maintenance delivery. No secret should appear in scheduler query strings.
 
 ## If Google sign-in still fails
+
+### Missing `session_valid_after` column
+
+The website code is newer than your database. Update the existing database as follows:
+
+- Back up the database. Do not recreate it or add only this one column; other upgrade changes are also required.
+- In **GitHub → repository → Settings → Secrets and variables → Actions**, add `MIGRATION_DATABASE_URL` and `MIGRATION_DB_CA_CERT` as described in section 7B. Use the same database as Vercel's `DATABASE_URL`/`DIRECT_URL`.
+- Open **Actions → Database Setup → Run workflow**, and select **main**.
+- Choose **adopt** if you installed the SQL manually without migration history. Choose **apply** for a tracked installation.
+- Run it and wait for a green checkmark. If schema verification fails, keep the error for diagnosis; do not bypass the check.
+- Open `/api/health` again, confirm the schema check is healthy, and retry Google sign-in.
+
+### Other sign-in errors
 
 - **`Invalid IP address: undefined`:** deploy the merged DNS callback fix. This was backend code, shared by web/PWA and Android; changing your Google client secret does not fix it.
 - **`redirect_uri_mismatch`:** compare Google's redirect URI with `NEXT_PUBLIC_APP_URL` plus `/api/auth/google/callback`, including HTTPS and the exact domain.

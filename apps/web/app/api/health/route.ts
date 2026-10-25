@@ -12,6 +12,8 @@ import {enforceRateLimit,getClientIp} from "@/lib/security/rateLimit";
 import {handleApiError} from "@/lib/api/errors";
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
+import { users, transactionalTasks } from "@/lib/db/schema";
+import { postgresErrorCode } from "@/lib/db/errorCode";
 import { getDb } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { dbCircuit } from "@/lib/db/circuit";
@@ -31,6 +33,20 @@ async function checkHealth(): Promise<NextResponse> {
     await orm.execute(sql`SELECT 1`);
     checks.db = "ok";
     latencyMs.db = Date.now() - dbStart;
+    // LIMIT 0 validates mapped columns without reading private records. A
+    // reachable database may still be missing the deployed auth/outbox schema.
+    const schemaStart = Date.now();
+    try {
+      await orm.select().from(users).limit(0);
+      await orm.select().from(transactionalTasks).limit(0);
+      checks.schema = "ok";
+    } catch (error) {
+      checks.schema = "error";
+      errors.schema = ['42703', '42P01'].includes(postgresErrorCode(error) ?? '')
+        ? "Database upgrade required. Follow SETUP.md section 7 for existing databases."
+        : "Database schema readiness check failed";
+    }
+    latencyMs.schema = Date.now() - schemaStart;
   } catch {
     checks.db = "error";
     latencyMs.db = Date.now() - dbStart;
