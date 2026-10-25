@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 08:45:54 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 09:21:03 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
-**Status:** The earlier nine open findings are fixed. Final review found three additional logging, outage-handling and pagination issues, now being remediated. Findings marked ✅ are fixed and verified. No production database was changed.
-**Additional review:** 125 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
+**Status:** All reported findings are fixed, including final-review logging, outage handling, pagination and offline-cache defects. Findings marked ✅ are fixed and verified. No production database was changed.
+**Additional review:** 126 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -156,11 +156,13 @@
 
 122: BUG ZOB-V2-122: ✅ [Medium] Sponsored approval statistics omit completed payments
 
-123: BUG ZOB-V2-123: [High] Shared error logging exposes private SQL parameters and transport context
+123: BUG ZOB-V2-123: ✅ [High] Shared error logging exposes private SQL parameters and transport context
 
-124: BUG ZOB-V2-124: [Medium] Account-verification outages are reported as invalid sessions
+124: BUG ZOB-V2-124: ✅ [Medium] Account-verification outages are reported as invalid sessions
 
-125: BUG ZOB-V2-125: [Medium] Sponsored campaign lists load every matching row without pagination
+125: BUG ZOB-V2-125: ✅ [Medium] Sponsored campaign lists load every matching row without pagination
+
+126: BUG ZOB-V2-126: ✅ [Medium] Ordinary fetches erase offline message snapshots before they can be reused
 
 ## Detailed findings and proposed fixes
 
@@ -1828,7 +1830,7 @@
 
 **VALIDATION:** An actual campaign-list response after settlement reports one approved application.
 
-### 123: BUG ZOB-V2-123: [High] Shared error logging exposes private SQL parameters and transport context
+### 123: BUG ZOB-V2-123: ✅ [High] Shared error logging exposes private SQL parameters and transport context
 
 **PROBLEM:** The shared logger uses the default error serializer. Drizzle errors include SQL, parameter values and nested causes, while transport errors can carry request configuration. The local failed-message reproduction logs the submitted message and metadata in full.
 
@@ -1838,7 +1840,11 @@
 
 **EVIDENCE:** Confirmed from the actual failed room-message contract log and the shared logger configuration.
 
-### 124: BUG ZOB-V2-124: [Medium] Account-verification outages are reported as invalid sessions
+**RESOLUTION:** ✅ Shared bounded log sanitization removes private SQL, transport configuration and nested secrets from logging and monitoring while preserving safe correlation and classification.
+
+**VALIDATION:** Real logger-output regression checks, monitoring checks and full database contracts pass without the private payloads.
+
+### 124: BUG ZOB-V2-124: ✅ [Medium] Account-verification outages are reported as invalid sessions
 
 **PROBLEM:** assertAccountActive catches database read failures and throws 401. Authenticated clients treat 401 as expired credentials and may clear valid sessions during a temporary backend outage.
 
@@ -1848,7 +1854,11 @@
 
 **EVIDENCE:** Source-confirmed catch-to-unauthorized mapping and client 401/refresh expiration handling.
 
-### 125: BUG ZOB-V2-125: [Medium] Sponsored campaign lists load every matching row without pagination
+**RESOLUTION:** ✅ Authority outages return retryable 503 responses. Both active clients retain valid credentials on transient refresh failure; bounded retries and safe fetch replay preserve genuine revocation handling and reject replay after logout.
+
+**VALIDATION:** Backend authority, refresh single-flight/backoff, raw-fetch replay, logout-generation and native interceptor regressions pass.
+
+### 125: BUG ZOB-V2-125: ✅ [Medium] Sponsored campaign lists load every matching row without pagination
 
 **PROBLEM:** The administrator and business list queries have no LIMIT or cursor. Both active clients load the entire result into memory, so growing campaign history increases query, response, serverless and rendering costs without a bound.
 
@@ -1857,6 +1867,22 @@
 **FIX:** Add stable cursor-based ordering and bounded pages to both endpoints, then expose page controls in web/PWA and Vite Android without accumulating an unbounded list.
 
 **EVIDENCE:** Source-confirmed unbounded administrator aggregate and business list queries, with unbounded client arrays.
+
+**RESOLUTION:** ✅ Both campaign endpoints now use bounded 50-row keyset pages and indexed ordering; shared themed controls retain bounded cursor metadata in web/PWA and Vite Android.
+
+**VALIDATION:** Actual PostgreSQL/API checks cover 127 tied, microsecond and null timestamps, owner/filter scope, removed anchors and index availability. Fresh and upgraded catalogs match.
+
+### 126: BUG ZOB-V2-126: ✅ [Medium] Ordinary fetches erase offline message snapshots before they can be reused
+
+**PROBLEM:** Unconditional message-cache clearing inside the global fetch guard deletes persisted owner-scoped snapshots on ordinary requests. Offline chat history therefore disappears even while the same user remains signed in.
+
+**FILES:** `apps/web/lib/auth/sessionExpiredBus.ts; apps/web/lib/auth/__tests__/fetchGuard.test.ts`
+
+**FIX:** Purge private snapshots at logout/session expiry, retaining them across ordinary reads and refresh attempts. Prevent retrying an old account's request after logout changes the session.
+
+**RESOLUTION:** ✅ Ordinary fetches retain offline snapshots; explicit logout and session expiry still purge private cached data.
+
+**VALIDATION:** A regression test confirms owner-scoped history survives ordinary reads and disappears on logout.
 
 ## Ratings and brief review
 
@@ -1867,11 +1893,11 @@ Scores are engineering judgments, **before remediation → current code after th
 - **Performance and hosting efficiency: 6/10 → 8/10.** Bounded workers, pagination, caching and media quotas limit work and growth. Thousands-user capacity and sustained free-tier operation require deployment measurements.
 - **Structure and maintainability: 6/10 → 8/10.** Shared authorization, accounting, storage lifecycle, review UI and durable task services reduce divergent behavior.
 - **Implementation and user experience: 5/10 → 8.5/10.** Active web/PWA and Vite Android flows share themed controls, localized funding notices and accessible review. External service/device configuration still matters.
-- **Overall: 4.5/10 → 8.3/10.** The earlier fix set is complete; three final-pass findings remain under remediation before the last merge.
+- **Overall: 4.5/10 → 8.3/10.** All reported findings are remediated; final checks cover the active clients and portable database upgrades.
 
 ## Review scope and concise validation
 
-The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-125. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-126. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
 The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Vite Android and shared source inventory was refreshed during remediation; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
@@ -1881,10 +1907,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **122/125 fixed and verified**. Three newly confirmed final-pass findings remain open and are being fixed; they are not claimed resolved.
+Remediation progress: **126/126 fixed and verified**. All listed findings are resolved. Provider configuration and physical-device validation remain deployment responsibilities.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 08:45:54 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 09:21:03 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

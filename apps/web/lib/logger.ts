@@ -14,6 +14,7 @@
  *   reqLog.info({ giftId }, "Gift sent");
  */
 
+import {privacyLogOptions} from "@/lib/security/logPrivacy";
 import pino, { type Logger } from "pino";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,7 @@ import pino, { type Logger } from "pino";
 // ---------------------------------------------------------------------------
 
 export const logger: Logger = pino({
+  ...privacyLogOptions,
   level: process.env.LOG_LEVEL ?? (process.env.NODE_ENV === "production" ? "info" : "debug"),
   // JSON in production, pretty-print in development
   transport:
@@ -30,6 +32,7 @@ export const logger: Logger = pino({
   base: { env: process.env.NODE_ENV },
   timestamp: pino.stdTimeFunctions.isoTime,
   formatters: {
+    ...privacyLogOptions.formatters,
     level(label) {
       return { level: label };
     },

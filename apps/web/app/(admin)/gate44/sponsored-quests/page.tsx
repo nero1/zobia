@@ -1,5 +1,7 @@
 "use client";
 
+import {CursorPagination,useCursorPage} from '@zobia/shared/ui/CursorPagination';
+
 import {authFetch} from "@/lib/api/authFetch";
 import {SponsoredApplications} from '@zobia/shared/ui/SponsoredApplications';
 
@@ -155,6 +157,9 @@ export default function AdminSponsoredQuestsPage() {
   const currency = useCurrency();
 
   const [reviewQuest,setReviewQuest]=useState<string|null>(null);
+  const pagination=useCursorPage(),pageCursor=pagination.cursor;
+  const [nextCursor,setNextCursor]=useState<string|null>(null);
+  const listGeneration=useRef(0);
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -179,19 +184,21 @@ export default function AdminSponsoredQuestsPage() {
   const [rejectReason, setRejectReason] = useState("");
 
   const fetchQuests = useCallback(async () => {
+    const generation=++listGeneration.current;setLoading(true);
     try {
-      const res = await fetch("/api/admin/sponsored-quests?active=false");
+      const res = await fetch("/api/admin/sponsored-quests?active=false"+(pageCursor?"&cursor="+encodeURIComponent(pageCursor):""));
       const json = await res.json();
-      if (json.success) setQuests(json.data.quests ?? []);
+      if(!res.ok || !json.success)throw new Error("Campaign list unavailable");
+      if(generation===listGeneration.current && json.success){setQuests(json.data.quests??[]);setNextCursor(json.data.nextCursor??null);}
     } catch {
-      setError("Failed to load sponsored quests");
+      if(generation===listGeneration.current)setError("Failed to load sponsored quests");
     } finally {
-      setLoading(false);
+      if(generation===listGeneration.current)setLoading(false);
     }
-  }, []);
+  }, [pageCursor]);
 
   useEffect(() => {
-    fetchQuests();
+    void fetchQuests();return()=>{listGeneration.current++;};
   }, [fetchQuests]);
 
   function handleFormChange(field: keyof FormData, value: string | number | boolean) {
@@ -435,6 +442,7 @@ export default function AdminSponsoredQuestsPage() {
       setSuccess("Sponsored quest published successfully");
       setShowForm(false);
       setForm(EMPTY_FORM);
+      pagination.first();
       sponsoredSubmission.clear();
       await fetchQuests();
     } catch (err) {
@@ -706,6 +714,7 @@ export default function AdminSponsoredQuestsPage() {
         </form>
       )}
 
+      <CursorPagination cursor={pageCursor} nextCursor={nextCursor} disabled={loading} onFirst={pagination.first} onPrevious={pagination.previous} onNext={pagination.next}/>
       {/* Quest table */}
       {loading ? (
         <div className="text-center py-12 text-neutral-500">Loading quests...</div>

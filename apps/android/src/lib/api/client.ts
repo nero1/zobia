@@ -196,10 +196,11 @@ export async function refreshAccessToken(): Promise<string | null> {
         }
       );
 
-      if (res.status !== 200 || !current()) return null;
+      if(!current())return null;
+      if(res.status!==200)throw new Error("Session verification temporarily unavailable");
 
       const newToken = res.data.accessToken;
-      if (!newToken) return null;
+      if(!newToken)throw new Error("Session refresh response was incomplete");
 
       const applied=await runAuthStorageMutation(async()=>{
         if(!current() || await secureGet(REFRESH_TOKEN_KEY)!==refreshToken)return false;
@@ -253,7 +254,7 @@ export async function refreshAccessToken(): Promise<string | null> {
       return newToken;
     } catch(error) {
       if(!current())return null;
-      if(axios.isAxiosError(error) && [401,403].includes(error.response?.status??0))return null;
+      if(axios.isAxiosError(error) && [400,401,403].includes(error.response?.status??0))return null;
       throw error;
     } finally {
       if(refreshPromise===task)refreshPromise=null;

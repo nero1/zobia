@@ -526,7 +526,7 @@ export async function expireChallenges(): Promise<number> {
       if (!c) continue;
       count++;
     } catch (err) {
-      logger.warn({ challengeId: id }, `[games] expireChallenges failed: ${err}`);
+      logger.warn({err,challengeId:id},"[games] Challenge expiry failed");
     }
   }
   return count;

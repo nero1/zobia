@@ -219,7 +219,7 @@ async function assertAccountActive(userId: string,sessionCreatedAt:string): Prom
       .limit(1);
     row = rows[0];
   } catch {
-    throw unauthorized("Account status check failed. Please try again.");
+    throw new ApiError(503,"AUTHORITY_UNAVAILABLE","Account verification is temporarily unavailable. Please try again.");
   }
 
   // BUG-10: an elapsed `suspended_until` means the suspension is over, even if

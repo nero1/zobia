@@ -61,7 +61,7 @@ vi.spyOn(axios, "post").mockResolvedValue({
 // a real `fetch` — stub it so tests don't attempt a real network call.
 vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("no network in test")));
 
-import { refreshAccessToken, setCachedToken, getCachedToken } from "../client";
+import { refreshAccessToken, setCachedToken, getCachedToken, onUnauthenticated, apiClient } from "../client";
 
 describe("refreshAccessToken", () => {
   beforeEach(() => {
@@ -101,4 +101,20 @@ describe("refreshAccessToken", () => {
     expect(await pending).toBeNull();
     expect(getCachedToken()).toBe("ACCOUNT_B");
   });
+  it("preserves credentials when a 401 cannot refresh during a temporary authority outage",async()=>{
+    setCachedToken('CURRENT_SESSION');
+    const unavailable=Object.assign(new Error('temporary authority failure'),{isAxiosError:true,response:{status:503}});
+    vi.mocked(axios.post).mockRejectedValueOnce(unavailable);
+    const signedOut=vi.fn(),unsubscribe=onUnauthenticated(signedOut),adapter=apiClient.defaults.adapter;
+    apiClient.defaults.adapter=async config=>{throw Object.assign(new Error('expired access'),{isAxiosError:true,config,response:{status:401}});};
+    try{await expect(apiClient.get('/private-fixture')).rejects.toBe(unavailable);expect(getCachedToken()).toBe('CURRENT_SESSION');expect(signedOut).not.toHaveBeenCalled();}
+    finally{apiClient.defaults.adapter=adapter;unsubscribe();}
+  });
+  it("treats a malformed refresh rejection as definitive, but an incomplete success as transient",async()=>{
+    vi.mocked(axios.post).mockRejectedValueOnce(Object.assign(new Error('invalid refresh'),{isAxiosError:true,response:{status:400}}));
+    expect(await refreshAccessToken()).toBeNull();
+    setCachedToken('CURRENT_SESSION');vi.mocked(axios.post).mockResolvedValueOnce({status:200,data:{}});
+    await expect(refreshAccessToken()).rejects.toThrow('incomplete');expect(getCachedToken()).toBe('CURRENT_SESSION');
+  });
+
 });

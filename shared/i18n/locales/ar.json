@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "حجز ما يصل إلى {{amount}} رصيد",
   "sponsoredFunding.applications": "مراجعة الطلبات",
   "sponsoredFunding.proof": "إثبات الإكمال",
-  "sponsoredFunding.noApplications": "لا توجد طلبات بانتظار المراجعة."
+  "sponsoredFunding.noApplications": "لا توجد طلبات بانتظار المراجعة.",
+  "common.pagination": "التنقل بين الصفحات",
+  "common.firstPage": "الصفحة الأولى"
 }

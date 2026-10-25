@@ -1,3 +1,4 @@
+import {safeLogError} from "@/lib/security/logPrivacy";
 /**
  * lib/ai/client.ts
  *
@@ -608,7 +609,7 @@ async function chat(
     } catch (err) {
       await circuit.recordFailure();
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[ai:${providerId}] request failed`, err);
+      console.error(`[ai:${providerId}] request failed`, safeLogError(err));
       errors.push(`${providerId}: ${message}`);
     }
   }

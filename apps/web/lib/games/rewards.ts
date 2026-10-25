@@ -75,7 +75,7 @@ export async function grantGamingReward(
       description,
       { source, gameName: gameName ?? undefined },
       client
-    ).catch((err) => { if (client) throw err; logger.error({ userId, source }, `[games] credit reward failed: ${err}`); });
+    ).catch((err) => { if (client) throw err; logger.error({err,userId,source},"[games] Credit reward failed"); });
   }
 
   if (stars > 0) {
@@ -86,7 +86,7 @@ export async function grantGamingReward(
       `${referenceId}:stars`,
       description,
       client
-    ).catch((err) => { if (client) throw err; logger.error({ userId, source }, `[games] star reward failed: ${err}`); });
+    ).catch((err) => { if (client) throw err; logger.error({err,userId,source},"[games] Star reward failed"); });
   }
 
   if (xp > 0) {
@@ -101,7 +101,7 @@ export async function grantGamingReward(
     } catch (err) {
       if (client) throw err;
       const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.error({ userId, source, referenceId }, `[grantGamingReward] XP award failed inside tx — writing to DLQ: ${errorMessage}`);
+      logger.error({err,userId,source,referenceId},"[grantGamingReward] XP award failed; recording retry");
       const globalDb = await getDb();
       await globalDb
         .insert(schema.failedXpAwards)
@@ -147,7 +147,7 @@ export async function recomputeGamingLevel(
       .where(eq(schema.users.id, userId));
     await checkAndAwardTrackMilestones(userId, "gaming", info.level, client);
   } catch (err) {
-    logger.warn({ userId }, `[games] recomputeGamingLevel failed: ${err}`);
+    logger.warn({err,userId},"[games] Gaming level recomputation failed");
   }
 }
 

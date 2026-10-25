@@ -1,3 +1,4 @@
+import {monitoringError,safeMonitoringContext,safeLogError} from "@/lib/security/logPrivacy";
 /**
  * lib/monitoring/index.ts
  *
@@ -71,12 +72,13 @@ export function captureException(
   err: unknown,
   context?: Record<string, unknown>
 ): void {
+  const safeError=monitoringError(err),safeContext=safeMonitoringContext(context);
   if (env.MONITORING_PROVIDER === "sentry" && env.SENTRY_DSN) {
     const sentry = getSentry();
     if (sentry) {
-      sentry.captureException(err, { extra: context });
+      sentry.captureException(safeError, { extra: safeContext });
     } else {
-      console.error("[monitoring/sentry] SDK not installed — install @sentry/nextjs", err, context);
+      console.error("[monitoring/sentry] SDK not installed — install @sentry/nextjs", safeLogError(err), safeContext);
     }
     return;
   }
@@ -84,21 +86,21 @@ export function captureException(
   if (env.MONITORING_PROVIDER === "newrelic") {
     const nr = getNewRelic();
     if (nr) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      nr.noticeError(error, context);
+      nr.noticeError(safeError, safeContext);
     } else {
-      console.error("[monitoring/newrelic] SDK not installed — install newrelic", err, context);
+      console.error("[monitoring/newrelic] SDK not installed — install newrelic", safeLogError(err), safeContext);
     }
     return;
   }
 
-  console.error("[monitoring]", err, context);
+  console.error("[monitoring]", safeLogError(err), safeContext);
 }
 
 export function trackEvent(
   name: string,
   attributes?: Record<string, unknown>
 ): void {
+  attributes=safeMonitoringContext(attributes);
   if (env.MONITORING_PROVIDER === "sentry" && env.SENTRY_DSN) {
     const sentry = getSentry();
     if (sentry) {

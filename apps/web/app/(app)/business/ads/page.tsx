@@ -1,5 +1,7 @@
 "use client";
 
+import {CursorPagination,useCursorPage} from '@zobia/shared/ui/CursorPagination';
+
 import {createIdempotentSubmission} from '@zobia/shared/utils';
 import {useRef} from 'react';
 
@@ -518,6 +520,9 @@ interface SponsoredQuest {
 function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
   const {t}=useTranslation();
   const currency = useCurrency();
+  const pagination=useCursorPage(),pageCursor=pagination.cursor;
+  const [nextCursor,setNextCursor]=useState<string|null>(null);
+  const listGeneration=useRef(0);
   const [tierAllowed, setTierAllowed] = useState<boolean | null>(null);
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -544,26 +549,30 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
   const [restarting, setRestarting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const generation=++listGeneration.current;setLoading(true);
     try {
       const [accountRes, questsRes] = await Promise.all([
         fetch("/api/business", { credentials: "include" }),
-        fetch("/api/business/sponsored-quests", { credentials: "include" }),
+        fetch("/api/business/sponsored-quests"+(pageCursor?"?cursor="+encodeURIComponent(pageCursor):""), { credentials: "include" }),
       ]);
+      if(!accountRes.ok)throw new Error("Business verification unavailable");
       const accountJson = await accountRes.json().catch(() => null);
       const tier = accountJson?.data?.business?.tier;
+      if(generation!==listGeneration.current)return;
       setTierAllowed(tier === "growth" || tier === "enterprise");
 
       const questsJson = await questsRes.json();
-      if (questsJson.success) setQuests(questsJson.data.quests);
+      if(generation!==listGeneration.current)return;
+      if(!questsRes.ok || !questsJson.success)throw new Error("Campaign list unavailable");
+      if(questsJson.success){setQuests(questsJson.data.quests);setNextCursor(questsJson.data.nextCursor??null);}
     } catch {
-      setError("Failed to load Sponsored Quests");
+      if(generation===listGeneration.current)setError("Failed to load Sponsored Quests");
     } finally {
-      setLoading(false);
+      if(generation===listGeneration.current)setLoading(false);
     }
-  }, []);
+  }, [pageCursor]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {void load();return()=>{listGeneration.current++;};}, [load]);
 
   const sponsoredSubmission=useRef(createIdempotentSubmission(true)).current;
 
@@ -597,7 +606,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to submit quest");
       setShowForm(false);
-      sponsoredSubmission.clear();
+      sponsoredSubmission.clear();pagination.first();
       setTitle(""); setDescription(""); setRequirements(""); setRewardCoins(1000); setMaxApplications(10); setDeadline("");
       setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(""); setTargetAction("");
       await load();
@@ -766,6 +775,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
             </form>
           )}
 
+          <CursorPagination cursor={pageCursor} nextCursor={nextCursor} onFirst={pagination.first} onPrevious={pagination.previous} onNext={pagination.next}/>
           {quests.length === 0 ? (
             <p className="text-sm text-neutral-400">No Sponsored Quests submitted yet.</p>
           ) : (

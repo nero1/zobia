@@ -73,7 +73,7 @@
     "sponsored_quest_funding": 0,
     "sponsored_daily_reservations": 0
   },
-  "catalogChecksum": "abaccd73ef98568a94fcd54bfc5601c4a9005b41e198d62a101a8be4cd3567b5",
+  "catalogChecksum": "69ae5e399a22e9431c08d1061ce12ec9300649a7d1186729d0bf5a30f39042da",
   "previousBaselineChecksum": "680b20e6",
   "previousCatalogChecksum": "954a61eba4276b7faecb7bc3f69770b1dd6c731b8e00104dd705748a7c1e383a",
   "upgradeFile": "2026-10-23-forensic-hardening.sql",
@@ -97,6 +97,12 @@
       "fromCatalogChecksum": "a070aeceba81bd12fdc80f91b87192300b87cf93e9019e0fee511aa76e5f65eb",
       "file": "2026-10-25-sponsored-funding.sql",
       "checksum": "20c00402"
+    },
+    {
+      "fromBaselineChecksum": "68179838",
+      "fromCatalogChecksum": "abaccd73ef98568a94fcd54bfc5601c4a9005b41e198d62a101a8be4cd3567b5",
+      "file": "2026-10-25-campaign-pagination.sql",
+      "checksum": "d6ec7adb"
     }
   ]
 }

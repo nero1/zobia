@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "{{amount}} क्रेडिट तक आरक्षित करें",
   "sponsoredFunding.applications": "आवेदनों की समीक्षा करें",
   "sponsoredFunding.proof": "पूर्णता का प्रमाण",
-  "sponsoredFunding.noApplications": "समीक्षा के लिए कोई आवेदन लंबित नहीं है।"
+  "sponsoredFunding.noApplications": "समीक्षा के लिए कोई आवेदन लंबित नहीं है।",
+  "common.pagination": "पृष्ठ नेविगेशन",
+  "common.firstPage": "पहला पृष्ठ"
 }

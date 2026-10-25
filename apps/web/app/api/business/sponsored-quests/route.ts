@@ -1,3 +1,4 @@
+import {decodePageCursor,encodePageCursor,cursorTimestamp,cursorTime} from "@/lib/api/pageCursor";
 import {createFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
@@ -95,7 +96,7 @@ async function getOwnBusinessAccount(userId: string): Promise<{ id: string; tier
   return row ?? null;
 }
 
-export const GET = withAuth(async (_req: NextRequest, { auth }) => {
+export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await requireFeatureEnabled("businessAccounts");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
@@ -105,10 +106,13 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const orm = await getDb();
     const sq = schema.sponsoredQuests;
-    const sqa = schema.sponsoredQuestApplications;
+    const scope=`business-sponsored:${account.id}`;
+    const cursor=decodePageCursor(req.nextUrl.searchParams.get('cursor'),scope,z.tuple([cursorTimestamp,z.string().uuid()]));
+    const created=sql`COALESCE(${sq.createdAt},'1970-01-01'::timestamptz)`;
     const rows = await orm
       .select({
         id: sq.id,
+        cursorTime:cursorTime(created),
         title: sq.title,
         description: sq.description,
         reward_coins: sq.rewardCoins,
@@ -130,15 +134,14 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         impressions_count: sq.impressionsCount,
         auto_paused: sq.autoPaused,
         pause_reason: sq.pauseReason,
-        application_count: sql<number>`COUNT(${sqa.id})::int`,
+        application_count: sql<number>`(SELECT COUNT(*)::int FROM sponsored_quest_applications a WHERE a.quest_id=${sq.id})`,
       })
       .from(sq)
-      .leftJoin(sqa, eq(sqa.questId, sq.id))
-      .where(and(eq(sq.businessAccountId, account.id), isNull(sq.deletedAt)))
-      .groupBy(sq.id)
-      .orderBy(desc(sq.createdAt));
+      .where(and(eq(sq.businessAccountId, account.id),isNull(sq.deletedAt),cursor?sql`(${created},${sq.id})<(${cursor[0]}::timestamptz,${cursor[1]}::uuid)`:undefined))
+      .orderBy(desc(created),desc(sq.id)).limit(51);
 
-    return NextResponse.json({ success: true, data: { quests: rows }, error: null });
+    const page=rows.slice(0,50),last=page.at(-1);
+    return NextResponse.json({success:true,data:{quests:page.map(({cursorTime,...row})=>row),hasMore:rows.length>50,nextCursor:rows.length>50 && last?encodePageCursor(scope,[last.cursorTime,last.id]):null},error:null});
   } catch (err) {
     return handleApiError(err);
   }

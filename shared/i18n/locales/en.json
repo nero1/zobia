@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "Reserve up to {{amount}} Credits",
   "sponsoredFunding.applications": "Review applications",
   "sponsoredFunding.proof": "Completion proof",
-  "sponsoredFunding.noApplications": "No applications are awaiting review."
+  "sponsoredFunding.noApplications": "No applications are awaiting review.",
+  "common.pagination": "Pagination",
+  "common.firstPage": "First page"
 }

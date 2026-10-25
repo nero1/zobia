@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "እስከ {{amount}} ክሬዲቶች ያስይዙ",
   "sponsoredFunding.applications": "ማመልከቻዎችን ይገምግሙ",
   "sponsoredFunding.proof": "የማጠናቀቅ ማረጋገጫ",
-  "sponsoredFunding.noApplications": "ግምገማ የሚጠብቁ ማመልከቻዎች የሉም።"
+  "sponsoredFunding.noApplications": "ግምገማ የሚጠብቁ ማመልከቻዎች የሉም።",
+  "common.pagination": "የገጽ አሰሳ",
+  "common.firstPage": "የመጀመሪያው ገጽ"
 }

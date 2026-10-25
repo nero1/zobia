@@ -1,3 +1,4 @@
+import {decodePageCursor,encodePageCursor,cursorTimestamp} from "@/lib/api/pageCursor";
 import {createFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,7 @@ const createQuestSchema = z.object({
   title:               z.string().min(3).max(150),
   description:         z.string().min(10).max(2000),
   requirements:        z.string().min(10).max(2000),
-  rewardCoins:   z.number().int().positive().max(100000).max(100000),
+  rewardCoins:   z.number().int().positive().max(100000),
   creatorSharePercent: z.number().int().min(50).max(90).default(70),
   platformSharePercent:z.number().int().min(10).max(50).default(30),
   maxApplications:     z.number().int().positive().default(10),
@@ -73,6 +74,7 @@ const createQuestSchema = z.object({
 // ---------------------------------------------------------------------------
 
 interface SponsoredQuestAdminRow {
+  cursor_time:string;
   id: string;
   brand_name: string;
   brand_logo_url: string | null;
@@ -127,21 +129,25 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const url = new URL(req.url);
     const activeOnly = url.searchParams.get("active") !== "false";
     const moderationStatus = url.searchParams.get("moderationStatus");
+    if(moderationStatus && !["pending","approved","rejected"].includes(moderationStatus))throw badRequest("Invalid moderation filter");
 
     const conditions = [sql`sq.deleted_at IS NULL`];
     if (activeOnly) conditions.push(sql`sq.is_active = TRUE`);
     if (moderationStatus && ["pending", "approved", "rejected"].includes(moderationStatus)) {
       conditions.push(sql`sq.moderation_status = ${moderationStatus}`);
     }
+    const scope=`admin-sponsored:${activeOnly}:${moderationStatus??'all'}`;
+    const cursor=decodePageCursor(url.searchParams.get('cursor'),scope,z.tuple([z.boolean(),cursorTimestamp,z.string().uuid()]));
+    if(cursor)conditions.push(sql`((sq.moderation_status='pending'),COALESCE(sq.created_at,'1970-01-01'::timestamptz),sq.id)<(${cursor[0]},${cursor[1]}::timestamptz,${cursor[2]}::uuid)`);
     const whereClause = sql.join(conditions, sql` AND `);
 
     const orm = await getDb();
-    // Kept as a raw parameterized `sql` template (multi-join aggregation with
-    // FILTER isn't cleanly expressible via the Drizzle query builder) rather
-    // than db.query — this still goes through the shared Drizzle client/pool.
+    // Ordered index scans bound the campaign page; child counts use each
+    // campaign's index instead of grouping the entire application history.
     const { rows } = await orm.execute<SponsoredQuestAdminRow & Record<string, unknown>>(sql`
       SELECT
          sq.id,
+         to_char(COALESCE(sq.created_at,'1970-01-01'::timestamptz) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') cursor_time,
          sq.brand_name,
          sq.brand_logo_url,
          sq.title,
@@ -176,20 +182,20 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.completions_count,
          sq.starts_at,
          sq.ends_at,
-         COUNT(sqa.id)::int                                     AS application_count,
-         COUNT(sqa.id) FILTER (WHERE sqa.status IN ('approved','paid'))::int AS approved_count
+         (SELECT COUNT(*)::int FROM sponsored_quest_applications a WHERE a.quest_id=sq.id) AS application_count,
+         (SELECT COUNT(*)::int FROM sponsored_quest_applications a WHERE a.quest_id=sq.id AND a.status IN ('approved','paid')) AS approved_count
       FROM sponsored_quests sq
-      LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
       LEFT JOIN users u ON u.id = sq.submitted_by
       LEFT JOIN users owner ON owner.id = sq.owner_user_id
       WHERE ${whereClause}
-      GROUP BY sq.id, u.username, owner.username
-      ORDER BY (sq.moderation_status = 'pending') DESC, sq.created_at DESC
+      ORDER BY (sq.moderation_status='pending') DESC,COALESCE(sq.created_at,'1970-01-01'::timestamptz) DESC,sq.id DESC
+      LIMIT 51
     `);
 
+    const page=rows.slice(0,50),last=page.at(-1);
     return NextResponse.json({
       success: true,
-      data: { quests: rows, total: rows.length },
+      data: { quests: page.map(({cursor_time,...row})=>row), total:page.length,hasMore:rows.length>50,nextCursor:rows.length>50 && last?encodePageCursor(scope,[last.moderation_status==='pending',last.cursor_time,last.id]):null },
       error: null,
     });
   } catch (err) {

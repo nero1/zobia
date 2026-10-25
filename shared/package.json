@@ -19,7 +19,8 @@
     "./ui/Automation": "./ui/Automation.tsx",
     "./ui/Accounts": "./ui/Accounts.tsx",
     "./ui/Dialog": "./ui/Dialog.tsx",
-    "./ui/SponsoredApplications": "./ui/SponsoredApplications.tsx"
+    "./ui/SponsoredApplications": "./ui/SponsoredApplications.tsx",
+    "./ui/CursorPagination": "./ui/CursorPagination.tsx"
   },
   "peerDependencies": {
     "react": ">=18.2.0 <19",

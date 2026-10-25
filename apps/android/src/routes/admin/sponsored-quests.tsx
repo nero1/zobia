@@ -1,3 +1,4 @@
+import {CursorPagination,useCursorPage} from '@zobia/shared/ui/CursorPagination';
 
 import {SponsoredApplications} from '@zobia/shared/ui/SponsoredApplications';
 
@@ -140,9 +141,8 @@ const EMPTY_FORM: QuestForm = {
 
 const MOD_BADGE: Record<string, 'gold' | 'red' | 'blue'> = { pending: 'gold', rejected: 'red', approved: 'blue' };
 
-async function fetchQuests(): Promise<SponsoredQuest[]> {
-  const { data } = await apiClient.get<{ quests: SponsoredQuest[] }>('/admin/sponsored-quests?active=false');
-  return data?.quests ?? [];
+async function fetchQuests(cursor:string|null){
+ const {data}=await apiClient.get<{quests:SponsoredQuest[];nextCursor:string|null}>('/admin/sponsored-quests?active=false'+(cursor?'&cursor='+encodeURIComponent(cursor):''));return data;
 }
 
 function questFormToBody(form: QuestForm) {
@@ -300,6 +300,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
 
 const sponsoredReviewTransport={request:async<T,>(path:string,method='GET',body?:unknown):Promise<T>=>{const response=await apiClient.request<T>({url:path,method,data:body});return response.data;}};
 function AdminSponsoredQuestsPage() {
+  const pagination=useCursorPage(),pageCursor=pagination.cursor;
   const { t } = useTranslation();
   const currency = useCurrency();
   const qc = useQueryClient();
@@ -321,7 +322,8 @@ function AdminSponsoredQuestsPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const { data: quests, status, refetch } = useQuery({ queryKey: ['admin', 'sponsored-quests'], queryFn: fetchQuests });
+  const {data:questPage,status,refetch,isFetching}=useQuery({queryKey:['admin','sponsored-quests',pageCursor],queryFn:()=>fetchQuests(pageCursor),gcTime:0});
+  const quests=questPage?.quests;
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['admin', 'sponsored-quests'] });
 
@@ -332,7 +334,7 @@ function AdminSponsoredQuestsPage() {
     onSuccess: () => {
       showToast(t('admin.sponsoredQuests.published', 'Sponsored quest published successfully'));
       setShowCreate(false);
-      setCreateForm(EMPTY_FORM);
+      setCreateForm(EMPTY_FORM);pagination.first();
       sponsoredSubmission.clear();
       invalidate();
     },
@@ -467,6 +469,7 @@ function AdminSponsoredQuestsPage() {
         </AdminCard>
       )}
 
+      <CursorPagination cursor={pageCursor} nextCursor={questPage?.nextCursor} disabled={isFetching} onFirst={pagination.first} onPrevious={pagination.previous} onNext={pagination.next}/>
       <div className="mt-4 space-y-2.5">
         {status === 'pending' && Array.from({ length: 3 }).map((_, i) => <AdminCardSkeleton key={i} />)}
         {status === 'error' && <AdminErrorState onRetry={() => refetch()} />}
