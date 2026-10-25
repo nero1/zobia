@@ -1,3 +1,4 @@
+import {CursorPagination,useCursorPage} from '@zobia/shared/ui/CursorPagination';
 
 import {createIdempotentSubmission} from '@zobia/shared/utils';
 import {useRef} from 'react';
@@ -79,9 +80,8 @@ async function fetchAccount(): Promise<BusinessAccount | null> {
   }
 }
 
-async function fetchQuests() {
-  const { data } = await apiClient.get<{ quests: SponsoredQuest[] }>('/business/sponsored-quests');
-  return data.quests;
+async function fetchQuests(cursor:string|null){
+ const {data}=await apiClient.get<{quests:SponsoredQuest[];nextCursor:string|null}>('/business/sponsored-quests'+(cursor?'?cursor='+encodeURIComponent(cursor):''));return data;
 }
 
 async function fetchPages() {
@@ -347,10 +347,12 @@ function AdCampaignsTab() {
 // ---------------------------------------------------------------------------
 
 function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | null | undefined; pages: BusinessPageOption[] | undefined }) {
+  const pagination=useCursorPage(),pageCursor=pagination.cursor;
   const { t } = useTranslation();
   const currency = useCurrency();
   const qc = useQueryClient();
-  const { data: quests, status } = useQuery({ queryKey: ['business', 'sponsored-quests'], queryFn: fetchQuests, enabled: !!account });
+  const {data:questPage,status,isFetching}=useQuery({queryKey:['business','sponsored-quests',pageCursor],queryFn:()=>fetchQuests(pageCursor),enabled:!!account,gcTime:0});
+  const quests=questPage?.quests;
 
   const [showForm, setShowForm] = useState(false);
   const [businessPageId, setBusinessPageId] = useState('');
@@ -395,7 +397,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
     },
     onSuccess: () => {
       setShowForm(false);
-      sponsoredSubmission.clear();
+      sponsoredSubmission.clear();pagination.first();
       setTitle(''); setDescription(''); setRequirements(''); setDeadline('');
       setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(''); setTargetAction('');
       qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] });
@@ -488,6 +490,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
         </div>
       )}
 
+      <CursorPagination cursor={pageCursor} nextCursor={questPage?.nextCursor} disabled={isFetching} onFirst={pagination.first} onPrevious={pagination.previous} onNext={pagination.next}/>
       {status === 'pending' ? (
         <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('action.loading', 'Loading…')}</p>
       ) : !quests || quests.length === 0 ? (

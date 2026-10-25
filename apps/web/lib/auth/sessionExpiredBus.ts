@@ -1,6 +1,11 @@
 "use client";
 import { clearCachedMessages } from "@/lib/chat/messageCache";
-import { cachedRead, invalidateReadCache, readCacheKey, writeInvalidatesReadCache } from "@/lib/cache/readCache";
+import {
+  cachedRead,
+  invalidateReadCache,
+  readCacheKey,
+  writeInvalidatesReadCache,
+} from "@/lib/cache/readCache";
 
 /**
  * lib/auth/sessionExpiredBus.ts
@@ -35,7 +40,10 @@ const HAD_SESSION_KEY = "zobia:auth:had-session";
 
 function readHadSession(): boolean {
   try {
-    return typeof window !== "undefined" && window.localStorage.getItem(HAD_SESSION_KEY) === "1";
+    return (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem(HAD_SESSION_KEY) === "1"
+    );
   } catch {
     return false;
   }
@@ -43,6 +51,7 @@ function readHadSession(): boolean {
 
 /** Per-tab copy of the hint (survives another tab clearing the shared key). */
 let hadSession = readHadSession();
+let sessionGeneration = 0;
 
 /** True when this tab/device believes the user has (had) a signed-in session. */
 export function hasSessionHint(): boolean {
@@ -61,7 +70,11 @@ export function markSessionActive(): void {
 
 /** Forget the signed-in hint (explicit logout, or once expiry was announced). */
 export function clearSessionHint(): void {
-  if(typeof navigator!=="undefined")navigator.serviceWorker?.controller?.postMessage({type:"PURGE_PRIVATE_CACHES"});
+  sessionGeneration += 1;
+  if (typeof navigator !== "undefined")
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "PURGE_PRIVATE_CACHES",
+    });
   hadSession = false;
   try {
     window.localStorage.removeItem(HAD_SESSION_KEY);
@@ -75,8 +88,12 @@ export function clearSessionHint(): void {
   invalidateReadCache();
   clearCachedMessages();
   if (typeof window !== "undefined") {
-    void import("@/lib/realtime/ablyShared").then(({ closeAbly }) => closeAbly()).catch(() => {});
-    void import("@/lib/realtime/useRealtimeChannel").then(({disconnectPusher})=>disconnectPusher()).catch(()=>{});
+    void import("@/lib/realtime/ablyShared")
+      .then(({ closeAbly }) => closeAbly())
+      .catch(() => {});
+    void import("@/lib/realtime/useRealtimeChannel")
+      .then(({ disconnectPusher }) => disconnectPusher())
+      .catch(() => {});
   }
 }
 
@@ -137,7 +154,9 @@ export function markSessionExpired(): void {
   }
   // Session is confirmed dead — stop the expiry countdown (imported lazily to
   // avoid a module cycle; sessionExpiryBus never imports this file back).
-  void import("./sessionExpiryBus").then(({ setSessionExpiresAt }) => setSessionExpiresAt(null));
+  void import("./sessionExpiryBus").then(({ setSessionExpiresAt }) =>
+    setSessionExpiresAt(null),
+  );
   void clearAuthCookies();
 }
 
@@ -151,7 +170,10 @@ export function clearAuthCookies(): Promise<void> {
   clearSessionHint();
   invalidateReadCache();
   clearCachedMessages();
-  return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
+  return rawFetch("/api/auth/logout", {
+    method: "POST",
+    credentials: "include",
+  })
     .then(() => undefined)
     .catch(() => undefined);
 }
@@ -187,9 +209,9 @@ export function onSessionExpired(cb: () => void): () => void {
  * shows.
  *
  * Rather than touching every call site, we patch `window.fetch` once at
- * startup: any same-origin `/api/*` response with status 401 (outside the
+ * startup: a same-origin `/api/*` 401 first attempts renewal (outside the
  * auth endpoints below, which legitimately 401 as part of login/refresh
- * flows) marks the session expired. `authFetch`/`apiClient` keep using
+ * flows). Only definitive renewal rejection marks the session expired. `authFetch`/`apiClient` keep using
  * {@link rawFetch} (the pre-patch `fetch`) for their own request, so their
  * silent-refresh-then-retry logic still runs first and this guard never
  * short-circuits it — it only catches the requests nothing else is
@@ -218,13 +240,21 @@ let originalFetch: typeof fetch | null = null;
 let guardInstalled = false;
 
 /** Pre-patch `fetch`, for callers (authFetch, the refresh POST) that must not be re-intercepted. */
-export function rawFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+export function rawFetch(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): Promise<Response> {
   return (originalFetch ?? fetch)(input, init);
 }
 
 function isLogoutRequest(input: RequestInfo | URL): boolean {
   try {
-    const raw = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    const raw =
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
     return new URL(raw, window.location.origin).pathname === "/api/auth/logout";
   } catch {
     return false;
@@ -250,13 +280,18 @@ export function installSessionExpiryFetchGuard(): void {
       // Malformed/opaque URL: don't let guard logic break the request.
     }
     const sameOriginApi =
-      parsed !== null && parsed.origin === window.location.origin && parsed.pathname.startsWith("/api/");
-    const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      parsed !== null &&
+      parsed.origin === window.location.origin &&
+      parsed.pathname.startsWith("/api/");
+    const method = (
+      init?.method ?? (input instanceof Request ? input.method : "GET")
+    ).toUpperCase();
 
     // Hot reads (identity, home widgets, badge, ads) are shared and cached
     // briefly; any write may change what they return, so it drops the cache
     // both before it is sent and after it completes. See lib/cache/readCache.ts.
-    const cacheKey = sameOriginApi && parsed ? readCacheKey(parsed, method) : null;
+    const cacheKey =
+      sameOriginApi && parsed ? readCacheKey(parsed, method) : null;
     const isWrite =
       sameOriginApi &&
       parsed !== null &&
@@ -265,22 +300,52 @@ export function installSessionExpiryFetchGuard(): void {
       method !== "OPTIONS" &&
       writeInvalidatesReadCache(parsed.pathname);
     if (isWrite) invalidateReadCache();
-  clearCachedMessages();
 
-    const res = cacheKey
-      ? await cachedRead(cacheKey, () => base(input, init))
-      : await base(input, init);
+    const startedGeneration = sessionGeneration;
+    const canRenew =
+      sameOriginApi &&
+      parsed &&
+      !isExemptApiPath(parsed.pathname) &&
+      hasSessionHint();
+    const retryRequest =
+      canRenew && input instanceof Request ? input.clone() : null;
+    const retryInput = retryRequest ?? input;
+    try {
+      let res = cacheKey
+        ? await cachedRead(cacheKey, () => base(input, init))
+        : await base(input, init);
 
-    if (isWrite) invalidateReadCache();
-  clearCachedMessages();
-    if (isLogoutRequest(input)) clearSessionHint();
-    if (res.status === 401) {
-      invalidateReadCache();
-  clearCachedMessages();
-      if (sameOriginApi && parsed && !isExemptApiPath(parsed.pathname)) {
-        markSessionExpired();
+      if (isWrite) invalidateReadCache();
+      if (isLogoutRequest(input)) clearSessionHint();
+      if (res.status === 401) {
+        invalidateReadCache();
+        if (
+          canRenew &&
+          hasSessionHint() &&
+          startedGeneration === sessionGeneration
+        ) {
+          // Renew first. A temporary authority failure rejects this request but
+          // preserves the cookie session; only a definitive rejection signs out.
+          const { refreshSession } = await import("./refreshSession");
+          if (await refreshSession()) {
+            if (startedGeneration !== sessionGeneration || !hasSessionHint())
+              return res;
+            const streaming =
+              typeof ReadableStream !== "undefined" &&
+              init?.body instanceof ReadableStream;
+            if (streaming) return res; // The caller can retry its consumed stream.
+            await res.body?.cancel().catch(() => {});
+            res = await base(retryInput, init);
+            if (res.status !== 401) return res;
+          }
+          markSessionExpired();
+        }
       }
+      return res;
+    } finally {
+      // Cancel unused tees without waiting for the original stream to finish.
+      if (retryRequest?.body && !retryRequest.bodyUsed)
+        void retryRequest.body.cancel().catch(() => {});
     }
-    return res;
   };
 }

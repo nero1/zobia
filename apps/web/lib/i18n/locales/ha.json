@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "Ware har zuwa Credit {{amount}}",
   "sponsoredFunding.applications": "Duba aikace-aikace",
   "sponsoredFunding.proof": "Hujjar kammalawa",
-  "sponsoredFunding.noApplications": "Babu aikace-aikacen da ke jiran dubawa."
+  "sponsoredFunding.noApplications": "Babu aikace-aikacen da ke jiran dubawa.",
+  "common.pagination": "Shafuka",
+  "common.firstPage": "Shafi na farko"
 }

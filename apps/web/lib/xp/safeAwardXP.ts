@@ -221,7 +221,7 @@ export async function safeAwardXP(
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error({ userId, amount, track, source }, `[safeAwardXP] Failed to award ${amount} XP (${track}/${source}) to ${userId}: ${errorMessage}`);
+    logger.error({err,userId,amount,track,source},"[safeAwardXP] XP award failed");
 
     // DLQ-01: Only write to the DLQ when NOT inside a caller's transaction.
     // If dbClient is a TransactionClient (caller-provided tx), the outer

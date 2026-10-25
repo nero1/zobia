@@ -144,7 +144,7 @@ async function loadGameLeaderboard(
   if (safePage === 1) {
     redis
       .setex(key, CACHE_TTL_SECONDS, JSON.stringify(result))
-      .catch((err) => logger.warn({ gameId }, `[games] leaderboard cache set failed: ${err}`));
+      .catch((err) => logger.warn({err,gameId},"[games] Leaderboard cache write failed"));
   }
 
   return { rows: result, page: safePage, pageSize: PAGE_SIZE };

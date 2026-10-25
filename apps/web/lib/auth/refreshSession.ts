@@ -26,6 +26,11 @@
 import { rawFetch } from "@/lib/auth/sessionExpiredBus";
 import { setSessionExpiresAt } from "@/lib/auth/sessionExpiryBus";
 
+export class SessionRefreshUnavailableError extends Error {
+  readonly status=503;
+  readonly code='AUTHORITY_UNAVAILABLE';
+  constructor(){super('Session verification is temporarily unavailable. Please try again.');this.name='SessionRefreshUnavailableError';}
+}
 const LOCK_NAME = "zobia:auth-refresh";
 const MAX_ATTEMPTS = 4;
 
@@ -36,7 +41,7 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 /** True when the current access-token cookie is accepted by the server. */
 async function accessTokenIsValid(): Promise<boolean> {
   try {
-    const res = await rawFetch("/api/auth/me", { credentials: "include", cache: "no-store" });
+    const res = await rawFetch("/api/auth/me", { credentials: "include", cache: "no-store",signal:AbortSignal.timeout(5000) });
     if (!res.ok) return false;
     const body = (await res.json().catch(() => null)) as { expiresAt?: number | null } | null;
     if (typeof body?.expiresAt === "number") setSessionExpiresAt(body.expiresAt);
@@ -52,7 +57,7 @@ async function doRefresh(): Promise<boolean> {
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const res = await rawFetch("/api/auth/refresh", { method: "POST", credentials: "include" });
+      const res = await rawFetch("/api/auth/refresh", { method: "POST", credentials: "include",signal:AbortSignal.timeout(5000) });
       if (res.ok) {
         const body = (await res.json().catch(() => null)) as { expiresIn?: number } | null;
         if (typeof body?.expiresIn === "number") {
@@ -65,11 +70,12 @@ async function doRefresh(): Promise<boolean> {
     } catch {
       // Network error: treat as transient and retry below.
     }
-    if (attempt < MAX_ATTEMPTS) await sleep(300 * attempt + Math.random() * 200);
+    if (attempt < MAX_ATTEMPTS) await sleep(Math.min(2000,250*2**(attempt-1))*(0.75+Math.random()*0.5));
   }
 
   // Retries exhausted on transient errors. A sibling tab may have succeeded.
-  return accessTokenIsValid();
+  if(await accessTokenIsValid())return true;
+  throw new SessionRefreshUnavailableError();
 }
 
 /**
@@ -81,11 +87,13 @@ export function refreshSession(): Promise<boolean> {
 
   const locks = typeof navigator !== "undefined" ? navigator.locks : undefined;
   const run = locks
-    ? locks.request(LOCK_NAME, () => doRefresh())
+    ? Promise.resolve().then(()=>locks.request(LOCK_NAME,()=>doRefresh())).catch(error=>{
+      if(error instanceof SessionRefreshUnavailableError)throw error;
+      return doRefresh(); // Lock API denied/unavailable: retain per-tab single flight.
+    })
     : doRefresh();
 
   inFlight = Promise.resolve(run)
-    .catch(() => false)
     .finally(() => {
       inFlight = null;
     });

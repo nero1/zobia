@@ -194,7 +194,7 @@ export async function sendEmail(
   // Warn when a notification type is specified without a userId — per-user opt-out
   // cannot be checked, so the email will bypass the user's preferences.
   if (notificationType && !userId && notificationType !== "security" && notificationType !== "transactional") {
-    logger.warn(`[email] sendEmail called with notificationType='${notificationType}' but no userId — user opt-out not checked for ${to}`);
+    logger.warn({notificationType},"[email] Missing user identity for opt-out verification");
   }
 
   if (userId && notificationType) {

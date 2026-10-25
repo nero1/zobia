@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "Réserver jusqu’à {{amount}} crédits",
   "sponsoredFunding.applications": "Examiner les candidatures",
   "sponsoredFunding.proof": "Preuve de réalisation",
-  "sponsoredFunding.noApplications": "Aucune candidature en attente d’examen."
+  "sponsoredFunding.noApplications": "Aucune candidature en attente d’examen.",
+  "common.pagination": "Pagination",
+  "common.firstPage": "Première page"
 }

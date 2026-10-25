@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "Hifadhi hadi Credits {{amount}}",
   "sponsoredFunding.applications": "Kagua maombi",
   "sponsoredFunding.proof": "Uthibitisho wa kukamilisha",
-  "sponsoredFunding.noApplications": "Hakuna maombi yanayosubiri ukaguzi."
+  "sponsoredFunding.noApplications": "Hakuna maombi yanayosubiri ukaguzi.",
+  "common.pagination": "Kurasa",
+  "common.firstPage": "Ukurasa wa kwanza"
 }

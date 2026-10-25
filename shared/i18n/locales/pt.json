@@ -5561,5 +5561,7 @@
   "sponsoredFunding.reserveButton": "Reservar até {{amount}} Créditos",
   "sponsoredFunding.applications": "Rever candidaturas",
   "sponsoredFunding.proof": "Comprovativo de conclusão",
-  "sponsoredFunding.noApplications": "Não há candidaturas aguardando análise."
+  "sponsoredFunding.noApplications": "Não há candidaturas aguardando análise.",
+  "common.pagination": "Paginação",
+  "common.firstPage": "Primeira página"
 }
