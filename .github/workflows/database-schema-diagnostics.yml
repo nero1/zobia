@@ -1,0 +1,41 @@
+name: Database Schema Diagnostics
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    services:
+      reference:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zobia
+          POSTGRES_PASSWORD: diagnostic_fixture_only
+          POSTGRES_DB: zobia_diagnostic_reference
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U zobia -d zobia_diagnostic_reference"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Inspect target schema without changing it
+        working-directory: apps/web
+        env:
+          DIRECT_URL: ${{ secrets.MIGRATION_DATABASE_URL }}
+          DB_CA_CERT: ${{ secrets.MIGRATION_DB_CA_CERT }}
+          DIAGNOSTIC_REFERENCE_URL: postgres://zobia:diagnostic_fixture_only@127.0.0.1:5432/zobia_diagnostic_reference
+        run: npx tsx db/diagnose-schema.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: schema-diagnostics
+          path: apps/web/schema-diagnostics.json
+          retention-days: 3
+          if-no-files-found: error

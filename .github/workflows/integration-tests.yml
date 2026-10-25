@@ -83,6 +83,11 @@ jobs:
           TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
         run: npx tsx scripts/test-starter-content.ts
 
+      - name: Verify read-only schema diagnostics
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
+        run: npx tsx db/test-schema-diagnostics.ts
+
       - name: Run unit tests
         run: npm run test:unit
 
