@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 24, 2026 — 11:59:44 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 01:33:34 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** Deployment checkpoint requested: finish the current batch, merge its PR, then halt. Findings marked ✅ have been fixed and verified; all other findings remain open for a later batch. This report replaces the previous report.
-**Additional review:** 100 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
+**Additional review:** 102 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -117,6 +117,9 @@
 99: BUG ZOB-V2-099: ✅ [Medium] Android OAuth App Links use a fixed domain and placeholder certificate
 
 100: BUG ZOB-V2-100: ✅ [High] Durable commission-intent insertion targets a partial unique index without its predicate
+
+101: BUG ZOB-V2-101: ✅ [Medium] Health readiness succeeds against a database missing deployed authentication columns
+102: BUG ZOB-V2-102: ✅ [Medium] Google callback error logging exposes personal SQL parameters
 
 ## Detailed findings and proposed fixes
 
@@ -1484,6 +1487,30 @@
 
 **VALIDATION:** The real verified-payment/replay and RLS tests pass in the focused 11-test PostgreSQL hardening suite after reproducing the original 42P10 failure.
 
+### 101: BUG ZOB-V2-101: ✅ [Medium] Health readiness succeeds against a database missing deployed authentication columns
+
+**PROBLEM:** The health endpoint only ran SELECT 1, so an old schema could report healthy while Google account creation failed on the missing session_valid_after column. The provided production log confirms that database mismatch; the required upgrade already exists.
+
+**FILES:** `apps/web/app/api/health/route.ts; apps/web/scripts/test-remediation-upgrade.ts`
+
+**FIX:** Probe all mapped users and durable-task columns without fetching rows. Return a generic upgrade-required error for missing columns/tables, and document the verified existing-database upgrade rather than adding only one column.
+
+**RESOLUTION:** ✅ Health now checks both mapped tables with LIMIT 0 and returns HTTP 503 for missing schema. The setup guide explains apply versus adopt and requires the workflow to target the application database.
+
+**VALIDATION:** Four health regressions passed. The real migration runner passed tracked and manual/untracked upgrades, repeated safely, preserved wallet data, and matched the full 318-table final schema.
+
+### 102: BUG ZOB-V2-102: ✅ [Medium] Google callback error logging exposes personal SQL parameters
+
+**PROBLEM:** Logging the raw Drizzle error serializes its query, parameters, message and stack. The supplied production log contains the account email, Google identifier and avatar URL in several of those fields.
+
+**FILES:** `apps/web/app/api/auth/google/callback/route.ts; apps/web/lib/db/errorCode.ts`
+
+**FIX:** Log bounded application error codes and wrapped PostgreSQL SQLSTATE only. Exclude raw exceptions, queries, parameters and free-text messages from callback failure logs.
+
+**RESOLUTION:** ✅ The callback now logs only safe diagnostic codes. Cause traversal is bounded and cycle-safe; arbitrary code strings are rejected.
+
+**VALIDATION:** Three diagnostic tests passed, including wrapped SQL errors containing private data, application codes, arbitrary strings, and cyclic causes.
+
 ## Ratings and brief review
 
 Ratings are engineering judgments, not a certification. Scores show **audited base → this verified batch → projected after every remaining fix**. Live deployment/provider checks still depend on the user's configured services.
@@ -1507,10 +1534,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **91/100 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
+Remediation progress: **93/102 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 24, 2026 — 11:59:44 PM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 01:33:34 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

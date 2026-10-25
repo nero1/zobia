@@ -1,3 +1,4 @@
+import { authFailureLogDetails } from "@/lib/db/errorCode";
 import { authReturnDestination } from "@/lib/auth/returnDestination";
 export const dynamic = 'force-dynamic';
 
@@ -383,8 +384,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return response;
   } catch (err) {
     const errCode = (err as { code?: string }).code;
-    // Always log the raw error so Vercel function logs capture it for diagnosis.
-    logger.error({ err, code: errCode }, "[google-callback] Auth error");
+    logger.error(authFailureLogDetails(err), "[google-callback] Auth error");
     if (errCode === "ACCOUNT_BANNED" || errCode === "ACCOUNT_SUSPENDED") {
       const blocked = err as {
         userId: string;
