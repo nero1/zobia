@@ -134,6 +134,7 @@ Deleting tables does not necessarily delete their helper functions. If SQL Edito
 - Select branch **main**. Choose **apply** for a new database or a recognized existing installation.
 - Choose **adopt** only if the baseline was previously pasted manually and the database has no migration history. This verifies and registers that schema.
 - Click **Run workflow**. Open the run and wait for a green checkmark; approve the `production` environment if your repository requires it.
+- After pulling schema updates, run **apply** here before redeploying Vercel. Recognized existing databases are upgraded without wiping content.
 - A refused schema check means the runner did not recognize the database's state. Do not paste the baseline over existing application tables or bypass that check.
 
 ## 8. Deploy the website and create your administrator
