@@ -93,7 +93,7 @@ export const POST = withAuth<{ reportId: string }>(async (req: NextRequest, { pa
       .limit(1);
     if (!guild) throw notFound("Guild not found");
 
-    const roles = await getStaffRoles(auth.user.sub);
+    const roles = await getStaffRoles(auth.user.sub,{requireAdminSession:true});
     const isCaptain = guild.captain_id === auth.user.sub;
 
     if (!roles.isAdmin && !isCaptain) {

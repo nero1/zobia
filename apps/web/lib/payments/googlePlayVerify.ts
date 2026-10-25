@@ -15,12 +15,32 @@
 
 import { badRequest, internalError } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
-import { getGoogleServiceAccountAccessToken, type GoogleServiceAccountJson } from "@/lib/google/serviceAccountAuth";
+import {
+  getGoogleServiceAccountAccessToken,
+  type GoogleServiceAccountJson,
+} from "@/lib/google/serviceAccountAuth";
 
 const GOOGLE_PLAY_API_BASE =
   "https://androidpublisher.googleapis.com/androidpublisher/v3/applications";
 
-const ANDROID_PUBLISHER_SCOPE = "https://www.googleapis.com/auth/androidpublisher";
+function playPathSegment(value: string): string {
+  if (value === "." || value === "..")
+    throw badRequest(
+      "Invalid Google Play identifier",
+      "INVALID_PLAY_IDENTIFIER",
+    );
+  try {
+    return encodeURIComponent(value);
+  } catch {
+    throw badRequest(
+      "Invalid Google Play identifier",
+      "INVALID_PLAY_IDENTIFIER",
+    );
+  }
+}
+
+const ANDROID_PUBLISHER_SCOPE =
+  "https://www.googleapis.com/auth/androidpublisher";
 
 /**
  * Expected Android package name — rejects purchase tokens from other Google
@@ -36,11 +56,18 @@ function loadServiceAccount(): GoogleServiceAccountJson | null {
   return JSON.parse(saJson) as GoogleServiceAccountJson;
 }
 
-async function getGoogleAccessToken(sa: GoogleServiceAccountJson): Promise<string> {
+async function getGoogleAccessToken(
+  sa: GoogleServiceAccountJson,
+): Promise<string> {
   try {
-    return await getGoogleServiceAccountAccessToken(sa, ANDROID_PUBLISHER_SCOPE);
+    return await getGoogleServiceAccountAccessToken(
+      sa,
+      ANDROID_PUBLISHER_SCOPE,
+    );
   } catch (err) {
-    throw internalError(`Failed to get Google access token: ${err instanceof Error ? err.message : String(err)}`);
+    throw internalError(
+      `Failed to get Google access token: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -62,17 +89,19 @@ export interface GooglePlayProductPurchase {
 export async function verifyGooglePlayProductPurchase(
   packageName: string,
   productId: string,
-  purchaseToken: string
+  purchaseToken: string,
 ): Promise<GooglePlayProductPurchase> {
   const sa = loadServiceAccount();
 
   if (!sa) {
     if (process.env.NODE_ENV === "production") {
       throw internalError(
-        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. IAP verification is disabled."
+        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. IAP verification is disabled.",
       );
     }
-    logger.warn("[googlePlayVerify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. DO NOT use this in production.");
+    logger.warn(
+      "[googlePlayVerify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. DO NOT use this in production.",
+    );
     return {
       purchaseState: 0,
       consumptionState: 0,
@@ -82,7 +111,7 @@ export async function verifyGooglePlayProductPurchase(
   }
 
   const accessToken = await getGoogleAccessToken(sa);
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${playPathSegment(packageName)}/purchases/products/${playPathSegment(productId)}/tokens/${playPathSegment(purchaseToken)}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -98,7 +127,10 @@ export async function verifyGooglePlayProductPurchase(
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw badRequest(`Google Play verification failed: ${text}`, "PLAY_VERIFY_FAILED");
+    throw badRequest(
+      `Google Play verification failed: ${text}`,
+      "PLAY_VERIFY_FAILED",
+    );
   }
 
   return (await resp.json()) as GooglePlayProductPurchase;
@@ -115,7 +147,7 @@ export async function verifyGooglePlayProductPurchase(
 export async function consumeGooglePlayPurchase(
   packageName: string,
   productId: string,
-  purchaseToken: string
+  purchaseToken: string,
 ): Promise<void> {
   const sa = loadServiceAccount();
   if (!sa) {
@@ -124,7 +156,7 @@ export async function consumeGooglePlayPurchase(
   }
 
   const accessToken = await getGoogleAccessToken(sa);
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${playPathSegment(packageName)}/purchases/products/${playPathSegment(productId)}/tokens/${playPathSegment(purchaseToken)}:consume`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -146,7 +178,10 @@ export async function consumeGooglePlayPurchase(
   if (!resp.ok && resp.status !== 204) {
     // Non-fatal: log but don't fail the credit — the reward was already granted.
     const text = await resp.text();
-    logger.error(`[googlePlayVerify] Failed to consume purchase: ${text}`);
+    logger.error(
+      { status: resp.status },
+      "[googlePlayVerify] Failed to consume purchase",
+    );
   }
 }
 
@@ -171,34 +206,47 @@ export interface GooglePlaySubscriptionPurchase {
 export async function verifyGooglePlaySubscriptionPurchase(
   packageName: string,
   productId: string,
-  purchaseToken: string
+  purchaseToken: string,
 ): Promise<GooglePlaySubscriptionPurchase> {
   const sa = loadServiceAccount();
   if (!sa) {
     if (process.env.NODE_ENV === "production") {
       throw internalError(
-        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. Subscription verification is disabled."
+        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. Subscription verification is disabled.",
       );
     }
-    logger.warn("[googlePlayVerify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
-    return { paymentState: 1, startTimeMillis: String(Date.now()), expiryTimeMillis: String(Date.now() + 30 * 86400_000), autoRenewing: false };
+    logger.warn(
+      "[googlePlayVerify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode",
+    );
+    return {
+      paymentState: 1,
+      startTimeMillis: String(Date.now()),
+      expiryTimeMillis: String(Date.now() + 30 * 86400_000),
+      autoRenewing: false,
+    };
   }
 
   const accessToken = await getGoogleAccessToken(sa);
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${playPathSegment(packageName)}/purchases/subscriptions/${playPathSegment(productId)}/tokens/${playPathSegment(purchaseToken)}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   let resp: Response;
   try {
-    resp = await fetch(url, { signal: controller.signal, headers: { Authorization: `Bearer ${accessToken}` } });
+    resp = await fetch(url, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
   } finally {
     clearTimeout(timer);
   }
 
   if (!resp.ok) {
     const text = await resp.text();
-    throw badRequest(`Google Play subscription verification failed: ${text}`, "PLAY_VERIFY_FAILED");
+    throw badRequest(
+      `Google Play subscription verification failed: ${text}`,
+      "PLAY_VERIFY_FAILED",
+    );
   }
 
   return (await resp.json()) as GooglePlaySubscriptionPurchase;
@@ -211,13 +259,13 @@ export async function verifyGooglePlaySubscriptionPurchase(
 export async function acknowledgeGooglePlaySubscription(
   packageName: string,
   productId: string,
-  purchaseToken: string
+  purchaseToken: string,
 ): Promise<void> {
   const sa = loadServiceAccount();
   if (!sa) return;
 
   const accessToken = await getGoogleAccessToken(sa);
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${playPathSegment(packageName)}/purchases/subscriptions/${playPathSegment(productId)}/tokens/${playPathSegment(purchaseToken)}:acknowledge`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -225,10 +273,17 @@ export async function acknowledgeGooglePlaySubscription(
     const resp = await fetch(url, {
       signal: controller.signal,
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
       body: "{}",
     });
-    if (!resp.ok) logger.error({ status: resp.status }, "[googlePlayVerify] Subscription ack failed");
+    if (!resp.ok)
+      logger.error(
+        { status: resp.status },
+        "[googlePlayVerify] Subscription ack failed",
+      );
   } catch (e) {
     logger.error({ err: e }, "[googlePlayVerify] Subscription ack error:");
   } finally {
@@ -253,13 +308,13 @@ export async function acknowledgeGooglePlaySubscription(
 export async function cancelGooglePlaySubscription(
   packageName: string,
   productId: string,
-  purchaseToken: string
+  purchaseToken: string,
 ): Promise<void> {
   const sa = loadServiceAccount();
   if (!sa) return;
 
   const accessToken = await getGoogleAccessToken(sa);
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:cancel`;
+  const url = `${GOOGLE_PLAY_API_BASE}/${playPathSegment(packageName)}/purchases/subscriptions/${playPathSegment(productId)}/tokens/${playPathSegment(purchaseToken)}:cancel`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -267,12 +322,18 @@ export async function cancelGooglePlaySubscription(
     const resp = await fetch(url, {
       signal: controller.signal,
       method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
       body: "{}",
     });
     if (!resp.ok && resp.status !== 204) {
       const text = await resp.text();
-      logger.error({ status: resp.status, text }, "[googlePlayVerify] Subscription cancel failed");
+      logger.error(
+        { status: resp.status, text },
+        "[googlePlayVerify] Subscription cancel failed",
+      );
     }
   } catch (e) {
     logger.error({ err: e }, "[googlePlayVerify] Subscription cancel error:");

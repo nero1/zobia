@@ -35,7 +35,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { withAuth, validateBody } from "@/lib/api/middleware";
+import { withModeratorOrAdminAuth, withAdminAuth, type AuthContext, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { writeAuditLog } from "@/lib/audit/auditLog";
@@ -65,32 +65,20 @@ const patchSchema = z.discriminatedUnion("action", [
 
 interface GuildCtx {
   params: Promise<{ guildId: string }>;
-  auth: { user: { sub: string } };
+  auth: AuthContext & {isAdmin:boolean;isModerator?:boolean};
 }
 
-async function requireAdminOrMod(userId: string) {
-  const orm = await getDb();
-  const [row] = await orm
-    .select({ isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
-    .from(schema.users)
-    .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
-    .limit(1);
-  if (!row) throw forbidden("User not found");
-  const isModerator = row.isModerator ?? false;
-  if (!row.isAdmin && !isModerator) throw forbidden("Admin or moderator access required");
-  return { is_admin: row.isAdmin, is_moderator: isModerator };
-}
+
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/guilds/:guildId
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
+export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { guildId } = await params;
     if (!UUID_RE.test(guildId)) throw badRequest("guildId must be a valid UUID");
-    await requireAdminOrMod(auth.user.sub);
 
     const orm = await getDb();
 
@@ -138,14 +126,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }: GuildCtx)
 // PATCH /api/admin/guilds/:guildId
 // ---------------------------------------------------------------------------
 
-export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
+export const PATCH = withModeratorOrAdminAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const { guildId } = await params;
     if (!UUID_RE.test(guildId)) throw badRequest("guildId must be a valid UUID");
 
-    const roles = await requireAdminOrMod(auth.user.sub);
+    const roles = {is_admin:auth.isAdmin,is_moderator:auth.isModerator??false};
     const body = await validateBody(req, patchSchema);
 
     // Destructive/identity-changing actions require full admin.
@@ -312,7 +300,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
 // DELETE /api/admin/guilds/:guildId
 // ---------------------------------------------------------------------------
 
-export const DELETE = withAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
+export const DELETE = withAdminAuth(async (req: NextRequest, { params, auth }: GuildCtx) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -321,12 +309,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: GuildC
 
     const orm = await getDb();
 
-    const [userRow] = await orm
-      .select({ isAdmin: schema.users.isAdmin })
-      .from(schema.users)
-      .where(and(eq(schema.users.id, auth.user.sub), sql`${schema.users.deletedAt} IS NULL`))
-      .limit(1);
-    if (!userRow?.isAdmin) throw forbidden("Administrator access required");
+
 
     const [guildRow] = await orm
       .select({ id: schema.guilds.id, name: schema.guilds.name })

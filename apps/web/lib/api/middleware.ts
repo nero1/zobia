@@ -196,9 +196,10 @@ export function requiresLiveVerification(req: NextRequest, pathname: string): bo
  * Fails CLOSED: if the account row cannot be read, the request is rejected.
  * A brief database blip is preferable to letting a banned user transact (#20).
  */
-async function assertAccountActive(userId: string,sessionCreatedAt:string): Promise<void> {
+async function assertAccountActive(userId: string,sessionCreatedAt:string): Promise<{is_admin:boolean}> {
   let row:
     | {
+        is_admin: boolean;
         is_banned: boolean;
         is_suspended: boolean;
         suspended_until: Date | null;
@@ -209,6 +210,7 @@ async function assertAccountActive(userId: string,sessionCreatedAt:string): Prom
     const orm = await getDb();
     const rows = await orm
       .select({
+        is_admin: schema.users.isAdmin,
         is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
         is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW())`,
         suspended_until: schema.users.suspendedUntil,
@@ -243,6 +245,7 @@ async function assertAccountActive(userId: string,sessionCreatedAt:string): Prom
       )
       .catch(() => {});
   }
+  return {is_admin:row.is_admin};
 }
 
 // ---------------------------------------------------------------------------
@@ -311,6 +314,7 @@ export function withAuth<TParams = Record<string, string>>(
         // Bypass the L1 cache: on these paths we want the current truth, not a
         // copy that may be up to SESSION_CACHE_TTL_MS old.
         session = await getSessionFresh(payload.sid);
+        if (store) store.adminSessionVerified = session?.adminSession === true;
         if (!session || session.uid !== payload.sub) {
           // Clear the stale cookies so the browser doesn't loop between /home
           // and /auth/login with a JWT that passes signature checks but has no
@@ -325,7 +329,10 @@ export function withAuth<TParams = Record<string, string>>(
           return cleared;
         }
         // Fails closed — an unreadable account row rejects the request.
-        await assertAccountActive(payload.sub,session.created_at);
+        const account = await assertAccountActive(payload.sub,session.created_at);
+        if (route.startsWith("/api/admin/") && account.is_admin && !session.adminSession) {
+          throw forbidden("Sign in through the administrator login with two-factor authentication", "ADMIN_REAUTH_REQUIRED");
+        }
       }
 
       // Geolocation anomaly detection (PRD §19, §23)
@@ -430,6 +437,7 @@ export function withAdminAuth<TParams = Record<string, string>>(
       // BUG-L1-01: bypass the 3-second L1 in-process cache for admin paths so a
       // de-provisioned admin cannot continue to act within the staleness window.
       const session = await getSessionFresh(payload.sid);
+        if (store) store.adminSessionVerified = session?.adminSession === true;
       if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },
@@ -560,6 +568,7 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       // Bypass the L1 in-process cache so a de-provisioned mod/admin cannot
       // continue to act within the staleness window (same as withAdminAuth).
       const session = await getSessionFresh(payload.sid);
+        if (store) store.adminSessionVerified = session?.adminSession === true;
       if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },
@@ -690,6 +699,7 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
       if (store) store.userId = payload.sub;
 
       const session = await getSessionFresh(payload.sid);
+        if (store) store.adminSessionVerified = session?.adminSession === true;
       if (!session || session.uid !== payload.sub) {
         const cleared = NextResponse.json(
           { error: "Unauthorised", code: "SESSION_REVOKED" },

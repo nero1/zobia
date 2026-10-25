@@ -36,6 +36,9 @@ async function main() {
     await db.query(
       `DROP TABLE public_media_references,public_media_assets,sponsored_daily_reservations,sponsored_quest_funding CASCADE; DROP FUNCTION app_track_public_media() CASCADE; DROP INDEX sponsored_quests_admin_active_page_idx,sponsored_quests_admin_page_idx,sponsored_quests_business_page_idx`,
     );
+    await db.query(
+      "DROP INDEX tales_author_created_page_idx,tale_author_subscriptions_author_page_idx,tales_discovery_idx; CREATE INDEX tales_discovery_idx ON public.tales(status,moderation,published_at DESC,id DESC)",
+    );
     const old = await catalogChecksum(db);
     assert.equal(old, baseline.additionalUpgrades[1].fromCatalogChecksum);
     for (const f of (await readCatalog(db)).functions as {
@@ -66,8 +69,21 @@ async function main() {
       },
     );
     assert.equal(await catalogChecksum(db), baseline.catalogChecksum);
-    execFileSync(process.execPath, [path.resolve("../../node_modules/tsx/dist/cli.mjs"), path.join(__dirname,"migrate.ts")], {env:{...process.env,NODE_ENV:"test",DIRECT_URL:url.href},stdio:"pipe"});
-    assert.equal((await db.query("SELECT count(*)::int n FROM migrations_log")).rows[0].n,1);
+    execFileSync(
+      process.execPath,
+      [
+        path.resolve("../../node_modules/tsx/dist/cli.mjs"),
+        path.join(__dirname, "migrate.ts"),
+      ],
+      {
+        env: { ...process.env, NODE_ENV: "test", DIRECT_URL: url.href },
+        stdio: "pipe",
+      },
+    );
+    assert.equal(
+      (await db.query("SELECT count(*)::int n FROM migrations_log")).rows[0].n,
+      1,
+    );
     assert.equal(
       Number(
         (

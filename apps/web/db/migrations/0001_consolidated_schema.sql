@@ -9765,7 +9765,9 @@ CREATE UNIQUE INDEX tale_appeal_pending_idx ON public.tale_appeals USING btree (
 
 CREATE INDEX tale_comments_page_idx ON public.tale_comments USING btree (tale_id, created_at DESC, id DESC);
 
-CREATE INDEX tales_discovery_idx ON public.tales USING btree (status, moderation, published_at DESC, id DESC);
+CREATE INDEX tales_discovery_idx ON public.tales USING btree (status, moderation, created_at DESC, id DESC);
+CREATE INDEX tales_author_created_page_idx ON public.tales(author_id,created_at DESC,id DESC);
+CREATE INDEX tale_author_subscriptions_author_page_idx ON public.tale_author_subscriptions(author_id,user_id,created_at);
 
 CREATE UNIQUE INDEX uidx_ad_wallet_ledger_tx_type_ref ON public.ad_wallet_ledger USING btree (user_id, transaction_type, reference_id) WHERE (reference_id IS NOT NULL);
 

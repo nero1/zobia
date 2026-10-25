@@ -20,7 +20,7 @@ const querySchema = z.object({
   status: z.enum(["open", "pending", "escalated", "resolved", "closed"]).optional(),
   assignedTo: z.string().uuid().optional(),
   cursor: z.string().optional(),
-  limit: z.string().optional().transform((v) => (v ? Math.min(parseInt(v, 10), 100) : 50)),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {

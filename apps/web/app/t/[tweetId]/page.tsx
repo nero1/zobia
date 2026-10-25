@@ -1,3 +1,4 @@
+import { ApiError } from "@/lib/api/errors";
 import AppLayout from "@/app/(app)/layout";
 /**
  * app/t/[tweetId]/page.tsx
@@ -29,6 +30,15 @@ import {
 } from "@/lib/public/tweetMetadata";
 import { PublicTweetView } from "@/components/public/PublicTweetView";
 
+async function resolveTale(slug: string) {
+  try {
+    return await getTale(slug);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
+}
+
 export async function generateMetadata({
   params,
 }: {
@@ -36,7 +46,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { tweetId } = await params;
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId)) {
-    const tale = await getTale(tweetId).catch(() => null);
+    const tale = await resolveTale(tweetId);
     return tale
       ? {
           title: `${tale.story.title} — Zobia Tales`,
@@ -55,8 +65,14 @@ export default async function PublicTweetPage({
   params: Promise<{ tweetId: string }>;
 }) {
   const { tweetId } = await params;
-  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId))
-    return <AppLayout><TalesView slug={tweetId} /></AppLayout>;
+  if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId)) {
+    await resolveTale(tweetId);
+    return (
+      <AppLayout>
+        <TalesView slug={tweetId} />
+      </AppLayout>
+    );
+  }
   const tweet = await resolvePublicTweet(tweetId).catch(() => null);
   if (!tweet) notFound();
 

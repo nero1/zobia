@@ -1,3 +1,12 @@
+import { z } from "zod";
+import { createHash } from "node:crypto";
+import {
+  encodePageCursor,
+  decodePageCursor,
+  cursorTimestamp,
+  cursorTime,
+} from "@/lib/api/pageCursor";
+import { enqueueTask } from "@/lib/tasks/outbox";
 import { randomUUID } from "node:crypto";
 import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
@@ -69,23 +78,24 @@ export async function listTales(
     conditions.push(
       sql`(${schema.tales.title} ILIKE ${"%" + query.trim() + "%"} OR ${schema.tales.synopsis} ILIKE ${"%" + query.trim() + "%"})`,
     );
-  let after:
-    { id: string; score: number; tab: string; seed: string } | undefined;
-  if (cursor) {
-    try {
-      after = JSON.parse(cursor);
-      if (
-        !after ||
-        after.tab !== tab ||
-        !/^[0-9a-f-]{36}$/i.test(after.id) ||
-        !Number.isFinite(after.score) ||
-        !/^[0-9a-f-]{36}$/i.test(after.seed)
-      )
-        throw new Error();
-    } catch {
-      throw badRequest("Invalid Tales cursor.");
-    }
-  }
+  const scope =
+    "tales:" +
+    createHash("sha256")
+      .update(JSON.stringify([tab, query?.trim() ?? "", userId ?? null]))
+      .digest("hex");
+  const after = decodePageCursor(
+    cursor,
+    scope,
+    z.object({
+      id: z.string().uuid(),
+      score: z.number().finite().optional(),
+      time: cursorTimestamp.optional(),
+      seed: z.string().uuid(),
+    }),
+  );
+  const chronological = !["random", "popular", "trending"].includes(tab);
+  if (after && (chronological ? !after.time : after.score === undefined))
+    throw badRequest("Invalid Tales cursor.");
   const seed = after?.seed ?? randomUUID();
   // MD5 prefix fits exactly in a JS number and keeps random pages stable.
   const score =
@@ -98,7 +108,9 @@ export async function listTales(
           : sql<number>`extract(epoch FROM ${schema.tales.createdAt})::float8`;
   if (after)
     conditions.push(
-      sql`(${score},${schema.tales.id})<(${after.score},${after.id}::uuid)`,
+      chronological
+        ? sql`(${schema.tales.createdAt},${schema.tales.id})<(${after.time}::timestamptz,${after.id}::uuid)`
+        : sql`(${score},${schema.tales.id})<(${after.score},${after.id}::uuid)`,
     );
   const rows = await orm
     .select({
@@ -112,17 +124,30 @@ export async function listTales(
       moderation: schema.tales.moderation,
       votes: schema.tales.votes,
       score,
+      cursorTime: cursorTime(schema.tales.createdAt),
     })
     .from(schema.tales)
     .where(and(...conditions))
-    .orderBy(sql`${score} DESC,${schema.tales.id} DESC`)
+    .orderBy(
+      chronological
+        ? sql`${schema.tales.createdAt} DESC,${schema.tales.id} DESC`
+        : sql`${score} DESC,${schema.tales.id} DESC`,
+    )
     .limit(21);
   const last = rows.slice(0, 20).at(-1);
   return {
-    tales: rows.slice(0, 20).map(({ score: _score, ...item }) => item),
+    tales: rows
+      .slice(0, 20)
+      .map(({ score: _score, cursorTime: _time, ...item }) => item),
     nextCursor:
       rows.length > 20 && last
-        ? JSON.stringify({ score: last.score, id: last.id, tab, seed })
+        ? encodePageCursor(scope, {
+            ...(chronological
+              ? { time: last.cursorTime }
+              : { score: last.score }),
+            id: last.id,
+            seed,
+          })
         : null,
   };
 }
@@ -162,7 +187,10 @@ export async function getTale(slug: string, userId?: string, db?: DbOrTx) {
     )
     .orderBy(schema.taleChapters.ordinal);
   return {
-    story,
+    story: {
+      ...story,
+      moderationReason: owner ? story.moderationReason : undefined,
+    },
     chapters: chapters.map((c) => ({
       ...c,
       price: c.ordinal === 1 ? 0 : (c.price ?? story.defaultPrice),
@@ -206,7 +234,11 @@ export async function readTaleChapter(
   const loginRequired = !isOwner && ordinal > 1 && !userId;
   const locked = !isOwner && (loginRequired || (cost > 0 && !unlock));
   return {
-    chapter: { ...chapter, body: locked ? null : chapter.body },
+    chapter: {
+      ...chapter,
+      body: locked ? null : chapter.body,
+      moderationReason: isOwner ? chapter.moderationReason : undefined,
+    },
     story: {
       id: story.id,
       title: story.title,
@@ -624,17 +656,12 @@ export async function runTalePublishing() {
       .limit(100)
       .for("update", { of: schema.taleChapters, skipLocked: true });
     for (const chapter of notifications) {
-      const subscribers = await tx
-        .select({ id: schema.taleAuthorSubscriptions.userId })
-        .from(schema.taleAuthorSubscriptions)
-        .where(eq(schema.taleAuthorSubscriptions.authorId, chapter.authorId));
-      await insertNotificationBatch(
+      await enqueueTask(
         tx,
-        subscribers.map((s) => s.id),
-        "tale_new_chapter",
-        "New chapter",
-        chapter.title,
-        { taleSlug: chapter.slug, ordinal: chapter.ordinal },
+        "tale_notifications",
+        `tale-chapter:${chapter.id}:root`,
+        chapter.authorId,
+        { chapterId: chapter.id, cutoff: new Date().toISOString() },
       );
       await tx
         .update(schema.taleChapters)
@@ -788,6 +815,9 @@ export async function taleComments(
       and(
         eq(schema.taleComments.taleId, story.id),
         isOwner ? undefined : eq(schema.taleComments.hidden, false),
+        isOwner
+          ? undefined
+          : sql`(${schema.taleComments.chapterId} IS NULL OR EXISTS(SELECT 1 FROM tale_chapters vc WHERE vc.id=${schema.taleComments.chapterId} AND vc.tale_id=${story.id} AND vc.status='published' AND vc.moderation='approved' AND (vc.publish_at IS NULL OR vc.publish_at<=NOW()) AND (vc.ordinal=1 OR (${userId ?? null}::uuid IS NOT NULL AND (COALESCE(vc.price,${story.defaultPrice})=0 OR EXISTS(SELECT 1 FROM tale_unlocks vu WHERE vu.chapter_id=vc.id AND vu.user_id=${userId ?? null}::uuid))))))`,
         after
           ? sql`(${schema.taleComments.createdAt},${schema.taleComments.id})<(${after.time}::timestamptz,${after.id}::uuid)`
           : undefined,

@@ -5313,7 +5313,7 @@ The SQL is an atomic fresh-database baseline, not an in-place rebuild. The runne
 
 ## Current concise changelog — v2.45 (development)
 
-- Remediated the forensic findings across authentication, payment proofs, accounting, privacy, uploads, exports, caching, games, accessibility and SEO. `custom-bugs-report.md` tracks fixed findings with ✅; release checks remain explicit.
+- Remediated the forensic findings across authentication, payment proofs, accounting, privacy, uploads, exports, caching, games, accessibility and SEO. `custom-bugs-report-v3.md` tracks current fixed findings with ✅; release checks remain explicit.
 - Preserved a single portable final-state migration, with a verified separate upgrade path for existing databases. Added blocking schema and negative-access checks.
 - Reused shared theme tokens and accessible dialogs across web and Capacitor; the discontinued Expo app is unchanged.
 - Operator setup: configure separate private storage and a trusted game result provider before enabling financial game rewards. No live database or external payment was used during local validation.
