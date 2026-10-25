@@ -208,6 +208,7 @@ Set only the variables needed by the features you enable, then redeploy Vercel:
 | CAPTCHA | Turnstile: `CLOUDFLARE_TURNSTILE_SITE_KEY`, `CLOUDFLARE_TURNSTILE_SECRET_KEY`; or reCAPTCHA: `RECAPTCHA_SITE_KEY`, `RECAPTCHA_SECRET_KEY`; select the provider in admin settings |
 | PWA background push | Your matching `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` (`mailto:you@example.com`) |
 | Native push | `FCM_SERVICE_ACCOUNT_JSON` on Vercel and the matching Firebase `google-services.json` in `apps/android/android/app/`; configure the Firebase Android app as `com.zobiasocial.app` |
+| Native crypto payouts | Set `CRYPTO_PAYOUT_ADDRESS_BSC` / `CRYPTO_PAYOUT_ADDRESS_SOLANA` to the public sending-wallet address for each enabled chain. Approve the withdrawal in Admin → Payouts, send the exact displayed asset/amount, then submit its transaction hash to confirm settlement. Never enter a wallet private key. |
 | AdMob rewarded ads | Configure native App ID/unit IDs and SSV callback `https://YOUR_DOMAIN/api/ads/admob-completion`; set `ADMOB_REWARDED_UNIT_IDS` on Vercel to the allowed rewarded unit IDs |
 | R2 instead of Supabase Storage | `STORAGE_PROVIDER=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`, `R2_PRIVATE_BUCKET_NAME`; keep the private bucket unexposed |
 

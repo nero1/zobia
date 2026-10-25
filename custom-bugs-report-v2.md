@@ -1,6 +1,6 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 07:35:13 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 07:45:15 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** Deployment follow-ups include verified schema readiness, reset recovery and optional starter-content work. Findings marked ✅ have been fixed and verified; nine earlier findings remain open. No production database was changed during these checks.
 **Additional review:** 108 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
@@ -19,7 +19,7 @@
 10: BUG ZOB-V2-010: ✅ [Medium] Personal export omits received messages and indirectly owned records
 11: BUG ZOB-V2-011: ✅ [High] Manual payout status changes can restore the same money repeatedly
 12: BUG ZOB-V2-012: ✅ [High] Payout approval, rejection and appeal resolution race outside payout locks
-13: BUG ZOB-V2-013: [High] Native crypto withdrawals do not integrate with payout settlement and refunds
+13: BUG ZOB-V2-013: ✅ [High] Native crypto withdrawals do not integrate with payout settlement and refunds
 14: BUG ZOB-V2-014: ✅ [High] Sensitive Star and crypto operations bypass the PIN step-up boundary
 15: BUG ZOB-V2-015: ✅ [High] Star gifts have no client-stable idempotency or deterministic lock ordering
 16: BUG ZOB-V2-016: ✅ [Medium] Star gift XP caps race and successful gifts can lose their XP work
@@ -46,7 +46,7 @@
 37: BUG ZOB-V2-037: ✅ [High] Account erasure leaves real PIN hashes and newer crypto-wallet identities
 38: BUG ZOB-V2-038: [Medium] Public media uploads have no durable orphan/retention lifecycle
 39: BUG ZOB-V2-039: ✅ [Medium] Creator Fund scoring narrows BIGINT XP to INTEGER and ignores active standing
-40: BUG ZOB-V2-040: [High] Fraud-forced manual review is ignored by the earnings-to-coins payout branch
+40: BUG ZOB-V2-040: ✅ [High] Fraud-forced manual review is ignored by the earnings-to-coins payout branch
 41: BUG ZOB-V2-041: ✅ [Medium] Cached ad serves reuse a one-use billing receipt across legitimate views
 42: BUG ZOB-V2-042: ✅ [High] Paystack transport ignores the circuit breaker cancellation signal
 43: BUG ZOB-V2-043: ✅ [Medium] Every standalone database statement incurs a four-command transaction
@@ -74,8 +74,8 @@
 65: BUG ZOB-V2-065: ✅ [Medium] A SQL error aborts an entire DLQ retry batch and prevents retry accounting
 66: BUG ZOB-V2-066: ✅ [High] Referral commission retries lose the original crypto settlement asset
 67: BUG ZOB-V2-067: ✅ [High] Scheduled business downgrades can overwrite a newer paid upgrade
-68: BUG ZOB-V2-068: [High] The gift-tier catalogue exposes instructions reserved for purchasers
-69: BUG ZOB-V2-069: [High] Blog gifts debit buyers before seller earnings are durably settled
+68: BUG ZOB-V2-068: ✅ [High] The gift-tier catalogue exposes instructions reserved for purchasers
+69: BUG ZOB-V2-069: ✅ [High] Blog gifts debit buyers before seller earnings are durably settled
 70: BUG ZOB-V2-070: ✅ [Medium] Several cursors omit or contradict the actual sort keys
 71: BUG ZOB-V2-071: ✅ [High] Authenticated Wiki reads expose drafts and bypass Wiki moderation
 72: BUG ZOB-V2-072: ✅ [Medium] Concurrent Wiki edits race revision allocation and overwrite stale fields
@@ -84,7 +84,7 @@
 75: BUG ZOB-V2-075: ✅ [Medium] Sponsored quest impression accounting ignores daily caps and paused state
 76: BUG ZOB-V2-076: ✅ [Medium] Sponsored impression charges are rounded away by the balance column
 77: BUG ZOB-V2-077: ✅ [Medium] Ordinary room members can submit system messages and bypass text moderation
-78: BUG ZOB-V2-078: [High] Room Moment sends publish and charge before the room-message transaction
+78: BUG ZOB-V2-078: ✅ [High] Room Moment sends publish and charge before the room-message transaction
 79: BUG ZOB-V2-079: ✅ [Medium] Avatar uploads bypass decoding validation after compression failure
 80: BUG ZOB-V2-080: ✅ [Medium] Subscription and referral sweeps load unbounded backlogs into serial work
 81: BUG ZOB-V2-081: ✅ [Medium] Mobile hand-off redirect validation accepts protocol-relative numeric hosts
@@ -129,6 +129,18 @@
 108: BUG ZOB-V2-108: ✅ [Medium] Root seed command points to a nonexistent TypeScript file
 
 109: BUG ZOB-V2-109: ✅ [Medium] Shared Ably acquisition resets the channel reference count
+
+110: BUG ZOB-V2-110: ✅ [High] Gift purchases can use a stale price or benefit configuration
+
+111: BUG ZOB-V2-111: ✅ [High] Unfunded gift reward pots charge buyers while skipping the promised reward
+
+112: BUG ZOB-V2-112: ✅ [High] Manual payout status changes bypass reviewed coin-conversion approval
+
+113: BUG ZOB-V2-113: ✅ [High] Payout approval does not recheck suspended creator standing atomically
+
+114: BUG ZOB-V2-114: ✅ [High] Unreadable crypto wallet snapshots are approved for processing
+
+115: BUG ZOB-V2-115: ✅ [Medium] Creator payout requests narrow wide earnings before checking exact availability
 
 ## Detailed findings and proposed fixes
 
@@ -300,7 +312,7 @@
 
 **VALIDATION:** Concurrent actual-route approval/rejection and native appeal tests each produce one successful decision and correct balances.
 
-### 13: BUG ZOB-V2-013: [High] Native crypto withdrawals do not integrate with payout settlement and refunds
+### 13: BUG ZOB-V2-013: ✅ [High] Native crypto withdrawals do not integrate with payout settlement and refunds
 
 **PROBLEM:** Withdrawal debits creator_crypto_balances but creates a pending payout with zero kobo and null net/gross amounts. Approval only accepts awaiting_approval and assumes an encrypted wallet snapshot/USDT equivalent. Manual failure refunds kobo rather than the withdrawn token balance, so a failed token withdrawal cannot recover its funds through the implemented workflow.
 
@@ -309,6 +321,10 @@
 **FIX:** Implement a currency-specific crypto payout lifecycle carrying exact token units, address and chain; refund the same asset once and record verified settlement evidence.
 
 **EVIDENCE:** Source-confirmed cross-route currency/status mismatch.
+
+**RESOLUTION:** ✅ Native withdrawals reserve exact base units and an encrypted wallet snapshot in an awaiting-approval payout. Approval validates asset/chain/address, completion verifies exact confirmed transfer evidence and rejects reused proofs, and terminal failures restore the original asset once. Responses and notices preserve native units.
+
+**VALIDATION:** Real route contracts verify concurrent withdrawal reservation, valid approval, absent/mismatched proof rejection, original-asset refund replay protection, duplicate proof rejection and confirmed completion using a fixture chain adapter. Existing appeal-race tests also pass; no real funds were sent.
 
 ### 14: BUG ZOB-V2-014: ✅ [High] Sensitive Star and crypto operations bypass the PIN step-up boundary
 
@@ -670,7 +686,7 @@
 
 **VALIDATION:** Actual PostgreSQL scoring accepted a three-billion-XP fixture and allocated exact integer kobo without the INTEGER overflow.
 
-### 40: BUG ZOB-V2-040: [High] Fraud-forced manual review is ignored by the earnings-to-coins payout branch
+### 40: BUG ZOB-V2-040: ✅ [High] Fraud-forced manual review is ignored by the earnings-to-coins payout branch
 
 **PROBLEM:** needsManualApproval includes fraudResult.forceManual, but the coins branch executes before that decision affects the payout. It immediately debits earnings, credits spendable coins and returns fraudFlagged=false/requiresManualApproval=false even when fraud checks forced review.
 
@@ -679,6 +695,10 @@
 **FIX:** Apply fraud/hold decisions before every payout/conversion branch and preserve truthful review state and exact reservation records.
 
 **EVIDENCE:** Source-confirmed conditional ordering and hard-coded false flags in coins branch.
+
+**RESOLUTION:** ✅ Fraud-forced coin conversions reserve earnings and enter awaiting approval with an immutable coin quote; spendable coins are credited only on a successful atomic administrator decision. Manual status changes cannot bypass that review. Conversion arithmetic uses Decimal and rejects unsafe request amounts.
+
+**VALIDATION:** Real fraud-velocity conversion returns review required with zero coins; two approvals credit once, while bypassing review through manual status fails.
 
 ### 41: BUG ZOB-V2-041: ✅ [Medium] Cached ad serves reuse a one-use billing receipt across legitimate views
 
@@ -1058,7 +1078,7 @@
 
 **VALIDATION:** Real queued cleanup preserves a newer upgrade, rejects changed ownership, and repeated valid delivery applies one tier change and notification.
 
-### 68: BUG ZOB-V2-068: [High] The gift-tier catalogue exposes instructions reserved for purchasers
+### 68: BUG ZOB-V2-068: ✅ [High] The gift-tier catalogue exposes instructions reserved for purchasers
 
 **PROBLEM:** The catalogue serializes the full benefit_config, including custom_reward.textInstructions. The separate reveal endpoint checks purchase ownership, but an unpaid reader can obtain the same instructions directly from the listing. This listing is currently authenticated by middleware; anonymous access is not required for the bypass.
 
@@ -1068,7 +1088,11 @@
 
 **EVIDENCE:** Local HTTP proof: an unrelated, unpaid signed-in user received the buyer-only marker in the gift catalogue (200).
 
-### 69: BUG ZOB-V2-069: [High] Blog gifts debit buyers before seller earnings are durably settled
+**RESOLUTION:** ✅ The public gift repository projects an empty benefit configuration, with a second service-level projection. Fulfillment instructions remain available only to a buyer with an active purchase.
+
+**VALIDATION:** Both real repository and service catalogs exclude the secret marker for an unpaid reader; reveal returns null before purchase and the marker after purchase.
+
+### 69: BUG ZOB-V2-069: ✅ [High] Blog gifts debit buyers before seller earnings are durably settled
 
 **PROBLEM:** sendGift commits the buyer debit, purchase and benefit fulfillment, then invokes creditGiftEarnings separately. Settlement failure is only logged and the request still succeeds. There is no durable earnings retry job, so a temporary failure or invocation termination leaves the seller unpaid after a completed sale.
 
@@ -1077,6 +1101,10 @@
 **FIX:** Post seller proceeds in the purchase transaction or persist an immutable, unique settlement task with it; reconcile purchase funding, benefits and proceeds.
 
 **EVIDENCE:** Verified post-transaction creditGiftEarnings call with a log-only catch and no recorded retry intent.
+
+**RESOLUTION:** ✅ Gift proceeds are posted in the same transaction as the buyer debit, redemption, purchase and fulfillment, for both credits and Stars. Unique random references avoid same-millisecond collisions; a changed offer aborts rather than selling stale benefits.
+
+**VALIDATION:** A real PostgreSQL settlement trigger failure rolls back the buyer balance and purchase. Successful credits/Stars gifts credit the seller; a forced concurrent price change aborts the purchase without a debit.
 
 ### 70: BUG ZOB-V2-070: ✅ [Medium] Several cursors omit or contradict the actual sort keys
 
@@ -1186,7 +1214,7 @@
 
 **VALIDATION:** Actual authenticated room-send calls with either server-only event type return 400 before persistence.
 
-### 78: BUG ZOB-V2-078: [High] Room Moment sends publish and charge before the room-message transaction
+### 78: BUG ZOB-V2-078: ✅ [High] Room Moment sends publish and charge before the room-message transaction
 
 **PROBLEM:** The route calls createMoment in its own committed transaction before inserting the room message. A later message failure leaves a published Moment and any charge behind. Two concurrent retries with the same message key can both create/charge Moments before one message insert loses the uniqueness race.
 
@@ -1195,6 +1223,10 @@
 **FIX:** Make Moment creation, charging and room-message insertion one transaction or one durable idempotent operation keyed to the client request; compensate unavoidable external steps explicitly.
 
 **EVIDENCE:** Verified independent createMoment transaction before the enclosing insert, with no shared operation key or compensation.
+
+**RESOLUTION:** ✅ Room Moment creation, charging and message insertion share one transaction. A required request key and transaction-scoped lock deduplicate concurrent retries before creating or charging another Moment.
+
+**VALIDATION:** Two concurrent actual route requests create one room message, one Moment and one charge. An injected message-insert failure rolls back the Moment and buyer balance.
 
 ### 79: BUG ZOB-V2-079: ✅ [Medium] Avatar uploads bypass decoding validation after compression failure
 
@@ -1612,6 +1644,78 @@
 
 **VALIDATION:** The shared-client regression acquires twice, releases once and repeats that release without detaching; final release detaches exactly once.
 
+### 110: BUG ZOB-V2-110: ✅ [High] Gift purchases can use a stale price or benefit configuration
+
+**PROBLEM:** The offer is read before acquiring its row lock. An owner can change the price, beneficiary or fulfillment configuration while purchase preparation waits, and the transaction previously used the old snapshot. Millisecond-based purchase references could also collide across simultaneous gifts.
+
+**FILES:** `apps/web/lib/blogs/service.ts`
+
+**FIX:** Lock the current tier and blog, verify the quoted fields still match, and use a random operation reference.
+
+**RESOLUTION:** ✅ Lock the current tier and blog, verify the quoted fields still match, and use a random operation reference.
+
+**VALIDATION:** A real concurrent tier update while the purchase waits on its lock rejects the stale quote without changing the buyer balance.
+
+### 111: BUG ZOB-V2-111: ✅ [High] Unfunded gift reward pots charge buyers while skipping the promised reward
+
+**PROBLEM:** Custom reward purchases previously logged insufficient treasury funds and continued committing the buyer debit and purchase. The advertised treasury reward was silently omitted.
+
+**FILES:** `apps/web/lib/blogs/service.ts`
+
+**FIX:** Reject insufficient reward funding within the purchase transaction so the buyer debit, redemption and settlement all roll back.
+
+**RESOLUTION:** ✅ Reject insufficient reward funding within the purchase transaction so the buyer debit, redemption and settlement all roll back.
+
+**VALIDATION:** A real gift with a promised treasury payout and no funded pot rejects with the buyer balance unchanged.
+
+### 112: BUG ZOB-V2-112: ✅ [High] Manual payout status changes bypass reviewed coin-conversion approval
+
+**PROBLEM:** The generic status route accepted a reviewed coin conversion into processing/completed without invoking the immutable quote settlement. That bypassed the approval decision and left reserved earnings without their coin credit.
+
+**FILES:** `apps/web/app/api/admin/payouts/[payoutId]/status/route.ts`
+
+**FIX:** Resolve reviewed coin conversions through the atomic approve/reject handlers; allow generic cancellation only with the existing once-only refund.
+
+**RESOLUTION:** ✅ Resolve reviewed coin conversions through the atomic approve/reject handlers; allow generic cancellation only with the existing once-only refund.
+
+**VALIDATION:** Actual reviewed conversion rejects generic processing and credits coins exactly once across concurrent approvals.
+
+### 113: BUG ZOB-V2-113: ✅ [High] Payout approval does not recheck suspended creator standing atomically
+
+**PROBLEM:** Approval checked only deletion and bans outside the transaction. A suspended creator, or standing changed between that read and settlement, could still receive approval and a spendable coin conversion.
+
+**FILES:** `apps/web/app/api/admin/payouts/[payoutId]/approve/route.ts`
+
+**FIX:** Lock and recheck current creator standing inside the same transaction as the conditional payout decision and credit.
+
+**RESOLUTION:** ✅ Lock and recheck current creator standing inside the same transaction as the conditional payout decision and credit.
+
+**VALIDATION:** Actual suspended-creator approval fails and leaves the payout awaiting approval; restoring standing permits the decision.
+
+### 114: BUG ZOB-V2-114: ✅ [High] Unreadable crypto wallet snapshots are approved for processing
+
+**PROBLEM:** Decryption failures previously became a successful approval with a placeholder address. Native currency, chain and positive base-unit amount were not validated before moving the payout to processing.
+
+**FILES:** `apps/web/app/api/admin/payouts/[payoutId]/approve/route.ts`
+
+**FIX:** Require a readable valid destination, matching supported chain and positive exact native amount before approval; keep invalid payouts unresolved for rejection/recreation.
+
+**RESOLUTION:** ✅ Require a readable valid destination, matching supported chain and positive exact native amount before approval; keep invalid payouts unresolved for rejection/recreation.
+
+**VALIDATION:** An actual withdrawal with an unreadable snapshot fails approval; restoring its encrypted snapshot permits approval.
+
+### 115: BUG ZOB-V2-115: ✅ [Medium] Creator payout requests narrow wide earnings before checking exact availability
+
+**PROBLEM:** The payout path converts the BIGINT earnings balance to Number before comparing the request. Beyond the safe integer range, rounding can change the available amount and the default all-earnings withdrawal; request amounts were also unbounded.
+
+**FILES:** `apps/web/app/api/creator/payouts/route.ts`
+
+**FIX:** Retain availability as BigInt, reject unsafe input/default amounts, and compare the exact requested units before reserving earnings.
+
+**RESOLUTION:** ✅ Retain availability as BigInt, reject unsafe input/default amounts, and compare the exact requested units before reserving earnings.
+
+**VALIDATION:** Actual payout requests reject an all-earnings balance of 9,007,199,254,740,993 kobo and an unsafe numeric amount without changing the exact stored balance; ordinary reviewed conversions still settle.
+
 ## Ratings and brief review
 
 Ratings are engineering judgments, not a certification. Scores show **audited base → this verified batch → projected after every remaining fix**. Live deployment/provider checks still depend on the user's configured services.
@@ -1635,10 +1739,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **102/109 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
+Remediation progress: **113/115 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 07:35:13 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 07:45:15 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

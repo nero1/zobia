@@ -105,7 +105,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       ? [
           {
             is_creator: profileRow.isCreator,
-            available_earnings_kobo: Number(profileRow.availableEarningsKobo),
+            available_earnings_kobo: BigInt(profileRow.availableEarningsKobo ?? 0),
             country: profileRow.country,
           },
         ]
@@ -262,7 +262,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
 const PayoutRequestSchema = z.object({
   method: z.enum(["bank_transfer", "coins", "crypto"]),
-  amountKobo: z.number().int().positive().optional(),
+  amountKobo: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -384,7 +384,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const profile = {
         is_creator: profileRow.isCreator,
-        available_earnings_kobo: Number(profileRow.availableEarningsKobo),
+        available_earnings_kobo: BigInt(profileRow.availableEarningsKobo ?? 0),
         country: profileRow.country,
       };
       const isNigeria = (profile.country ?? "NG") === "NG";
@@ -405,10 +405,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const minPayoutKobo = pc.enabled ? manifest.payoutThresholdKobo : DEFAULT_MIN_PAYOUT_KOBO;
       const manualApprovalKobo = manifest.payoutLargeApprovalKobo ?? DEFAULT_MANUAL_APPROVAL_KOBO;
 
-      const availableKobo = profile.available_earnings_kobo ?? 0;
-      const requestedKobo = body.amountKobo ?? availableKobo;
+      const availableKobo = profile.available_earnings_kobo;
+      if(body.amountKobo===undefined && availableKobo>BigInt(Number.MAX_SAFE_INTEGER))throw badRequest("Specify a smaller exact payout amount", "PAYOUT_AMOUNT_TOO_LARGE");
+      const requestedKobo = body.amountKobo ?? Number(availableKobo);
 
-      if (requestedKobo > availableKobo) {
+      if (BigInt(requestedKobo) > availableKobo) {
         throw badRequest("Requested amount exceeds available earnings.", "INSUFFICIENT_EARNINGS");
       }
 
@@ -441,7 +442,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       if (body.method === "coins") {
         const koboPerCoin = manifest.coinToCashRate || 100;
-        const coinsToCredit = Math.floor(requestedKobo / koboPerCoin);
+        const coinsToCredit = new Decimal(requestedKobo).div(koboPerCoin).floor().toNumber();
 
         if (coinsToCredit <= 0) {
           throw badRequest(
