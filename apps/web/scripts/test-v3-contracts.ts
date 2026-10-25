@@ -39,7 +39,24 @@ async function main() {
       ],
       {
         stdio: "inherit",
-        env: { ...process.env, DATABASE_URL: url.href, DIRECT_URL: url.href },
+        env: {
+          ...process.env,
+          DATABASE_URL: url.href,
+          DIRECT_URL: url.href,
+          NODE_ENV: "test",
+          SKIP_ENV_VALIDATION: "0",
+          DATABASE_PROVIDER: "railway",
+          STORAGE_PROVIDER: "r2",
+          REALTIME_PROVIDER: "ably",
+          ABLY_API_KEY: "fixture.key:fixture-secret",
+          EMAIL_PROVIDER: "mailgun",
+          REDIS_PROVIDER: "ioredis",
+          REDIS_URL: process.env.TEST_REDIS_URL ?? "redis://127.0.0.1:6379",
+          JWT_SECRET: "v3-fixture-access-secret-with-32-characters",
+          JWT_REFRESH_SECRET: "v3-fixture-refresh-secret-with-32-characters",
+          KYC_ENCRYPTION_KEY_V2: "v3-fixture-only-encryption-key-32-chars",
+          CRON_SECRET: "v3-fixture-cron-secret-not-for-production",
+        },
       },
     );
   } finally {
