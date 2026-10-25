@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 09:21:03 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 12:40:36 PM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** All reported findings are fixed, including final-review logging, outage handling, pagination and offline-cache defects. Findings marked ✅ are fixed and verified. No production database was changed.
-**Additional review:** 126 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
+**Additional review:** 127 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -163,6 +163,8 @@
 125: BUG ZOB-V2-125: ✅ [Medium] Sponsored campaign lists load every matching row without pagination
 
 126: BUG ZOB-V2-126: ✅ [Medium] Ordinary fetches erase offline message snapshots before they can be reused
+
+127: BUG ZOB-V2-127: ✅ [Medium] Baseline adoption rejects valid Supabase automatic RLS and SQL Editor line endings
 
 ## Detailed findings and proposed fixes
 
@@ -1884,6 +1886,18 @@
 
 **VALIDATION:** A regression test confirms owner-scoped history survives ordinary reads and disappears on logout.
 
+### 127: BUG ZOB-V2-127: ✅ [Medium] Baseline adoption rejects valid Supabase automatic RLS and SQL Editor line endings
+
+**PROBLEM:** Exact catalog checks reject an otherwise recognized manual installation when Supabase automatically enables additional RLS and adds its event-trigger helper, or SQL Editor preserves CRLF inside PL/pgSQL bodies. This blocks safe adoption and subsequent media/campaign upgrades.
+
+**FILES:** `apps/web/db/catalog.ts; apps/web/db/baselines/platform-compatibility.json; apps/web/db/schema-diagnostics.ts`
+
+**FIX:** Recognize narrowly defined provider/editor differences only when the complete remaining schema matches a verified baseline. Preserve extra RLS and the provider hook, retain checks for required RLS and function security, and apply existing transactional upgrades.
+
+**RESOLUTION:** ✅ The verifier recognizes allowlisted additional RLS, the bound Supabase event-trigger helper and CRLF in six known functions only when the rest of the complete schema matches a verified baseline. Existing transactional upgrades and all stored protections are preserved.
+
+**VALIDATION:** PostgreSQL 16 and 17 fixtures reproduce manual baseline adoption, apply the media/campaign/index upgrades, preserve wallet data and extra RLS, and reject unrelated schema, function-security or required-RLS changes.
+
 ## Ratings and brief review
 
 Scores are engineering judgments, **before remediation → current code after the recommended fixes**. They assess implementation, not a production certification.
@@ -1897,7 +1911,7 @@ Scores are engineering judgments, **before remediation → current code after th
 
 ## Review scope and concise validation
 
-The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-126. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-127. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
 The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Vite Android and shared source inventory was refreshed during remediation; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
@@ -1907,10 +1921,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **126/126 fixed and verified**. All listed findings are resolved. Provider configuration and physical-device validation remain deployment responsibilities.
+Remediation progress: **127/127 fixed and verified**. All listed findings are resolved. Provider configuration and physical-device validation remain deployment responsibilities.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 09:21:03 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 12:40:36 PM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

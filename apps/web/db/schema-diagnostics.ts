@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Client } from "pg";
-import { readCatalog, stableJson } from "./catalog";
+import { readCatalog, stableJson, catalogChecksum } from "./catalog";
 
 type Catalog = Awaited<ReturnType<typeof readCatalog>>;
 const digest = (value: unknown) =>
@@ -60,7 +60,12 @@ export async function inspectSchema(client: Client) {
     const version = (await client.query("SHOW server_version")).rows[0]
       .server_version;
     const catalog = await readCatalog(client);
-    return { version, catalog, checksum: digest(catalog) };
+    return {
+      version,
+      catalog,
+      checksum: digest(catalog),
+      verifiedChecksum: await catalogChecksum(client),
+    };
   } finally {
     await client.query("ROLLBACK");
   }
