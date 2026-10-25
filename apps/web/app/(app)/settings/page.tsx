@@ -697,6 +697,12 @@ export default function SettingsPage() {
     void saveField("notifications", updated);
   }
 
+  useEffect(() => {
+    if (!loading && !error && window.location.hash === "#two-factor") {
+      document.getElementById("two-factor")?.scrollIntoView({ block: "center" });
+    }
+  }, [loading, error, hasPIN, pinVerified, featureFlags.pinEnabled]);
+
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
@@ -1470,7 +1476,7 @@ export default function SettingsPage() {
       {featureFlags.pinEnabled && <PinSection onToast={showToast} />}
 
       {/* Two-Factor Authentication */}
-      {featureFlags.twoFaEnabled && <TwoFactorSection onToast={showToast} />}
+      <div id="two-factor"><TwoFactorSection available={featureFlags.twoFaEnabled} onToast={showToast} /></div>
 
       {/* Active Sessions (BUG-CAP-06) */}
       <ActiveSessionsSection onToast={showToast} />
@@ -2201,9 +2207,10 @@ function PinSection({ onToast }: { onToast: (msg: string, type?: "success" | "er
 // Two-Factor Authentication sub-component
 // ---------------------------------------------------------------------------
 
-function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+function TwoFactorSection({ onToast, available = true }: { onToast: (msg: string, type?: "success" | "error") => void; available?: boolean }) {
   const { t } = useTranslation();
   const [totpEnabled, setTotpEnabled] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
 
   // Setup modal state
@@ -2227,6 +2234,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
         const json = await res.json();
         const data = json.user ?? json;
         setTotpEnabled(data.totp_enabled ?? data.totpEnabled ?? false);
+        setIsAdmin(data.is_admin === true);
       } catch { /* non-fatal */ } finally {
         setLoadingStatus(false);
       }
@@ -2299,6 +2307,7 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
     finally { setDisableLoading(false); }
   };
 
+  if (!available && !isAdmin) return null;
   return (
     <>
       <Section title="Two-Factor Authentication">

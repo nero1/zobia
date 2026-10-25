@@ -13,7 +13,6 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { getStaffRoles } from "@/lib/auth/roles";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -46,13 +45,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { code } = await validateBody(req, disableSchema);
     const userId = auth.user.sub;
-    const roles = await getStaffRoles(userId);
-    if (roles.isAdmin)
-      throw badRequest(
-        "Staff must retain two-factor authentication",
-        "STAFF_2FA_REQUIRED",
-      );
-
     const orm = await getDb();
 
     // Fetch current TOTP secret
@@ -102,7 +94,6 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           eq(schema.users.id, userId),
           eq(schema.users.totpSecret, row.totpSecret),
           eq(schema.users.totpEnabled, true),
-          eq(schema.users.isAdmin, false),
         ),
       )
       .returning({ id: schema.users.id });

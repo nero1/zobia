@@ -5566,5 +5566,6 @@
   "common.firstPage": "Ukurasa wa kwanza",
   "admin.googleTitle": "Thibitisha ufikiaji wa msimamizi",
   "admin.googleIntro": "Endelea na Google, kisha thibitisha msimbo wa programu ya uthibitishaji. Nenosiri halihitajiki.",
-  "admin.googleSetup": "Changanua msimbo huu wa QR kwa programu yako ya uthibitishaji au ingiza ufunguo hapa chini."
+  "admin.googleSetup": "Changanua msimbo huu wa QR kwa programu yako ya uthibitishaji au ingiza ufunguo hapa chini.",
+  "admin.twoFaReminder": "Uthibitishaji wa hatua mbili umezimwa kwa akaunti yako ya msimamizi. Uwashe katika mipangilio ya usalama kwa ulinzi zaidi."
 }

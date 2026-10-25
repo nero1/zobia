@@ -5566,5 +5566,6 @@
   "common.firstPage": "Shafi na farko",
   "admin.googleTitle": "Tabbatar da damar mai gudanarwa",
   "admin.googleIntro": "Ci gaba da Google, sannan ka tabbatar da lambar manhajar tantancewa. Ba a buƙatar kalmar sirri.",
-  "admin.googleSetup": "Duba wannan lambar QR da manhajar tantancewa ko shigar da maɓallin da ke ƙasa."
+  "admin.googleSetup": "Duba wannan lambar QR da manhajar tantancewa ko shigar da maɓallin da ke ƙasa.",
+  "admin.twoFaReminder": "An kashe tantancewa ta matakai biyu ga asusun gudanarwarka. Kunna ta a saitunan tsaro don ƙarin kariya."
 }

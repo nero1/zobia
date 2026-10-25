@@ -61,6 +61,7 @@ export async function getStaffRoles(
     const rows = await orm
       .select({
         isAdmin: schema.users.isAdmin,
+        totpEnabled: schema.users.totpEnabled,
         isModerator: schema.users.isModerator,
         isSupport: schema.users.isSupport,
         isSeniorSupport: schema.users.isSeniorSupport,
@@ -79,14 +80,14 @@ export async function getStaffRoles(
     const row = rows[0];
     if (!row) return EMPTY_STAFF_ROLES;
     const context = requestContext.getStore();
-    // A role lookup for the current HTTP actor must not turn an ordinary
-    // admin-account session into staff access (KYC documents, queue, profiles).
+    // Enforce the current account's opt-in 2FA policy for staff visibility.
     // Background work and role lookups for escalation targets are unaffected.
     if (
       options.requireAdminSession &&
       row.isAdmin &&
       context?.userId === userId &&
-      context.adminSessionVerified !== true
+      (context.adminImpersonated === true ||
+        (row.totpEnabled !== false && context.adminSessionVerified !== true))
     )
       return EMPTY_STAFF_ROLES;
     return {

@@ -19,7 +19,7 @@ export async function authenticateAccessToken(token: string) {
   );
   const [user] = await db.select({
     id: schema.users.id, email: schema.users.email, username: schema.users.username,
-    is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator,
+    is_admin: schema.users.isAdmin, totp_enabled: schema.users.totpEnabled, is_moderator: schema.users.isModerator,
     is_support: schema.users.isSupport, is_senior_support: schema.users.isSeniorSupport,
     is_creator: schema.users.isCreator, onboarding_completed: schema.users.onboardingCompleted,
   }).from(schema.users).where(and(active(payload.sub),sql`${schema.users.sessionValidAfter}<=${session.created_at}::timestamptz`)).limit(1);

@@ -24,6 +24,7 @@ import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { getStaffRoles } from "@/lib/auth/roles";
 import { getManifestValue } from "@/lib/manifest";
 import { encryptField } from "@/lib/security/fieldEncryption";
 import { verifyTotp, generateTotpSecret } from "@/lib/auth/totp";
@@ -48,7 +49,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const twoFaKey = await getManifestValue("auth_2fa_enabled");
-    if (twoFaKey === "false") {
+    if (twoFaKey === "false" && !(await getStaffRoles(auth.user.sub)).isAdmin) {
       return NextResponse.json(
         { error: "Two-factor authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
         { status: 403 }
@@ -102,7 +103,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const twoFaKeyPost = await getManifestValue("auth_2fa_enabled");
-    if (twoFaKeyPost === "false") {
+    if (twoFaKeyPost === "false" && !(await getStaffRoles(auth.user.sub)).isAdmin) {
       return NextResponse.json(
         { error: "Two-factor authentication is not enabled on this platform", code: "FEATURE_DISABLED" },
         { status: 403 }

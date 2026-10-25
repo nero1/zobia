@@ -54,6 +54,9 @@ async function main() {
       mod = await user("moderator"),
       reader = await user(),
       author = await user();
+    await db.query("UPDATE users SET totp_enabled=true WHERE id=$1", [
+      admin.id,
+    ]);
     const plain = await createSession(admin),
       elevated = await createSession(admin, { adminSession: true }),
       moderator = await createSession(mod);
@@ -146,8 +149,9 @@ async function main() {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       assert(blocked, "Disable operation must reach the concurrent UPDATE");
-      await blocker.query("UPDATE users SET is_admin=true WHERE id=$1", [
+      await blocker.query("UPDATE users SET totp_secret=$2 WHERE id=$1", [
         promoted.id,
+        encryptField(generateTotpSecret()),
       ]);
       await blocker.query("COMMIT");
       const rejected = await pendingDisable;
@@ -169,10 +173,10 @@ async function main() {
       await blocker.end();
     }
     console.log(
-      "PASS promotion racing two-factor disable preserves mandatory admin 2FA and returns a conflict",
+      "PASS authenticator replacement racing two-factor disable preserves the new factor and returns a conflict",
     );
     console.log(
-      "PASS custom admin endpoints and conditional staff views require assurance; ordinary moderators remain authorized and invalid page sizes return 400",
+      "PASS opted-in admin endpoints and conditional staff views require assurance; ordinary moderators remain authorized and invalid page sizes return 400",
     );
     const story = (
       await db.query(
@@ -233,10 +237,19 @@ async function main() {
       [author.id, tag],
     );
     await db.query("SET enable_seqscan=off");
-    const discoveryPlan=await db.query("EXPLAIN (FORMAT JSON) SELECT id FROM tales WHERE status='published' AND moderation='approved' ORDER BY created_at DESC,id DESC LIMIT 21");
-    assert(JSON.stringify(discoveryPlan.rows).includes('tales_discovery_idx'));
-    const subscriberPlan=await db.query("EXPLAIN (FORMAT JSON) SELECT user_id FROM tale_author_subscriptions WHERE author_id=$1 ORDER BY user_id LIMIT 501",[author.id]);
-    assert(JSON.stringify(subscriberPlan.rows).includes('tale_author_subscriptions_author_page_idx'));
+    const discoveryPlan = await db.query(
+      "EXPLAIN (FORMAT JSON) SELECT id FROM tales WHERE status='published' AND moderation='approved' ORDER BY created_at DESC,id DESC LIMIT 21",
+    );
+    assert(JSON.stringify(discoveryPlan.rows).includes("tales_discovery_idx"));
+    const subscriberPlan = await db.query(
+      "EXPLAIN (FORMAT JSON) SELECT user_id FROM tale_author_subscriptions WHERE author_id=$1 ORDER BY user_id LIMIT 501",
+      [author.id],
+    );
+    assert(
+      JSON.stringify(subscriberPlan.rows).includes(
+        "tale_author_subscriptions_author_page_idx",
+      ),
+    );
     await db.query("RESET enable_seqscan");
     let cursor: string | undefined;
     const ids: string[] = [];
