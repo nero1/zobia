@@ -51,7 +51,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/quests", label: "Quests", icon: "quests" },
   { href: "/games", label: "Games", icon: "games", flagKey: "games" },
   { href: "/games/challenges", label: "Challenges", icon: "games", flagKey: "games" },
-  { href: "/t", label: "Tales", icon: "blogs" },
+  { href: "/tales", label: "Tales", icon: "blogs" },
   { href: "/blogs", label: "Blogs", icon: "blogs", flagKey: "blogs" },
   { href: "/polls", label: "Polls", icon: "polls", flagKey: "polls" },
   { href: "/quizzes", label: "Quizzes", icon: "quizzes", flagKey: "quizzes" },

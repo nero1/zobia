@@ -33,6 +33,7 @@ import { Route as SeasonsRouteImport } from './routes/seasons'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as StickersRouteImport } from './routes/stickers'
+import { Route as TalesRouteImport } from './routes/tales'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
@@ -316,6 +317,11 @@ const StatsRoute = StatsRouteImport.update({
 const StickersRoute = StickersRouteImport.update({
   id: '/stickers',
   path: '/stickers',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TalesRoute = TalesRouteImport.update({
+  id: '/tales',
+  path: '/tales',
   getParentRoute: () => rootRouteImport,
 } as any)
 const WalletRoute = WalletRouteImport.update({
@@ -1169,6 +1175,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
+  '/tales': typeof TalesRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
   '/admin/accounts': typeof AdminAccountsRoute
@@ -1359,6 +1366,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
+  '/tales': typeof TalesRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
   '/admin/accounts': typeof AdminAccountsRoute
@@ -1550,6 +1558,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
+  '/tales': typeof TalesRoute
   '/wallet': typeof WalletRoute
   '/watch56': typeof Watch56Route
   '/admin/accounts': typeof AdminAccountsRoute
@@ -1742,6 +1751,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stats'
     | '/stickers'
+    | '/tales'
     | '/wallet'
     | '/watch56'
     | '/admin/accounts'
@@ -1932,6 +1942,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stats'
     | '/stickers'
+    | '/tales'
     | '/wallet'
     | '/watch56'
     | '/admin/accounts'
@@ -2122,6 +2133,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/stats'
     | '/stickers'
+    | '/tales'
     | '/wallet'
     | '/watch56'
     | '/admin/accounts'
@@ -2313,6 +2325,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRouteWithChildren
   StatsRoute: typeof StatsRoute
   StickersRoute: typeof StickersRoute
+  TalesRoute: typeof TalesRoute
   WalletRoute: typeof WalletRoute
   Watch56Route: typeof Watch56Route
   AdminAccountsRoute: typeof AdminAccountsRoute
@@ -2642,6 +2655,13 @@ declare module '@tanstack/react-router' {
       path: '/stickers'
       fullPath: '/stickers'
       preLoaderRoute: typeof StickersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tales': {
+      id: '/tales'
+      path: '/tales'
+      fullPath: '/tales'
+      preLoaderRoute: typeof TalesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/wallet': {
@@ -3840,6 +3860,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRouteWithChildren,
   StatsRoute: StatsRoute,
   StickersRoute: StickersRoute,
+  TalesRoute: TalesRoute,
   WalletRoute: WalletRoute,
   Watch56Route: Watch56Route,
   AdminAccountsRoute: AdminAccountsRoute,

@@ -50,11 +50,11 @@ interface ChapterData {
   isOwner: boolean;
 }
 const panel =
-  "rounded-xl border border-border bg-card p-4";
+  "rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900 text-neutral-900 dark:text-neutral-50";
 const field =
-  "block w-full rounded-lg border border-input bg-background text-foreground p-3 my-2";
+  "my-2 block w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-50";
 const pill =
-  "inline-block rounded-full border border-border bg-card px-4 py-2 text-sm text-foreground hover:bg-accent disabled:opacity-50";
+  "inline-block rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800";
 function useLoad<T>(api: TalesTransport, path: string) {
   const [data, setData] = useState<T>();
   const [error, setError] = useState("");
@@ -159,28 +159,33 @@ export function TalesDiscovery({ api }: { api: TalesTransport }) {
     }
   }, [result.data, actualCursor, key]);
   return (
-    <div className="site-container p-4 space-y-4 text-foreground">
-      <header className="flex items-center justify-between">
+    <div className="site-container space-y-4 p-4 text-neutral-900 sm:p-6 dark:text-neutral-50">
+      <header className="flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("tales.title", "Tales")}</h1>
-        <Go api={api} to="/t/write">
+        <Go
+          api={api}
+          to="/t/write"
+          className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+        >
           {t("tales.write", "Write a story")}
         </Go>
       </header>
       {api.userId && <TalesAccountStatus api={api} />}
       <input
+        aria-label={t("tales.search", "Search stories")}
         type="search"
         className={field}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder={t("tales.search", "Search stories")}
       />
-      <div className="flex gap-2 overflow-x-auto">
+      <div className="flex gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800/50">
         {["new", "popular", "trending", "random", "subscribed", "mine"].map(
           (item) => (
             <button
               type="button"
               key={item}
-              className={pill}
+              className={`flex-1 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors sm:text-sm ${tab === item ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"}`}
               aria-pressed={tab === item}
               onClick={() => {
                 setTab(item);
@@ -202,31 +207,35 @@ export function TalesDiscovery({ api }: { api: TalesTransport }) {
           {t("action.retry", "Retry")}
         </button>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {items.map((story) => (
+      <div className="space-y-3">
+        {(key === pageKey ? items : []).map((story) => (
           <Go
             api={api}
             key={story.id}
             to={`/t/${story.slug}`}
-            className={`${panel} flex gap-3`}
+            className={`${panel} flex gap-3 transition-colors hover:border-primary-300 dark:hover:border-primary-700`}
           >
             {story.coverUrl ? (
               <img
                 alt=""
                 src={story.coverUrl}
-                className="w-20 h-28 object-cover rounded-lg"
+                className="h-24 w-16 shrink-0 rounded-lg object-cover"
               />
             ) : (
               <span
                 aria-hidden
-                className="w-20 h-28 flex items-center justify-center bg-muted text-4xl rounded-lg"
+                className="flex h-24 w-16 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-3xl dark:bg-neutral-800"
               >
                 📚
               </span>
             )}
-            <div>
-              <h2 className="text-xl font-bold">{story.title}</h2>
-              <p className="text-sm line-clamp-3">{story.synopsis}</p>
+            <div className="min-w-0">
+              <h2 className="line-clamp-2 text-sm font-semibold">
+                {story.title}
+              </h2>
+              <p className="mt-1 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">
+                {story.synopsis}
+              </p>
               <p className="text-xs mt-2">
                 {t("tales.votes", "{{count}} votes", { count: story.votes })}
                 {tab === "mine"
@@ -240,7 +249,16 @@ export function TalesDiscovery({ api }: { api: TalesTransport }) {
       {!result.data && !result.error ? (
         <p role="status">{t("action.loading", "Loading…")}</p>
       ) : !items.length && !result.error ? (
-        <p>{t("tales.empty", "No stories found.")}</p>
+        <div
+          className={`${panel} flex flex-col items-center justify-center py-16 text-center`}
+        >
+          <span aria-hidden className="text-4xl">
+            📚
+          </span>
+          <p className="mt-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            {t("tales.empty", "No stories found.")}
+          </p>
+        </div>
       ) : null}
       {result.data?.nextCursor && (
         <button
@@ -288,7 +306,7 @@ export function TalesStory({
   const { story, chapters, isOwner } = result.data;
   return (
     <div className="site-container p-4 space-y-4 text-foreground">
-      <Go api={api} to="/t">
+      <Go api={api} to="/tales">
         {t("tales.title", "Tales")}
       </Go>
       <section className={panel}>
@@ -882,7 +900,7 @@ export function TalesEditor({
     );
   return (
     <div className="site-container p-4 space-y-4 text-foreground">
-      <Go api={api} to={slug ? `/t/${slug}` : "/t"}>
+      <Go api={api} to={slug ? `/t/${slug}` : "/tales"}>
         {t("action.back", "Back")}
       </Go>
       <h1 className="text-2xl font-bold">
@@ -1201,7 +1219,7 @@ export function TalesEditor({
               )
                 void perform(async () => {
                   await api.request(`/tales/${slug}`, "DELETE");
-                  api.navigate("/t");
+                  api.navigate("/tales");
                 });
             }}
           >

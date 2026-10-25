@@ -1,3 +1,4 @@
+import AppLayout from "@/app/(app)/layout";
 /**
  * app/t/[tweetId]/page.tsx
  *
@@ -55,7 +56,7 @@ export default async function PublicTweetPage({
 }) {
   const { tweetId } = await params;
   if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(tweetId))
-    return <TalesView slug={tweetId} />;
+    return <AppLayout><TalesView slug={tweetId} /></AppLayout>;
   const tweet = await resolvePublicTweet(tweetId).catch(() => null);
   if (!tweet) notFound();
 

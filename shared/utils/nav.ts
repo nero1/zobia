@@ -14,7 +14,7 @@ export function isNavPathActive(pathname: string | null | undefined, href: strin
 /** Consistent section order for desktop, mobile web/PWA and Capacitor menus. */
 export function groupNavigation<T extends { href: string }>(items: readonly T[]) {
   const groups = [
-    { key: 'nav.groups.discover', label: 'Discover', roots: ['/home','/search','/h','/moments','/tweets','/blogs','/t','/forum','/answers','/wiki','/polls','/quizzes','/classroom'] },
+    { key: 'nav.groups.discover', label: 'Discover', roots: ['/home','/search','/h','/moments','/tweets','/blogs','/tales','/forum','/answers','/wiki','/polls','/quizzes','/classroom'] },
     { key: 'nav.groups.connect', label: 'Connect', roots: ['/rooms','/guilds','/friends','/messages','/gifts','/events','/announcements','/council'] },
     { key: 'nav.groups.progress', label: 'Play and progress', roots: ['/quests','/games','/leaderboards','/elder','/referrals'] },
     { key: 'nav.groups.account', label: 'Your account', roots: [] as string[] },

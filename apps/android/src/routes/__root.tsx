@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 /**
  * apps/android/src/routes/__root.tsx
  *
@@ -28,7 +29,7 @@ import { apiClient } from '@/lib/api/client';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 
 // Tab roots that don't show a back button
-const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings', '/quests', '/friends', '/wallet'];
+const TAB_ROOTS = ['/tales', '/home', '/games', '/rooms', '/messages', '/notifications', '/settings', '/quests', '/friends', '/wallet'];
 const PUBLIC_ROUTES = ['/auth/login', '/auth/register', '/auth/two-factor'];
 
 function AppShell() {
@@ -318,7 +319,8 @@ function AppShell() {
     };
   }, []);
 
-  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r)) || pathname === '/t' || pathname.startsWith('/t/');
+  const isTalesRoute = pathname === '/tales' || pathname === '/t' || pathname.startsWith('/t/');
+  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   const isTabRoot = TAB_ROOTS.some((r) => pathname === r);
   const showBack = !isTabRoot && !isPublicRoute && pathname !== '/';
 
@@ -330,6 +332,7 @@ function AppShell() {
     if (pathname.startsWith('/rooms')) return t('rooms.title');
     if (pathname.startsWith('/messages')) return t('messages.title');
     if (pathname.startsWith('/moments')) return t('moments.title');
+    if (isTalesRoute) return t('tales.title', 'Tales');
     if (pathname.startsWith('/answers')) return t('answers.title');
     if (pathname.startsWith('/forum')) return t('bbforum.forum.title');
     if (pathname === '/notifications') return t('notifications.title');
@@ -416,8 +419,9 @@ function AppShell() {
     );
   }
 
+  const ContentGuard = isTalesRoute ? Fragment : AuthGuard;
   return (
-    <AuthGuard>
+    <ContentGuard>
       <div className="h-full flex flex-col">
         <GlobalLoadingIndicator />
         <TopBar title={getTitle()} showBack={showBack} />
@@ -437,7 +441,7 @@ function AppShell() {
         <ImpersonationBanner />
         <SessionExpiryCountdown />
       </div>
-    </AuthGuard>
+    </ContentGuard>
   );
 }
 
