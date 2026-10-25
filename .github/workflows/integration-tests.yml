@@ -44,6 +44,13 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
     env:
       TEST_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/zobia_test
       SKIP_ENV_VALIDATION: "1"
@@ -92,6 +99,11 @@ jobs:
         env:
           TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
         run: npx tsx db/test-schema-diagnostics.ts
+
+      - name: Verify v3 security and Tales contracts
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
+        run: npx tsx scripts/test-v3-contracts.ts
 
       - name: Run unit tests
         run: npm run test:unit

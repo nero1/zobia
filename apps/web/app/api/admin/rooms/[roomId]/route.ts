@@ -30,7 +30,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
-import { withAuth, validateBody } from "@/lib/api/middleware";
+import { withModeratorOrAdminAuth, withAdminAuth, type AuthContext, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -59,28 +59,19 @@ const patchSchema = z.discriminatedUnion("action", [
 
 interface RoomCtx {
   params: Promise<{ roomId: string }>;
-  auth: { user: { sub: string } };
+  auth: AuthContext & {isAdmin:boolean;isModerator?:boolean};
 }
 
-async function requireAdminOrMod(userId: string) {
-  const orm = await getDb();
-  const rows = await orm
-    .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
-    .from(schema.users)
-    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
-    .limit(1);
-  if (!rows[0]) throw forbidden("User not found");
-  return { is_admin: rows[0].is_admin, is_moderator: rows[0].is_moderator ?? false };
-}
 
-export const PATCH = withAuth(async (req: NextRequest, { params, auth }: RoomCtx) => {
+
+export const PATCH = withModeratorOrAdminAuth(async (req: NextRequest, { params, auth }: RoomCtx) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const { roomId } = await params;
     if (!UUID_RE.test(roomId)) throw badRequest("roomId must be a valid UUID");
 
-    const roles = await requireAdminOrMod(auth.user.sub);
+    const roles = {is_admin:auth.isAdmin,is_moderator:auth.isModerator??false};
     if (!roles.is_admin && !roles.is_moderator) throw forbidden("Admin or moderator access required");
 
     const body = await validateBody(req, patchSchema);
@@ -200,7 +191,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: RoomCtx
   }
 });
 
-export const DELETE = withAuth(async (req: NextRequest, { params, auth }: RoomCtx) => {
+export const DELETE = withAdminAuth(async (req: NextRequest, { params, auth }: RoomCtx) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -210,12 +201,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: RoomCt
     const orm = await getDb();
 
     // Only full admins can hard-delete rooms
-    const userRows = await orm
-      .select({ is_admin: schema.users.isAdmin })
-      .from(schema.users)
-      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
-      .limit(1);
-    if (!userRows[0]?.is_admin) throw forbidden("Administrator access required");
+
 
     const roomRows = await orm
       .select({ id: schema.rooms.id })

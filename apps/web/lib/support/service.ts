@@ -623,7 +623,7 @@ export function canEscalate(actorRoles: StaffRoles, targetRoles: StaffRoles, sta
  */
 export async function escalateTicket(ticketId: string, actorId: string, targetUserId: string): Promise<void> {
   const manifest = await loadManifest();
-  const [actorRoles, targetRoles] = await Promise.all([getStaffRoles(actorId), getStaffRoles(targetUserId)]);
+  const [actorRoles, targetRoles] = await Promise.all([getStaffRoles(actorId,{requireAdminSession:true}), getStaffRoles(targetUserId)]);
 
   const decision = canEscalate(actorRoles, targetRoles, manifest.support.staffRoles);
   if (!decision.allowed) {
@@ -666,7 +666,7 @@ export async function escalateTicket(ticketId: string, actorId: string, targetUs
 /** Self-assign or admin-assign a ticket to a staff member. */
 export async function assignTicket(ticketId: string, actorId: string, targetUserId: string): Promise<void> {
   const manifest = await loadManifest();
-  const [actorRoles, targetRoles] = await Promise.all([getStaffRoles(actorId), getStaffRoles(targetUserId)]);
+  const [actorRoles, targetRoles] = await Promise.all([getStaffRoles(actorId,{requireAdminSession:true}), getStaffRoles(targetUserId)]);
 
   if (!hasAnyRole(actorRoles, manifest.support.staffRoles)) {
     throw forbidden("You are not authorized to work support tickets.");
@@ -794,7 +794,8 @@ export async function listQueue(filters: QueueFilters): Promise<SupportTicket[]>
   if (filters.assignedTo) conditions.push(eq(schema.supportTickets.assignedTo, filters.assignedTo));
   if (filters.cursor) conditions.push(lt(schema.supportTickets.lastActivityAt, new Date(filters.cursor)));
 
-  const limit = Math.min(filters.limit ?? 50, 100);
+  const limit = filters.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw badRequest("Page size must be an integer from 1 to 100");
   const rows = await orm
     .select()
     .from(schema.supportTickets)

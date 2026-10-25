@@ -11,6 +11,7 @@
  * @module lib/tweets/service
  */
 
+import {safeFetch} from "@/lib/security/ssrf";
 import { randomUUID } from "crypto";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, eq, isNull, sql } from "drizzle-orm";
@@ -116,19 +117,19 @@ export async function resolveTikTokId(rawUrl: string): Promise<string> {
   } catch {
     throw badRequest("That doesn't look like a valid TikTok link.", "INVALID_TIKTOK_URL");
   }
-  if (!TIKTOK_HOSTS.has(u.hostname.toLowerCase())) {
+  if (u.protocol !== "https:" || u.port || u.username || u.password || !TIKTOK_HOSTS.has(u.hostname.toLowerCase())) {
     throw badRequest("Video URL must be a youtube.com/youtu.be or tiktok.com link.", "INVALID_VIDEO_URL");
   }
 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(rawUrl, {
+    const res = await safeFetch(rawUrl, {
       method: "GET",
-      redirect: "follow",
+      redirect: "manual",
       signal: controller.signal,
       headers: { "User-Agent": "Mozilla/5.0 (compatible; ZobiaBot/1.0)" },
-    }).finally(() => clearTimeout(timeout));
+    }, {allowedRedirectHosts:[...TIKTOK_HOSTS]}).finally(() => clearTimeout(timeout));
     const resolvedId = extractTikTokIdFromUrl(res.url);
     if (resolvedId) return resolvedId;
   } catch (err) {

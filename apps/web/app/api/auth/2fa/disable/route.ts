@@ -1,4 +1,4 @@
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /**
  * app/api/auth/2fa/disable/route.ts
@@ -17,7 +17,7 @@ import { getStaffRoles } from "@/lib/auth/roles";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest } from "@/lib/api/errors";
+import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { decryptField } from "@/lib/security/fieldEncryption";
 import { verifyTotp } from "@/lib/auth/totp";
@@ -39,18 +39,28 @@ const disableSchema = z.object({
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", { ...RATE_LIMITS.apiWrite, limit: 10 });
+    await enforceRateLimit(auth.user.sub, "user", {
+      ...RATE_LIMITS.apiWrite,
+      limit: 10,
+    });
 
     const { code } = await validateBody(req, disableSchema);
     const userId = auth.user.sub;
     const roles = await getStaffRoles(userId);
-    if (roles.isAdmin) throw badRequest("Staff must retain two-factor authentication", "STAFF_2FA_REQUIRED");
+    if (roles.isAdmin)
+      throw badRequest(
+        "Staff must retain two-factor authentication",
+        "STAFF_2FA_REQUIRED",
+      );
 
     const orm = await getDb();
 
     // Fetch current TOTP secret
     const [row] = await orm
-      .select({ totpSecret: schema.users.totpSecret, totpEnabled: schema.users.totpEnabled })
+      .select({
+        totpSecret: schema.users.totpSecret,
+        totpEnabled: schema.users.totpEnabled,
+      })
       .from(schema.users)
       .where(eq(schema.users.id, userId))
       .limit(1);
@@ -62,7 +72,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Decrypt the stored secret before TOTP verification (B-01)
     const plainSecret = decryptField(row.totpSecret);
     if (!plainSecret) {
-      throw badRequest("2FA secret is invalid. Please contact support.", "TOTP_DECRYPT_FAILED");
+      throw badRequest(
+        "2FA secret is invalid. Please contact support.",
+        "TOTP_DECRYPT_FAILED",
+      );
     }
 
     if (!verifyTotp(plainSecret, code)) {
@@ -74,14 +87,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const replayKey = `totp:used:${userId}:${code}`;
     const marked = await redis.set(replayKey, "1", "EX", 90, "NX");
     if (marked === null) {
-      throw badRequest("TOTP code already used. Please wait for a new code.", "TOTP_REPLAY");
+      throw badRequest(
+        "TOTP code already used. Please wait for a new code.",
+        "TOTP_REPLAY",
+      );
     }
 
     // Clear TOTP secret and disable
-    await orm
+    const changed = await orm
       .update(schema.users)
       .set({ totpSecret: null, totpEnabled: false, updatedAt: new Date() })
-      .where(and(eq(schema.users.id, userId),eq(schema.users.totpSecret,row.totpSecret)));
+      .where(
+        and(
+          eq(schema.users.id, userId),
+          eq(schema.users.totpSecret, row.totpSecret),
+          eq(schema.users.totpEnabled, true),
+          eq(schema.users.isAdmin, false),
+        ),
+      )
+      .returning({ id: schema.users.id });
+    if (!changed.length)
+      throw conflict(
+        "Security settings changed. Refresh before trying again.",
+        "SECURITY_SETTINGS_CHANGED",
+      );
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

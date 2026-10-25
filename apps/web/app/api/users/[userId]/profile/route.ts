@@ -342,7 +342,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     // when the feature_profile_stats flag is on, or the viewer is staff
     // with the flag on the mod-visibility allow-list when it's off.
     const [{ isAdmin: viewerIsAdmin, isModerator: viewerIsModerator }, manifest] = await Promise.all([
-      getStaffRoles(callerId),
+      getStaffRoles(callerId,{requireAdminSession:true}),
       loadManifest(),
     ]);
     const statsFeatureAccessible = isFeatureAccessible(

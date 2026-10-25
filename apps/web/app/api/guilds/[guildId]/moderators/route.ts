@@ -33,7 +33,7 @@ async function requireCaptainOrAdmin(guildId: string, userId: string): Promise<v
       .from(schema.guilds)
       .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
       .limit(1),
-    getStaffRoles(userId),
+    getStaffRoles(userId,{requireAdminSession:true}),
   ]);
   if (!guild) throw notFound("Guild not found");
   if (guild.captain_id !== userId && !roles.isAdmin) {
@@ -55,7 +55,7 @@ export const GET = withAuth<{ guildId: string }>(async (req: NextRequest, { para
       .from(schema.guildMembers)
       .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, auth.user.sub), isNull(schema.guildMembers.leftAt)))
       .limit(1);
-    const roles = await getStaffRoles(auth.user.sub);
+    const roles = await getStaffRoles(auth.user.sub,{requireAdminSession:true});
     if (membership.length === 0 && !roles.isAdmin) {
       throw forbidden("You must be a member of this guild.", "NOT_A_MEMBER");
     }

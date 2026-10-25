@@ -219,7 +219,7 @@ Set only the variables needed by the features you enable, then redeploy Vercel:
 | AdMob rewarded ads | Configure native App ID/unit IDs and SSV callback `https://YOUR_DOMAIN/api/ads/admob-completion`; set `ADMOB_REWARDED_UNIT_IDS` on Vercel to the allowed rewarded unit IDs |
 | R2 instead of Supabase Storage | `STORAGE_PROVIDER=r2`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`, `R2_PRIVATE_BUCKET_NAME`; keep the private bucket unexposed |
 
-The full optional variable list is in [`apps/web/.env.example`](../apps/web/.env.example). Vercel's daily jobs are already declared in `apps/web/vercel.json`. Keep your existing external schedules; authenticate their requests with `Authorization: Bearer YOUR_CRON_SECRET`. Include `/api/cron/tasks` for durable email/reward/review/maintenance delivery. No secret should appear in scheduler query strings.
+The full optional variable list is in [`apps/web/.env.example`](../apps/web/.env.example). Vercel's daily jobs are already declared in `apps/web/vercel.json`. Keep your existing external schedules; authenticate their requests with `Authorization: Bearer YOUR_CRON_SECRET`. Include `/api/cron/tasks` for durable email/reward/review/maintenance/chapter-notification delivery. No secret should appear in scheduler query strings.
 
 ## If Google sign-in still fails
 

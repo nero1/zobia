@@ -1,7 +1,7 @@
 import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
-import type {LookupFunction} from 'node:net';
-import type {LookupAddress} from 'node:dns';
+import type { LookupFunction } from "node:net";
+import type { LookupAddress } from "node:dns";
 import ipaddr from "ipaddr.js";
 import { Agent, fetch as request } from "undici";
 
@@ -62,15 +62,19 @@ export function isPublicAddress(raw: string): boolean {
   }
 }
 /** Node's automatic IPv4/IPv6 selection requests lookup({all:true}). */
-export function createPinnedLookup(pinnedIp:string):LookupFunction{
- const family=isIP(pinnedIp);
- if(family!==4&&family!==6)throw new SSRFError('Invalid pinned address');
- return (_hostname,options,callback)=>{
-  if(options.all){
-   const allCallback=callback as unknown as (error:null,addresses:LookupAddress[])=>void;
-   allCallback(null,[{address:pinnedIp,family}]);
-  }else callback(null,pinnedIp,family);
- };
+export function createPinnedLookup(pinnedIp: string): LookupFunction {
+  const family = isIP(pinnedIp);
+  if (family !== 4 && family !== 6)
+    throw new SSRFError("Invalid pinned address");
+  return (_hostname, options, callback) => {
+    if (options.all) {
+      const allCallback = callback as unknown as (
+        error: null,
+        addresses: LookupAddress[],
+      ) => void;
+      allCallback(null, [{ address: pinnedIp, family }]);
+    } else callback(null, pinnedIp, family);
+  };
 }
 async function resolveHost(hostname: string): Promise<string> {
   const literal = hostname.replace(/^\[|\]$/g, "");
@@ -136,6 +140,7 @@ export async function safeFetch(
     requireAllowlist?: boolean;
     maxResponseBytes?: number;
     _hops?: number;
+    allowedRedirectHosts?: readonly string[];
   } = {},
 ): Promise<Response> {
   const signal = AbortSignal.any([
@@ -153,7 +158,7 @@ export async function safeFetch(
       throw new SSRFError("Host is not allowlisted");
     const dispatcher = new Agent({
       connect: {
-        lookup:createPinnedLookup(pinnedIp),
+        lookup: createPinnedLookup(pinnedIp),
       },
     });
     let response: Awaited<ReturnType<typeof request>> | undefined;
@@ -176,7 +181,15 @@ export async function safeFetch(
         if (
           options.requireAllowlist ||
           !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase()) ||
-          next.origin !== parsed.origin
+          (next.origin !== parsed.origin &&
+            !(
+              parsed.protocol === "https:" &&
+              next.protocol === "https:" &&
+              !next.port &&
+              options.allowedRedirectHosts?.includes(next.hostname) &&
+              !new Headers(init.headers).has("authorization") &&
+              !new Headers(init.headers).has("cookie")
+            ))
         )
           throw new SSRFError("Unsafe outbound redirect");
         url = next.href;
@@ -199,11 +212,13 @@ export async function safeFetch(
       headers.delete("content-length");
       const empty =
         [204, 205, 304].includes(response.status) || init.method === "HEAD";
-      return new Response(empty ? null : Buffer.concat(chunks), {
+      const result = new Response(empty ? null : Buffer.concat(chunks), {
         status: response.status,
         statusText: response.statusText,
         headers,
       });
+      Object.defineProperty(result, "url", { value: parsed.href });
+      return result;
     } finally {
       if (response?.body && !response.body.locked)
         await response.body.cancel().catch(() => {});

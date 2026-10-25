@@ -18,7 +18,7 @@ import { forbidden } from "@/lib/api/errors";
  * roles on success so callers can further branch (e.g. escalation rules).
  */
 export async function requireSupportStaff(userId: string): Promise<StaffRoles> {
-  const [roles, manifest] = await Promise.all([getStaffRoles(userId), loadManifest()]);
+  const [roles, manifest] = await Promise.all([getStaffRoles(userId,{requireAdminSession:true}), loadManifest()]);
   if (!hasAnyRole(roles, manifest.support.staffRoles)) {
     throw forbidden("You are not authorized to access the support ticket queue.", "SUPPORT_STAFF_ONLY");
   }

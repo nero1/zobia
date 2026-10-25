@@ -51,7 +51,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const validStatuses = ["pending", "resolved", "escalated", "dismissed", "all"];
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
-    const roles = await getStaffRoles(userId);
+    const roles = await getStaffRoles(userId,{requireAdminSession:true});
     const isPlatformStaff = roles.isAdmin || roles.isModerator;
 
     const orm = await getDb();

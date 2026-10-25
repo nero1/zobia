@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {and,eq,sql} from 'drizzle-orm';
 import {getDb,schema,type DbOrTx} from '@/lib/db/drizzle';
 import {raiseAlert} from '@/lib/alerts/dispatch';
-export type TaskKind='sponsored_refund'|'sponsored_maintenance'|'storage_maintenance'|'maintenance_sweep'|'xp_award'|'password_reset_email'|'kyc_review'|'coin_credit'|'community_reward'|'merch_refund';
+export type TaskKind='tale_notifications'|'sponsored_refund'|'sponsored_maintenance'|'storage_maintenance'|'maintenance_sweep'|'xp_award'|'password_reset_email'|'kyc_review'|'coin_credit'|'community_reward'|'merch_refund';
 export interface DurableTask{id:string;kind:TaskKind;operation_key:string;user_id:string|null;payload:Record<string,unknown>;attempts:number}
 export class PermanentTaskError extends Error{constructor(public readonly reason:string){super(reason);this.name='PermanentTaskError';}}
 export async function enqueueTask(tx:DbOrTx,kind:TaskKind,operationKey:string,userId:string|null,payload:Record<string,unknown>):Promise<string>{
@@ -14,6 +14,7 @@ export async function enqueueTask(tx:DbOrTx,kind:TaskKind,operationKey:string,us
 }
 async function executeTask(task:DurableTask):Promise<void>{
  switch(task.kind){
+  case 'tale_notifications':return (await import('@/lib/tales/notifications')).deliverTaleNotifications(task);
   case 'sponsored_refund':return (await import('@/lib/quests/sponsoredFunding')).deliverSponsoredRefund(task);
   case 'sponsored_maintenance':await (await import('@/lib/quests/sponsoredFunding')).sweepSponsoredFunding(task.id);return;
   case 'storage_maintenance':await (await import('@/lib/storage/deletionQueue')).drainObjectDeletions(undefined,task.id);return;

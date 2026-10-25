@@ -79,7 +79,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     if (!UUID_RE.test(userId)) throw badRequest("userId must be a valid UUID");
 
     const callerId = auth.user.sub;
-    const [manifest, callerRoles] = await Promise.all([loadManifest(), getStaffRoles(callerId)]);
+    const [manifest, callerRoles] = await Promise.all([loadManifest(), getStaffRoles(callerId,{requireAdminSession:true})]);
     const statsFeatureAccessible = isFeatureAccessible(
       manifest.features.profileStats,
       manifest.featureModVisibility.includes("profileStats"),

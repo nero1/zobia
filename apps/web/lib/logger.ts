@@ -68,6 +68,7 @@ import { AsyncLocalStorage } from "async_hooks";
 interface RequestContext {
   requestId: string;
   userId: string | null;
+  adminSessionVerified?: boolean;
   route: string;
 }
 

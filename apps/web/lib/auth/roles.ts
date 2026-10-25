@@ -8,6 +8,7 @@
  * a role claim from the JWT.
  */
 
+import { requestContext } from "@/lib/logger";
 import { eq, and, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 
@@ -17,7 +18,7 @@ import { getDb, schema } from "@/lib/db/drizzle";
  * never silently grants elevated visibility.
  */
 export async function isAdminOrModerator(userId: string): Promise<boolean> {
-  const roles = await getStaffRoles(userId);
+  const roles = await getStaffRoles(userId, { requireAdminSession: true });
   return roles.isAdmin || roles.isModerator;
 }
 
@@ -46,7 +47,10 @@ const EMPTY_STAFF_ROLES: StaffRoles = {
  * Fails closed (all false) on any DB error — never trust a cached/JWT claim
  * for role-gated access.
  */
-export async function getStaffRoles(userId: string): Promise<StaffRoles> {
+export async function getStaffRoles(
+  userId: string,
+  options: { requireAdminSession?: boolean } = {},
+): Promise<StaffRoles> {
   try {
     const orm = await getDb();
     // NOTE (schema gap): `is_ad_moderator` (db/migrations/0002_ai_vision_and_ad_moderator.sql)
@@ -63,10 +67,28 @@ export async function getStaffRoles(userId: string): Promise<StaffRoles> {
         isAdModerator: sql<boolean>`${schema.users}.is_ad_moderator`,
       })
       .from(schema.users)
-      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt), eq(schema.users.isBanned, false), sql`NOT (COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW()))`))
+      .where(
+        and(
+          eq(schema.users.id, userId),
+          isNull(schema.users.deletedAt),
+          eq(schema.users.isBanned, false),
+          sql`NOT (COALESCE(${schema.users.isSuspended}, false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil} > NOW()))`,
+        ),
+      )
       .limit(1);
     const row = rows[0];
     if (!row) return EMPTY_STAFF_ROLES;
+    const context = requestContext.getStore();
+    // A role lookup for the current HTTP actor must not turn an ordinary
+    // admin-account session into staff access (KYC documents, queue, profiles).
+    // Background work and role lookups for escalation targets are unaffected.
+    if (
+      options.requireAdminSession &&
+      row.isAdmin &&
+      context?.userId === userId &&
+      context.adminSessionVerified !== true
+    )
+      return EMPTY_STAFF_ROLES;
     return {
       isAdmin: Boolean(row.isAdmin),
       isModerator: Boolean(row.isModerator),
@@ -81,7 +103,7 @@ export async function getStaffRoles(userId: string): Promise<StaffRoles> {
 
 /** Returns true if the given user currently has `is_admin` or `is_ad_moderator` set. Fails closed on DB error. */
 export async function isAdminOrAdModerator(userId: string): Promise<boolean> {
-  const roles = await getStaffRoles(userId);
+  const roles = await getStaffRoles(userId, { requireAdminSession: true });
   return roles.isAdmin || roles.isAdModerator;
 }
 

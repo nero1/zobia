@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db/drizzle";
-import { withAuth } from "@/lib/api/middleware";
+import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -44,19 +44,11 @@ interface AdminGuildRow {
   created_at: string;
 }
 
-export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
+export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const orm = await getDb();
-    const { rows: userRows } = await orm.execute<{ is_admin: boolean; is_moderator: boolean }>(sql`
-      SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-       FROM users WHERE id = ${auth.user.sub} AND deleted_at IS NULL AND NOT is_banned AND NOT (is_suspended AND (suspended_until IS NULL OR suspended_until > NOW())) LIMIT 1
-    `);
-    if (!userRows[0]?.is_admin && !userRows[0]?.is_moderator) {
-      throw forbidden("Admin or moderator access required");
-    }
-
     const url = new URL(req.url);
     const search = url.searchParams.get("search")?.trim() ?? "";
     const status = url.searchParams.get("status") ?? "all";
