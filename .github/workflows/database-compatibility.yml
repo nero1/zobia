@@ -1,0 +1,35 @@
+name: PostgreSQL 17 Adoption Compatibility
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  adoption:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: zobia
+          POSTGRES_PASSWORD: fixture_only
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U zobia -d postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Verify safe adoption and upgrades with provider RLS and editor line endings
+        working-directory: apps/web
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://zobia:fixture_only@localhost:5432/postgres
+        run: npx tsx db/test-platform-adoption.ts

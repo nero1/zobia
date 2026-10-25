@@ -79,7 +79,8 @@ async function main() {
       referencePostgresVersion: expected.version,
       observedChecksum: actual.checksum,
       expectedChecksum: expected.checksum,
-      recognizedSchema: known.has(actual.checksum),
+      recognizedSchema: known.has(actual.verifiedChecksum),
+      verifiedChecksum: actual.verifiedChecksum,
       comparison:
         "Differences are against the current baseline; older supported versions may legitimately differ. PostgreSQL deparser/version differences also require review. No adoption or repair was attempted.",
       categories: compareCatalogs(expected.catalog, actual.catalog),
