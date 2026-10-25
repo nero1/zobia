@@ -139,7 +139,8 @@ Use this route instead of pasting SQL into Supabase. It installs a new database 
 - Choose **adopt** only if the baseline was previously pasted manually and the database has no migration history. This verifies and registers that schema.
 - Click **Run workflow**. Open the run and wait for a green checkmark; approve the `production` environment if your repository requires it.
 - After pulling schema updates, run **apply** here before redeploying Vercel. Recognized existing databases are upgraded without wiping content, including the campaign-list indexes. Rebuild the Vite Android app after client changes.
-- A refused schema check means the runner did not recognize the database's state. Do not paste the baseline over existing application tables or bypass that check.
+- A refused schema check means the runner did not recognize the database's state. Do not wipe tables, paste the baseline over them, or bypass the check.
+- If **adopt** reports schema drift, open **Actions → Database Schema Diagnostics → Run workflow → main**. It uses the same secrets and reads your schema without changing it. After success, download **schema-diagnostics** under the run's **Artifacts** and share `schema-diagnostics.json` for review. It contains object names and fingerprints, not user records, SQL definitions or credentials. Differences require review before a repair is selected.
 
 ## 8. Deploy the website and create your administrator
 
