@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 12:40:36 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 02:22:00 PM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** All reported findings are fixed, including final-review logging, outage handling, pagination and offline-cache defects. Findings marked ✅ are fixed and verified. No production database was changed.
-**Additional review:** 127 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
+**Additional review:** 129 confirmed findings across the initial audit and follow-up reviews. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -165,6 +165,10 @@
 126: BUG ZOB-V2-126: ✅ [Medium] Ordinary fetches erase offline message snapshots before they can be reused
 
 127: BUG ZOB-V2-127: ✅ [Medium] Baseline adoption rejects valid Supabase automatic RLS and SQL Editor line endings
+
+128: BUG ZOB-V2-128: ✅ [High] Admin login middleware creates a redirect loop for sessions requiring reauthentication
+
+129: BUG ZOB-V2-129: ✅ [Medium] Tales discovery uses the slug namespace and bypasses the shared application shell
 
 ## Detailed findings and proposed fixes
 
@@ -1898,6 +1902,30 @@
 
 **VALIDATION:** PostgreSQL 16 and 17 fixtures reproduce manual baseline adoption, apply the media/campaign/index upgrades, preserve wallet data and extra RLS, and reject unrelated schema, function-security or required-RLS changes.
 
+### 128: BUG ZOB-V2-128: ✅ [High] Admin login middleware creates a redirect loop for sessions requiring reauthentication
+
+**PROBLEM:** Admin API guards require a live administrator session with two-factor assurance. Pages redirect rejected sessions to the admin login, but middleware immediately redirects any is_admin JWT back to the dashboard. Ordinary OAuth admin sessions and revoked sessions can therefore bounce repeatedly, including from Config.
+
+**FILES:** `apps/web/middleware.ts; apps/web/lib/auth/__tests__/adminLoginLoop.test.ts`
+
+**FIX:** Keep the administrator login form reachable regardless of a signed role claim. Continue enforcing live database privileges and administrator-session assurance at the API boundary.
+
+**RESOLUTION:** ✅ The admin login no longer redirects based solely on is_admin. Reauthentication redirects now reach the two-factor form; live database role and administrator-session checks remain enforced by the APIs.
+
+**VALIDATION:** Actual middleware tests with a signed admin-account token confirm login remains reachable for dashboard, Config and Users return destinations; scoped staff-access tests pass.
+
+### 129: BUG ZOB-V2-129: ✅ [Medium] Tales discovery uses the slug namespace and bypasses the shared application shell
+
+**PROBLEM:** Discovery is mounted at /t while individual stories also use /t/:slug. Tales routes bypass the web application layout and Android marks every Tales screen as chrome-free. Navigation, discovery controls and cards consequently diverge from Quizzes and Answers.
+
+**FILES:** `shared/ui/Tales.tsx; apps/web/app/(app)/tales/page.tsx; apps/web/app/t; apps/android/src/routes/__root.tsx; active navigation links`
+
+**FIX:** Use /tales for discovery, redirect /t there, retain story URLs, and reuse the existing application shell and themed discovery patterns on both active clients.
+
+**RESOLUTION:** ✅ Discovery now uses /tales with /t redirecting there. Story URLs stay /t/:slug. Both active clients reuse the app shell, navigation and theme-aware discovery controls/cards patterned after Quizzes and Answers.
+
+**VALIDATION:** Mobile browser checks confirm redirects, guest discovery, story/back navigation, header and bottom navigation in light/dark themes. Native production bundle and both client type checks pass.
+
 ## Ratings and brief review
 
 Scores are engineering judgments, **before remediation → current code after the recommended fixes**. They assess implementation, not a production certification.
@@ -1911,7 +1939,7 @@ Scores are engineering judgments, **before remediation → current code after th
 
 ## Review scope and concise validation
 
-The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-127. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit identified **108 findings: 59 High and 49 Medium**; subsequent remediation reviews added the distinct findings listed through BUG ZOB-V2-129. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
 The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Vite Android and shared source inventory was refreshed during remediation; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
@@ -1921,10 +1949,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **127/127 fixed and verified**. All listed findings are resolved. Provider configuration and physical-device validation remain deployment responsibilities.
+Remediation progress: **129/129 fixed and verified**. All listed findings are resolved. Provider configuration and physical-device validation remain deployment responsibilities.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 12:40:36 PM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 02:22:00 PM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

@@ -1,4 +1,2 @@
-import { TalesView } from "@/components/tales/TalesView";
-export default function Page() {
-  return <TalesView />;
-}
+import { redirect } from "next/navigation";
+export default function Page() { redirect("/tales"); }

@@ -1,3 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { TalesView } from "@/components/tales/TalesView";
-export const Route = createFileRoute("/t/")({ component: () => <TalesView /> });
+import { createFileRoute, redirect } from "@tanstack/react-router";
+export const Route = createFileRoute("/t/")({
+  beforeLoad: () => {
+    throw redirect({ to: "/tales", replace: true });
+  },
+});

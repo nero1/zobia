@@ -364,7 +364,7 @@ async function verifyToken(token: string): Promise<TokenPayload | null> {
 const ADMIN_PREAUTH_ROUTES=new Set(['/api/admin/auth/login','/api/admin/auth/totp','/api/admin/auth/totp/setup','/api/admin/auth/unlock']);
 function isPublicRoute(pathname: string): boolean {
   if(ADMIN_PREAUTH_ROUTES.has(pathname) || pathname === "/robots.txt" || pathname === "/sitemap.xml")return true;
-  if (pathname === "/" || pathname === "" || pathname === "/h" || pathname === "/t") return true;
+  if (pathname === "/" || pathname === "" || pathname === "/h" || pathname === "/t" || pathname === "/tales") return true;
   return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 }
 
@@ -610,12 +610,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Allow admin login page without auth
   if (pathname === ADMIN_LOGIN_URL) {
-    if (token) {
-      const payload = await verifyToken(token);
-      if (payload?.is_admin) {
-        return NextResponse.redirect(new URL("/gate44", request.url));
-      }
-    }
+    // The signed role claim does not prove a live, two-factor admin session.
+    // API reauthentication/revocation redirects must always reach this form.
     return withCsp(new Headers(request.headers));
   }
 

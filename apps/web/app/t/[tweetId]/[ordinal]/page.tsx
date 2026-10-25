@@ -1,3 +1,4 @@
+import AppLayout from "@/app/(app)/layout";
 import { TalesView } from "@/components/tales/TalesView";
 import { notFound } from "next/navigation";
 export default async function Page({
@@ -8,5 +9,5 @@ export default async function Page({
   const p = await params;
   const n = Number(p.ordinal);
   if (!Number.isInteger(n) || n < 1 || n > 10000) notFound();
-  return <TalesView slug={p.tweetId} ordinal={n} />;
+  return <AppLayout><TalesView slug={p.tweetId} ordinal={n} /></AppLayout>;
 }
