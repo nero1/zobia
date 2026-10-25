@@ -146,7 +146,10 @@ Deleting tables does not necessarily delete their helper functions. If SQL Edito
 - In Supabase **SQL Editor**, or your database provider's query editor, run the following. Replace the sample email with the exact email of the account you just created:
 
   ```sql
-  UPDATE public.users SET is_admin = true WHERE email = 'you@example.com';
+  UPDATE public.users
+  SET is_admin = true
+  WHERE lower(email) = lower('you@example.com')
+  RETURNING id, email, is_admin, is_email_verified;
   ```
 
 - Confirm the query updated your account. If it updated zero rows, check the email before continuing.
