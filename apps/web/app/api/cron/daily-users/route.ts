@@ -47,6 +47,7 @@ export const GET = async (req: NextRequest) => {
     const {drainObjectDeletions}=await import("@/lib/storage/deletionQueue");
     results.accountPurge=await purgeDeletedAccounts();
     results.objectErasure=await drainObjectDeletions();
+    results.sponsoredFunding=await (await import("@/lib/quests/sponsoredFunding")).sweepSponsoredFunding();
 
     },()=>errors.length===stepErrors);
   }catch(error){errors.push(`accountErasure: ${String(error)}`);}

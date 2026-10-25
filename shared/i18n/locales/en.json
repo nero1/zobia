@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Only continue if you started this from the Zobia app. This will sign this browser into the account shown below.",
   "mobileBridge.expiredTitle": "This link has expired",
   "mobileBridge.expiredBody": "Return to the Zobia app and open the page again.",
-  "mobileBridge.impersonation": "This is a temporary support impersonation session."
+  "mobileBridge.impersonation": "This is a temporary support impersonation session.",
+  "sponsoredFunding.reserveNotice": "Submitting reserves {{amount}} Credits from your wallet for applications and the daily budget. Unused funds are refunded after closure.",
+  "sponsoredFunding.reserveButton": "Reserve up to {{amount}} Credits",
+  "sponsoredFunding.applications": "Review applications",
+  "sponsoredFunding.proof": "Completion proof",
+  "sponsoredFunding.noApplications": "No applications are awaiting review."
 }

@@ -380,20 +380,23 @@ async function main(){
     console.log('PASS rejected forum reply rolls back its image fee and concurrent pot claims pay one claimant once atomically');
   }finally{await client.query('DELETE FROM bb_pot_claims WHERE thread_id=$1',[thread.id]);await client.query('DELETE FROM bb_posts WHERE thread_id=$1',[thread.id]);await client.query('DELETE FROM bb_threads WHERE board_id=$1',[board.id]);await client.query('DELETE FROM bb_boards WHERE id=$1',[board.id]);}
   const {recordSponsoredQuestImpression}=await import('../lib/quests/sponsoredQuestPacing');
-  const sponsored=(await client.query("INSERT INTO sponsored_quests(brand_name,title,description,is_active,moderation_status,is_daily_quest_eligible,total_budget_credits,daily_budget_credits,cpm_credits) VALUES('Fixture',$1,'Fixture',false,'approved',true,1,0.002,1) RETURNING id",[name])).rows[0];
+  const sponsored=(await client.query("INSERT INTO sponsored_quests(brand_name,title,description,is_active,moderation_status,is_daily_quest_eligible,total_budget_credits,daily_budget_credits,cpm_credits,reward_coins,max_applications,deadline) VALUES('Fixture',$1,'Fixture',false,'approved',true,10,2.002,1,1,1,NOW()+INTERVAL '1 day') RETURNING id",[name])).rows[0];
   try{
+    await client.query('UPDATE users SET coin_balance=coin_balance+100 WHERE id=$1',[id]);
+    await orm.transaction(tx=>(import('../lib/quests/sponsoredFunding').then(module=>module.fundSponsoredQuest(tx,sponsored.id,id))));
     if(await recordSponsoredQuestImpression(orm,sponsored.id,id,.001))throw Error('Paused sponsored campaign accepted an impression');
     await client.query('UPDATE sponsored_quests SET is_active=true WHERE id=$1',[sponsored.id]);
     const impressions=await Promise.all([recordSponsoredQuestImpression(orm,sponsored.id,id,.001),recordSponsoredQuestImpression(orm,sponsored.id,peer.id,.001)]);
     if(impressions.some(value=>!value))throw Error('Funded small-price sponsored impressions failed');
     const precise=(await client.query('SELECT spent_credits::text spent FROM sponsored_quests WHERE id=$1',[sponsored.id])).rows[0];
-    if(Number(precise.spent)!==.002)throw Error('Fractional sponsored charges were rounded away');
+    if(Number(precise.spent)!==2.002)throw Error('Fractional sponsored charges were rounded away');
     await client.query('DELETE FROM sponsored_quest_events WHERE quest_id=$1',[sponsored.id]);
-    await client.query('UPDATE sponsored_quests SET spent_credits=0,daily_budget_credits=0.001 WHERE id=$1',[sponsored.id]);
+    await client.query('DELETE FROM sponsored_daily_reservations WHERE quest_id=$1',[sponsored.id]);
+    await client.query('UPDATE sponsored_quests SET spent_credits=0,daily_budget_credits=1.001 WHERE id=$1',[sponsored.id]);
     const capped=await Promise.all([recordSponsoredQuestImpression(orm,sponsored.id,id,.001),recordSponsoredQuestImpression(orm,sponsored.id,peer.id,.001)]);
     if(capped.filter(Boolean).length!==1)throw Error('Concurrent sponsored impressions exceeded the daily cap');
     console.log('PASS sponsored impressions reject paused campaigns, preserve .001-credit charges and serialize daily budget headroom');
-  }finally{await client.query('DELETE FROM sponsored_quest_events WHERE quest_id=$1',[sponsored.id]);await client.query('DELETE FROM sponsored_quests WHERE id=$1',[sponsored.id]);}
+  }finally{await client.query('DELETE FROM sponsored_daily_reservations WHERE quest_id=$1',[sponsored.id]);await client.query('DELETE FROM sponsored_quest_funding WHERE quest_id=$1',[sponsored.id]);await client.query('DELETE FROM sponsored_quest_events WHERE quest_id=$1',[sponsored.id]);await client.query('DELETE FROM sponsored_quests WHERE id=$1',[sponsored.id]);}
   const {submitQuizAttempt}=await import('../lib/quizzes/service');
   const quiz=(await client.query("INSERT INTO quizzes(creator_id,slug,title,max_attempts_per_user) VALUES($1,$2,'Fixture',1) RETURNING id",[id,name])).rows[0];
   try{

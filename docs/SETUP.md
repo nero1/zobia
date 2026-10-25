@@ -187,6 +187,7 @@ Deleting tables does not necessarily delete their helper functions. If SQL Edito
 - Open `https://YOUR_DOMAIN/.well-known/assetlinks.json`. It should show `com.zobiasocial.app` and the fingerprint you entered, with no placeholder.
 - Transfer `app-debug.apk` to your Android phone and open it. If prompted, allow **Install unknown apps** for the browser or file manager you used, then install Zobia.
 - On the phone, open **Settings → Apps → Zobia → Open by default** and enable **Open supported links**. The exact wording varies by Android version.
+- After financial/schema updates, rebuild the APK. Older campaign submissions need the new funding request key. [Sponsored quest funding](SPONSORED-QUEST-FUNDING.md) explains reserves, legacy campaigns and refunds.
 - Open Zobia and test Google sign-in. After Google returns to the backend, Android should open the app to complete sign-in.
 - When the app opens a protected page in your browser (for example, identity verification), confirm the displayed username before continuing. The link expires after 90 seconds.
 - After deploying realtime security updates, rebuild and reinstall the APK using steps 9–10. Older APKs use polling for private updates until rebuilt.

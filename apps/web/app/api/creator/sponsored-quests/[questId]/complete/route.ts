@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { withAuth, validateBody } from "@/lib/api/middleware";
@@ -88,7 +88,7 @@ export const POST = withAuth(async (
     }
 
     // Update application to 'completed'
-    await orm
+    const changed=await orm
       .update(schema.sponsoredQuestApplications)
       .set({
         status: "completed",
@@ -96,7 +96,9 @@ export const POST = withAuth(async (
         completedAt: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(schema.sponsoredQuestApplications.id, app.id));
+      .where(and(eq(schema.sponsoredQuestApplications.id, app.id), sql`${schema.sponsoredQuestApplications.status} IN ('applied','accepted')`)).returning({id:schema.sponsoredQuestApplications.id});
+
+    if(!changed.length)throw badRequest("Application changed before completion was recorded");
 
     // Notify admin for review (best-effort)
     (async () => {

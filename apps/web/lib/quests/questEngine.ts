@@ -1,3 +1,5 @@
+import {QUEST_ACTION_TYPES} from "@zobia/shared/utils";
+import {consumeSponsoredDailyReward} from "./sponsoredFunding";
 import Decimal from "decimal.js";
 import {enqueueTask,processTask} from "@/lib/tasks/outbox";
 /**
@@ -106,28 +108,7 @@ export const QUEST_FEATURE_KEYS: (keyof ZobiaManifest["features"])[] = [
  * the admin Quests catalog (/gate44/quests) to constrain the action_type
  * picker on quest creation to values that are actually wired up.
  */
-export const QUEST_ACTION_TYPES = [
-  "messages",
-  "room_join",
-  "gift",
-  "login_streak",
-  "guild_quest",
-  "xp_meta",
-  "game_play",
-  "challenge_send",
-  "challenge_accept",
-  "challenge_win",
-  "blog_publish",
-  "blog_comment",
-  "wiki_edit",
-  "poll_vote",
-  "poll_create",
-  "quiz_complete",
-  "quiz_perfect",
-  "forum_reply",
-  "forum_create_thread",
-  "market_purchase",
-] as const;
+export {QUEST_ACTION_TYPES} from "@zobia/shared/utils";
 export type QuestActionType = (typeof QUEST_ACTION_TYPES)[number];
 
 export interface QuestDeckItem extends QuestTemplate {
@@ -565,7 +546,7 @@ export async function updateQuestProgress(
       .where(
         and(
           eq(schema.questTemplates.id, questId),
-          eq(schema.questTemplates.isActive, true),
+          or(eq(schema.questTemplates.isActive,true),sql`EXISTS(SELECT 1 FROM sponsored_daily_reservations r WHERE r.quest_id=${schema.questTemplates.sponsoredQuestId} AND r.user_id=${userId} AND r.assigned_date=${today}::date AND r.state IN ('reserved','paid'))`),
           or(isNull(schema.questTemplates.validDate), eq(schema.questTemplates.validDate, today))
         )
       )
@@ -649,7 +630,7 @@ export async function updateQuestProgress(
 
     if (nowCompleted) {
       xpAwarded = quest.xpReward;
-      coinsAwarded = quest.coinReward;
+      coinsAwarded = quest.sponsoredQuestId ? await consumeSponsoredDailyReward(tx,quest.sponsoredQuestId,userId,today) : quest.coinReward;
 
       // Quest XP is routed by quest_templates.track (e.g. 'social', 'explorer',
       // 'generosity') — NOT by ACTION_TRACKS, which is keyed by XPAction values
@@ -835,7 +816,7 @@ export async function triggerActivityQuestProgress(
       .where(
         and(
           eq(schema.questTemplates.actionType, actionType),
-          eq(schema.questTemplates.isActive, true),
+          or(eq(schema.questTemplates.isActive,true),sql`EXISTS(SELECT 1 FROM sponsored_daily_reservations r WHERE r.quest_id=${schema.questTemplates.sponsoredQuestId} AND r.user_id=${userId} AND r.assigned_date=${today}::date AND r.state IN ('reserved','paid'))`),
           or(isNull(schema.questTemplates.validDate), eq(schema.questTemplates.validDate, today))
         )
       );

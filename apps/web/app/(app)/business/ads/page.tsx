@@ -1,5 +1,8 @@
 "use client";
 
+import {createIdempotentSubmission} from '@zobia/shared/utils';
+import {useRef} from 'react';
+
 /**
  * app/(app)/business/ads/page.tsx
  *
@@ -13,6 +16,7 @@
  *     submission (reuses the Creator Economy Quest Marketplace, §14).
  */
 
+import {useTranslation} from "react-i18next";
 import { useEffect, useState, useCallback } from "react";
 import Link from "@/components/ui/Link";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
@@ -512,6 +516,7 @@ interface SponsoredQuest {
 }
 
 function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
+  const {t}=useTranslation();
   const currency = useCurrency();
   const [tierAllowed, setTierAllowed] = useState<boolean | null>(null);
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
@@ -535,7 +540,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
   const [targetAction, setTargetAction] = useState("");
 
   const durationDays = DURATION_PRESETS.find((p) => p.key === durationPreset)?.days ?? 7;
-  const estimatedReach = runInDailyDecks ? Math.floor((totalBudgetCredits / 500) * 1000) : 0;
+  const estimatedReach = runInDailyDecks ? Math.floor(totalBudgetCredits/(0.5+Number(rewardCoins))) : 0;
   const [restarting, setRestarting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -560,6 +565,8 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const sponsoredSubmission=useRef(createIdempotentSubmission(true)).current;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
@@ -571,7 +578,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(sponsoredSubmission.prepare({
           businessPageId,
           title: title.trim(),
           description: description.trim(),
@@ -585,11 +592,12 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
           totalBudgetCredits: runInDailyDecks ? Number(totalBudgetCredits) : 0,
           dailyBudgetCredits: runInDailyDecks && dailyBudgetCredits ? Number(dailyBudgetCredits) : undefined,
           targetAction: runInDailyDecks && targetAction.trim() ? targetAction.trim() : undefined,
-        }),
+        })),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to submit quest");
       setShowForm(false);
+      sponsoredSubmission.clear();
       setTitle(""); setDescription(""); setRequirements(""); setRewardCoins(1000); setMaxApplications(10); setDeadline("");
       setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(""); setTargetAction("");
       await load();
@@ -615,7 +623,9 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
     setRestarting(questId);
     setError(null);
     try {
-      const res = await fetch(`/api/business/sponsored-quests/${questId}/restart`, { method: "POST", credentials: "include" });
+      const quest=quests.find(q=>q.id===questId),funding=quest?.pause_reason==='funding_required';
+      const maxReserveCoins=quest ? Number(quest.reward_coins)*Number(quest.max_applications)+Math.ceil(quest.is_daily_quest_eligible?Math.max(0,Number(quest.total_budget_credits)-Number(quest.spent_credits)):0) : 0;
+      const res = await fetch(`/api/business/sponsored-quests/${questId}/${funding?'fund':'restart'}`, { method: "POST", credentials: "include",headers:{'Content-Type':'application/json'},body:JSON.stringify(funding?{maxReserveCoins}:{}) });
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to restart");
       await load();
@@ -749,6 +759,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
                 )}
               </div>
 
+              <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("sponsoredFunding.reserveNotice",{amount:(Number(rewardCoins)*Number(maxApplications)+Math.ceil(runInDailyDecks?Number(totalBudgetCredits):0)).toLocaleString()})}</p>
               <button type="submit" disabled={submitting} className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
                 {submitting ? "Submitting…" : "Submit for Approval"}
               </button>
@@ -796,7 +807,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
                           onClick={() => handleRestart(q.id)}
                           className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
                         >
-                          {restarting === q.id ? "…" : "Restart"}
+                          {restarting===q.id?"…":q.pause_reason==="funding_required"?t("sponsoredFunding.reserveButton",{amount:(Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)).toLocaleString()}):"Restart"}
                         </button>
                       )}
                       {q.moderation_status !== "approved" && (

@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "ይህን እርምጃ ከZobia መተግበሪያ ከጀመሩት ብቻ ይቀጥሉ። ይህ አሳሽ ከታች በሚታየው መለያ ይገባል።",
   "mobileBridge.expiredTitle": "የዚህ አገናኝ ጊዜ አልፎበታል",
   "mobileBridge.expiredBody": "ወደ Zobia መተግበሪያ ተመልሰው ገጹን እንደገና ይክፈቱ።",
-  "mobileBridge.impersonation": "ይህ ሌላ መለያ በመጠቀም የሚደረግ ጊዜያዊ የድጋፍ ክፍለ ጊዜ ነው።"
+  "mobileBridge.impersonation": "ይህ ሌላ መለያ በመጠቀም የሚደረግ ጊዜያዊ የድጋፍ ክፍለ ጊዜ ነው።",
+  "sponsoredFunding.reserveNotice": "ማስገባት ለማመልከቻዎችና ለዕለታዊ በጀት {{amount}} ክሬዲቶችን ከቦርሳዎ ያስይዛል። ያልተጠቀሙበት ገንዘብ ከተዘጋ በኋላ ይመለሳል።",
+  "sponsoredFunding.reserveButton": "እስከ {{amount}} ክሬዲቶች ያስይዙ",
+  "sponsoredFunding.applications": "ማመልከቻዎችን ይገምግሙ",
+  "sponsoredFunding.proof": "የማጠናቀቅ ማረጋገጫ",
+  "sponsoredFunding.noApplications": "ግምገማ የሚጠብቁ ማመልከቻዎች የሉም።"
 }

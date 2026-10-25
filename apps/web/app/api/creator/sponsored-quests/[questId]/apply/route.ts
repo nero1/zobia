@@ -160,17 +160,17 @@ export const POST = withAuth(
         throw badRequest("Room not found or does not belong to your creator account");
       }
 
-      // 5. Insert application — use 'applied' so complete route can find it
-      const [application] = await orm
-        .insert(schema.sponsoredQuestApplications)
-        .values({
-          questId,
-          creatorId: userId,
-          roomId: body.roomId,
-          status: "applied",
-          appliedAt: new Date(),
-        })
-        .returning({ id: schema.sponsoredQuestApplications.id });
+      // Admission and capacity share the campaign lock with funding decisions.
+      const application=await orm.transaction(async tx=>{
+        const [live]=await tx.select().from(schema.sponsoredQuests).where(eq(schema.sponsoredQuests.id,questId)).for('update');
+        const [funding]=await tx.select().from(schema.sponsoredQuestFunding).where(eq(schema.sponsoredQuestFunding.questId,questId));
+        if(!live?.isActive || live.deletedAt || live.moderationStatus!=='approved' || live.flagStatus==='flagged' || !live.deadline || live.deadline<=new Date() || !funding || funding.applicationsClosed)throw badRequest('This campaign is not accepting funded applications');
+        const [count]=await tx.select({n:sql<number>`COUNT(*)::int`}).from(schema.sponsoredQuestApplications).where(eq(schema.sponsoredQuestApplications.questId,questId));
+        if(count.n>=(live.maxApplications??0))throw conflict('This campaign has reached its application limit','MAX_APPLICATIONS_REACHED');
+        const [created]=await tx.insert(schema.sponsoredQuestApplications).values({questId,creatorId:userId,roomId:body.roomId,status:'applied',appliedAt:new Date()}).onConflictDoNothing().returning({id:schema.sponsoredQuestApplications.id});
+        if(!created)throw conflict('You have already applied','ALREADY_APPLIED');
+        return created;
+      });
 
       return NextResponse.json(
         {

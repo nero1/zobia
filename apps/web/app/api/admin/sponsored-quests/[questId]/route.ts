@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -136,10 +137,7 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
       throw badRequest("No fields to update");
     }
 
-    await orm
-      .update(schema.sponsoredQuests)
-      .set(setValues as typeof schema.sponsoredQuests.$inferInsert)
-      .where(eq(schema.sponsoredQuests.id, questId));
+    await updateFundedSponsoredQuest(orm,questId,setValues as Partial<typeof schema.sponsoredQuests.$inferInsert>,auth.user.sub);
 
     await syncSponsoredQuestTemplate(orm, questId);
 

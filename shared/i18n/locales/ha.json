@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "Ci gaba kawai idan kai ka fara wannan daga manhajar Zobia. Wannan burauzar za ta shiga asusun da aka nuna a ƙasa.",
   "mobileBridge.expiredTitle": "Wannan mahaɗin ya ƙare",
   "mobileBridge.expiredBody": "Koma zuwa manhajar Zobia ka sake buɗe shafin.",
-  "mobileBridge.impersonation": "Wannan zaman tallafi ne na ɗan lokaci a madadin wani asusu."
+  "mobileBridge.impersonation": "Wannan zaman tallafi ne na ɗan lokaci a madadin wani asusu.",
+  "sponsoredFunding.reserveNotice": "Aikawa zai ware Credit {{amount}} daga walat ɗinka don aikace-aikace da kasafin yau da kullum. Za a mayar da kuɗin da ba a yi amfani da shi ba bayan rufewa.",
+  "sponsoredFunding.reserveButton": "Ware har zuwa Credit {{amount}}",
+  "sponsoredFunding.applications": "Duba aikace-aikace",
+  "sponsoredFunding.proof": "Hujjar kammalawa",
+  "sponsoredFunding.noApplications": "Babu aikace-aikacen da ke jiran dubawa."
 }

@@ -46,7 +46,7 @@ async function main() {
     assert.equal((await platform.query("SELECT count(*)::int n FROM pg_tables WHERE schemaname='public'")).rows[0].n,manifest.tableCount??317);
     const missing = await platform.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND NOT (has_table_privilege('service_role',c.oid,'SELECT') AND has_table_privilege('service_role',c.oid,'INSERT') AND has_table_privilege('service_role',c.oid,'UPDATE') AND has_table_privilege('service_role',c.oid,'DELETE'))`);
     assert.equal(missing.rows.length,0,"Every app table needs explicit service-role grants");
-    for (const table of ['public_media_assets','public_media_references','phone_verification_codes','failed_webhooks','game_progress_tasks','restore_email_tasks','transactional_tasks','object_deletion_tasks','account_restore_uses','crypto_transfer_claims','users','payments','messages','play_purchase_receipts','help_ai_requests','automation_generations','bookmark_folders']) {
+    for (const table of ['sponsored_quest_funding','sponsored_daily_reservations','public_media_assets','public_media_references','phone_verification_codes','failed_webhooks','game_progress_tasks','restore_email_tasks','transactional_tasks','object_deletion_tasks','account_restore_uses','crypto_transfer_claims','users','payments','messages','play_purchase_receipts','help_ai_requests','automation_generations','bookmark_folders']) {
       for (const role of ['anon','authenticated']) assert.equal((await platform.query("SELECT has_table_privilege($1,$2,'SELECT') allowed",[role,`public.${table}`])).rows[0].allowed,false,`${role} must not inherit private access to ${table}`);
     }
     await platform.query("SET ROLE anon");

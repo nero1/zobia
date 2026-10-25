@@ -18,7 +18,8 @@
     "./ui/Tales": "./ui/Tales.tsx",
     "./ui/Automation": "./ui/Automation.tsx",
     "./ui/Accounts": "./ui/Accounts.tsx",
-    "./ui/Dialog": "./ui/Dialog.tsx"
+    "./ui/Dialog": "./ui/Dialog.tsx",
+    "./ui/SponsoredApplications": "./ui/SponsoredApplications.tsx"
   },
   "peerDependencies": {
     "react": ">=18.2.0 <19",

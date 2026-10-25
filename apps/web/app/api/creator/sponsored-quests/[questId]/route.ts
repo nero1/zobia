@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -151,7 +152,7 @@ export const PATCH = withAdminAuth(
         });
       }
 
-      await orm.update(schema.sponsoredQuests).set(updates).where(eq(schema.sponsoredQuests.id, questId));
+      await updateFundedSponsoredQuest(orm,questId,updates,auth.user.sub);
 
       return NextResponse.json({
         success: true,

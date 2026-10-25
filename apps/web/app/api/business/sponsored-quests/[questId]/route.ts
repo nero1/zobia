@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -81,7 +82,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
     if (body.deadline !== undefined) updates.deadline = new Date(body.deadline);
 
     const orm = await getDb();
-    await orm.update(schema.sponsoredQuests).set(updates).where(eq(schema.sponsoredQuests.id, questId));
+    await updateFundedSponsoredQuest(orm,questId,updates,auth.user.sub,{expectedBusinessOwner:auth.user.sub});
     await syncSponsoredQuestTemplate(orm, questId);
 
     return NextResponse.json({

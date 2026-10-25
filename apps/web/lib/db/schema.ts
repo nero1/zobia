@@ -3417,7 +3417,7 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   // Billing (PRD "sponsored quests" — Facebook-Ads-style duration + budget
   // UX, impression-paced under the hood). startsAt/endsAt above double as
   // the campaign's date range. Funded from the business owner's Ad Wallet,
-  // same ledger as lib/ads (ad_wallet_ledger) — see lib/quests/sponsoredQuestPacing.ts.
+  // with a wallet-backed reserve — see lib/quests/sponsoredFunding.ts.
   pricingModel: text("pricing_model").notNull().default("duration"),
   totalBudgetCredits: numeric("total_budget_credits", { precision: 18, scale: 6 }).notNull().default("0"),
   spentCredits: numeric("spent_credits", { precision: 18, scale: 6 }).notNull().default("0"),
@@ -7272,6 +7272,12 @@ export const cryptoTransferClaims=pgTable("crypto_transfer_claims",{
  chain:text("chain").notNull(),txHash:text("tx_hash").notNull(),paymentId:uuid("payment_id").notNull().unique().references(()=>payments.id),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 },t=>[primaryKey({columns:[t.chain,t.txHash]})]);
 export const accountRestoreUses=pgTable("account_restore_uses",{jti:text("jti").primaryKey(),userId:uuid("user_id").notNull().references(()=>users.id,{onDelete:"cascade"}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow()});
+export const sponsoredQuestFunding=pgTable("sponsored_quest_funding",{
+ questId:uuid("quest_id").primaryKey().references(()=>sponsoredQuests.id,{onDelete:"restrict"}),payerId:uuid("payer_id").references(()=>users.id,{onDelete:"set null"}),reservedCoins:bigint("reserved_coins",{mode:"bigint"}).notNull(),refundedCoins:bigint("refunded_coins",{mode:"bigint"}).notNull().default(0n),marketingBalanceMicros:bigint("marketing_balance_micros",{mode:"bigint"}).notNull(),applicationBalanceCoins:bigint("application_balance_coins",{mode:"bigint"}).notNull(),marketingClosed:boolean("marketing_closed").notNull().default(false),applicationsClosed:boolean("applications_closed").notNull().default(false),roundingMicros:bigint("rounding_micros",{mode:"bigint"}).notNull().default(0n),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+});
+export const sponsoredDailyReservations=pgTable("sponsored_daily_reservations",{
+ id:uuidPk(),questId:uuid("quest_id").notNull().references(()=>sponsoredQuestFunding.questId,{onDelete:"restrict"}),userId:uuid("user_id").references(()=>users.id,{onDelete:"set null"}),assignedDate:date("assigned_date").notNull(),rewardCoins:bigint("reward_coins",{mode:"bigint"}).notNull(),impressionMicros:bigint("impression_micros",{mode:"bigint"}).notNull(),state:text("state").notNull().default("reserved"),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[uniqueIndex("sponsored_daily_reservations_quest_id_user_id_assigned_date_key").on(table.questId,table.userId,table.assignedDate)]);
 export const publicMediaAssets=pgTable("public_media_assets",{
  id:uuidPk(),userId:uuid("user_id").references(()=>users.id,{onDelete:"set null"}),storageKey:text("storage_key").notNull().unique(),publicUrl:text("public_url").notNull().unique(),sizeBytes:bigint("size_bytes",{mode:"bigint"}).notNull(),contentType:text("content_type").notNull(),state:text("state").notNull().default("pending"),unreferencedAt:timestamp("unreferenced_at",{withTimezone:true}).defaultNow(),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
 });
@@ -7291,7 +7297,7 @@ export const transactionalTasks=pgTable("transactional_tasks",{
 
 export const schema = {
   transactionalTasks,
-  publicMediaAssets,publicMediaReferences,cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
+  sponsoredQuestFunding,sponsoredDailyReservations,publicMediaAssets,publicMediaReferences,cryptoTransferClaims,accountRestoreUses,objectDeletionTasks,restoreEmailTasks,cronJobRuns,cronJobSteps,gameScoreAttestations,gameProgressTasks,
   auditDiscrepanciesArchive,rankUpEventsArchive,
   accountTypePlayProducts,
   playPurchaseReceipts,

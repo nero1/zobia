@@ -5556,5 +5556,10 @@
   "mobileBridge.body": "केवल तभी जारी रखें जब आपने यह कार्रवाई Zobia ऐप से शुरू की हो। यह ब्राउज़र नीचे दिखाए गए खाते में साइन इन करेगा।",
   "mobileBridge.expiredTitle": "इस लिंक की समय-सीमा समाप्त हो गई है",
   "mobileBridge.expiredBody": "Zobia ऐप में वापस जाएँ और पेज दोबारा खोलें।",
-  "mobileBridge.impersonation": "यह किसी अन्य खाते का उपयोग करने वाला अस्थायी सहायता सत्र है।"
+  "mobileBridge.impersonation": "यह किसी अन्य खाते का उपयोग करने वाला अस्थायी सहायता सत्र है।",
+  "sponsoredFunding.reserveNotice": "सबमिट करने पर आवेदनों और दैनिक बजट के लिए आपके वॉलेट से {{amount}} क्रेडिट आरक्षित होंगे। बंद होने के बाद अप्रयुक्त राशि वापस कर दी जाएगी।",
+  "sponsoredFunding.reserveButton": "{{amount}} क्रेडिट तक आरक्षित करें",
+  "sponsoredFunding.applications": "आवेदनों की समीक्षा करें",
+  "sponsoredFunding.proof": "पूर्णता का प्रमाण",
+  "sponsoredFunding.noApplications": "समीक्षा के लिए कोई आवेदन लंबित नहीं है।"
 }

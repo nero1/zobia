@@ -1,5 +1,11 @@
 "use client";
 
+import {authFetch} from "@/lib/api/authFetch";
+import {SponsoredApplications} from '@zobia/shared/ui/SponsoredApplications';
+
+import {createIdempotentSubmission} from '@zobia/shared/utils';
+import {useRef} from 'react';
+
 /**
  * app/(admin)/admin/sponsored-quests/page.tsx
  *
@@ -140,10 +146,15 @@ function formatDate(iso: string): string {
 // Component
 // ---------------------------------------------------------------------------
 
+const sponsoredReviewTransport={request:async<T,>(path:string,method='GET',body?:unknown):Promise<T>=>{
+ const response=await authFetch('/api'+path,{method,cache:'no-store',headers:{'Content-Type':'application/json'},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+ const json=await response.json();if(!response.ok || !json.success)throw new Error(json.error?.message??'Request failed');return json.data;
+}};
 export default function AdminSponsoredQuestsPage() {
   const { t } = useTranslation();
   const currency = useCurrency();
 
+  const [reviewQuest,setReviewQuest]=useState<string|null>(null);
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -206,7 +217,7 @@ export default function AdminSponsoredQuestsPage() {
   }
 
   const estimatedReach = form.isDailyQuestEligible && form.cpmCredits > 0
-    ? Math.floor((form.totalBudgetCredits / form.cpmCredits) * 1000)
+    ? Math.floor(form.totalBudgetCredits/(form.cpmCredits/1000+Number(form.rewardCoins)))
     : 0;
 
   async function handlePause(q: SponsoredQuest, action: "pause" | "resume") {
@@ -214,10 +225,10 @@ export default function AdminSponsoredQuestsPage() {
     setError(null);
     try {
       const reason = action === "pause" ? window.prompt("Reason for pausing (shown to the quest owner):") ?? undefined : undefined;
-      const res = await fetch(`/api/admin/sponsored-quests/${q.id}/pause`, {
+      const res = await fetch(`/api/admin/sponsored-quests/${q.id}/${action==="resume" && q.pause_reason==="funding_required"?"fund":"pause"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason }),
+        body: JSON.stringify(action==="resume" && q.pause_reason==="funding_required" ? {maxReserveCoins:Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)} : { action, reason }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to update");
@@ -345,7 +356,7 @@ export default function AdminSponsoredQuestsPage() {
       const res = await fetch(`/api/admin/sponsored-quests/${q.id}/moderate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason }),
+        body: JSON.stringify({action,reason}),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to moderate");
@@ -379,6 +390,8 @@ export default function AdminSponsoredQuestsPage() {
     }
   }
 
+  const sponsoredSubmission=useRef(createIdempotentSubmission()).current;
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCreating(true);
@@ -388,7 +401,7 @@ export default function AdminSponsoredQuestsPage() {
       const res = await fetch("/api/admin/sponsored-quests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: JSON.stringify(sponsoredSubmission.prepare({
           brandName: form.brandName,
           brandLogoUrl: form.brandLogoUrl || null,
           title: form.title,
@@ -409,7 +422,7 @@ export default function AdminSponsoredQuestsPage() {
           cpmCredits: Number(form.cpmCredits),
           targetAction: form.targetAction.trim() || null,
           targetValue: form.targetValue ? Number(form.targetValue) : null,
-        }),
+        })),
       });
 
       const json = await res.json();
@@ -422,6 +435,7 @@ export default function AdminSponsoredQuestsPage() {
       setSuccess("Sponsored quest published successfully");
       setShowForm(false);
       setForm(EMPTY_FORM);
+      sponsoredSubmission.clear();
       await fetchQuests();
     } catch (err) {
       const e = err as Error & { code?: string | null };
@@ -468,6 +482,8 @@ export default function AdminSponsoredQuestsPage() {
       )}
 
       {/* Create form */}
+      {reviewQuest && <SponsoredApplications questId={reviewQuest} transport={sponsoredReviewTransport} onClose={()=>setReviewQuest(null)} onChanged={()=>void fetchQuests()}/>}
+
       {showForm && (
         <form onSubmit={handleCreate} className="mb-6 p-5 border border-neutral-200 dark:border-neutral-700 rounded-xl bg-white dark:bg-neutral-900 space-y-4">
           <h2 className="font-semibold text-neutral-800 dark:text-white">Publish New Sponsored Quest</h2>
@@ -679,6 +695,7 @@ export default function AdminSponsoredQuestsPage() {
             )}
           </div>
 
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">{t("sponsoredFunding.reserveNotice",{amount:(Number(form.rewardCoins)*Number(form.maxApplications)+Math.ceil(form.isDailyQuestEligible?Number(form.totalBudgetCredits):0)).toLocaleString()})}</p>
           <button
             type="submit"
             disabled={creating}
@@ -788,6 +805,7 @@ export default function AdminSponsoredQuestsPage() {
                     </button>
                   </>
                 )}
+                <button onClick={()=>setReviewQuest(q.id)} className="rounded-lg border border-neutral-200 px-3 py-1 text-xs dark:border-neutral-700">{t("sponsoredFunding.applications")}</button>
                 <button
                   onClick={() => openEdit(q)}
                   className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
@@ -808,7 +826,7 @@ export default function AdminSponsoredQuestsPage() {
                     onClick={() => void handlePause(q, "resume")}
                     className="px-3 py-1 rounded-lg bg-green-100 text-green-700 text-xs font-semibold hover:bg-green-200 disabled:opacity-50"
                   >
-                    {pausing === q.id ? "…" : "Resume"}
+                    {pausing===q.id?"…":q.pause_reason==="funding_required"?t("sponsoredFunding.reserveButton",{amount:(Number(q.reward_coins)*Number(q.max_applications)+Math.ceil(q.is_daily_quest_eligible?Math.max(0,Number(q.total_budget_credits)-Number(q.spent_credits)):0)).toLocaleString()}):"Resume"}
                   </button>
                 )}
                 {q.flag_status === "flagged" ? (

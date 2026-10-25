@@ -69,14 +69,16 @@
     "x_manifest": 492,
     "transactional_tasks": 0,
     "public_media_assets": 0,
-    "public_media_references": 0
+    "public_media_references": 0,
+    "sponsored_quest_funding": 0,
+    "sponsored_daily_reservations": 0
   },
-  "catalogChecksum": "a070aeceba81bd12fdc80f91b87192300b87cf93e9019e0fee511aa76e5f65eb",
+  "catalogChecksum": "abaccd73ef98568a94fcd54bfc5601c4a9005b41e198d62a101a8be4cd3567b5",
   "previousBaselineChecksum": "680b20e6",
   "previousCatalogChecksum": "954a61eba4276b7faecb7bc3f69770b1dd6c731b8e00104dd705748a7c1e383a",
   "upgradeFile": "2026-10-23-forensic-hardening.sql",
   "upgradeChecksum": "7558a650",
-  "tableCount": 320,
+  "tableCount": 322,
   "additionalUpgrades": [
     {
       "fromBaselineChecksum": "6ed0b86e",
@@ -89,6 +91,12 @@
       "fromCatalogChecksum": "e70ad03b143048a5eb1cadd22b501613bb9c62e4a9c70342eb39f499562e988d",
       "file": "2026-10-25-public-media.sql",
       "checksum": "375d70bb"
+    },
+    {
+      "fromBaselineChecksum": "e946d90b",
+      "fromCatalogChecksum": "a070aeceba81bd12fdc80f91b87192300b87cf93e9019e0fee511aa76e5f65eb",
+      "file": "2026-10-25-sponsored-funding.sql",
+      "checksum": "20c00402"
     }
   ]
 }

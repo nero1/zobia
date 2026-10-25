@@ -1,3 +1,4 @@
+import {updateFundedSponsoredQuest} from "@/lib/quests/sponsoredFunding";
 export const dynamic = 'force-dynamic';
 
 /**
@@ -59,9 +60,7 @@ export const POST = withAuth(
         throw forbidden("Sponsored Quests require the Business Growth tier or higher.", "BUSINESS_TIER_TOO_LOW");
       }
 
-      await orm
-        .update(schema.sponsoredQuests)
-        .set({
+      await updateFundedSponsoredQuest(orm,questId,{
           // NOTE (schema mismatch): sponsored_quests has no `updated_at`
           // column in the real DB (db/migrations/0001_consolidated_schema.sql)
           // or in lib/db/schema.ts — the original raw SQL's
@@ -71,8 +70,7 @@ export const POST = withAuth(
           autoPaused: false,
           pauseReason: null,
           pausedAt: null,
-        })
-        .where(eq(schema.sponsoredQuests.id, questId));
+        },auth.user.sub);
       await syncSponsoredQuestTemplate(orm, questId);
 
       return NextResponse.json({ success: true, data: { questId, restarted: true }, error: null });
