@@ -55,6 +55,8 @@ The account catalog keeps product identity separate from canonical entitlement t
 
 ## Migration consolidation
 
+Optional SQL Editor seeding covers 57 content tables and 80 additional quest templates. Verified fresh/rerun/concurrent execution, owner eligibility, late-failure rollback and preservation of real data; no live deployment was seeded. See [coverage and instructions](SEED-CONTENT.md).
+
 Table-only reset recovery is verified: leftover helper functions cause `42723`; guarded cleanup followed by the full baseline restores the exact final schema. See [setup instructions](SETUP.md#if-reinstalling-after-deliberately-wiping-the-old-tables).
 
 All former 0001–0039 SQL files are consolidated into one declarative baseline: 309 tables and 809 reference rows. A scratch database built from the old chain and databases built from the new SQL have matching final application schemas and reference data. Supabase-style role tests preserve client grants/policies, add explicit server grants and confirm that broad inherited defaults do not expose private receipts. A non-superuser owner installs the schema without platform roles and tolerates an unavailable monitoring extension. Existing extension namespaces are supported without moving provider-owned objects. Seven runner integration checks cover installation/adoption/concurrency/rollback and refuse partial histories or changed files. Existing live databases were not changed. See [database instructions](../apps/web/db/README.md).

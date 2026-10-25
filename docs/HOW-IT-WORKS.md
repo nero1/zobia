@@ -1800,6 +1800,8 @@ This ensures zero dropped requests during rolling deploys on Vercel and other co
 
 ### Database Provider Abstraction
 
+Optional [starter content](SEED-CONTENT.md) is installed separately after admin setup. The migration already provides 26 quest templates; the seed adds 80 matching the current activity hooks, preserves assigned decks and does not manufacture accounts or financial activity.
+
 **Reinstallation:** deleting public tables can leave helper functions (`42723`). For an intentionally wiped installation, follow the [guarded cleanup steps](SETUP.md#if-reinstalling-after-deliberately-wiping-the-old-tables), then rerun the full baseline; existing installations use verified upgrades.
 
 `DATABASE_PROVIDER` env var → `lib/db/index.ts` reads it and returns the correct `DatabaseAdapter` singleton, which owns the underlying `pg.Pool` for that provider. `lib/db/drizzle.ts`'s `getDb()` wraps that *same* pool in a Drizzle ORM instance — application/business-logic code calls `const orm = await getDb();` and uses Drizzle's query builder against `schema.<table>` (see PRD §22.1.1), never a provider-specific SDK and, for new code, never the raw `db.query()`/`db.transaction()` adapter methods directly.

@@ -111,7 +111,7 @@ Choose **one** route below. For a new empty Supabase project, route A is the sim
 - Click **Raw**, select the complete file, and copy it. Do not copy only the visible preview.
 - In Supabase, open **SQL Editor → New query**.
 - Paste the complete SQL and click **Run**. Wait until it finishes successfully.
-- This creates the final tables, views, reference/configuration data, permissions, and row-level security rules in one migration. Do not run historical migration files or demo seeds afterward.
+- This creates the final tables, views, reference/configuration data, permissions, and row-level security rules in one migration. Do not run historical migration files. Optional starter content is installed separately after administrator setup in section 8.
 - If SQL Editor reports an error, keep the message and resolve it before proceeding. Do not repeatedly rerun the baseline over partially created application tables.
 
 ### If reinstalling after deliberately wiping the old tables
@@ -153,6 +153,15 @@ Deleting tables does not necessarily delete their helper functions. If SQL Edito
 - Open `https://YOUR_DOMAIN/gate44/login`. Sign in with your email/password and complete the authenticator-app setup. Admin actions use this separate admin sign-in.
 - In the admin panel, configure the features, payment providers, moderation, and limits you want to enable.
 - Test Google sign-in in a fresh browser session. For the PWA, install the site using your browser's **Install app** / **Add to Home Screen** option and test sign-in there too.
+
+### Optional: Add starter content
+
+- Finish the administrator setup above first.
+- Open [`apps/web/db/seed.sql`](../apps/web/db/seed.sql) on GitHub, click **Raw**, and copy the complete file.
+- Paste it into **Supabase → SQL Editor → New query**.
+- Near the top, replace `REPLACE_WITH_YOUR_ADMIN_EMAIL` with your administrator email, keeping the single quotes, then click **Run**.
+- Refresh the site and review the examples. This adds broad starter content and 80 extra quest templates without creating accounts or crediting wallets. Commercial/season/event examples stay inactive or drafts.
+- See [content coverage, prerequisites and quest behaviour](SEED-CONTENT.md). Existing daily decks stay unchanged; new templates enter future decks.
 
 ## 9. Build and download the Android test APK
 

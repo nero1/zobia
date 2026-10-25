@@ -78,6 +78,11 @@ jobs:
       - name: Verify PostgreSQL baseline portability and grants
         run: BASELINE_PORTABILITY_TEST=1 npx tsx db/test-baseline-portability.ts
 
+      - name: Verify optional SQL Editor starter content
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
+        run: npx tsx scripts/test-starter-content.ts
+
       - name: Run unit tests
         run: npm run test:unit
 

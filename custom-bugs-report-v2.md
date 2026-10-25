@@ -1,9 +1,9 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 01:33:34 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 02:32:15 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
-**Status:** Deployment checkpoint requested: finish the current batch, merge its PR, then halt. Findings marked ✅ have been fixed and verified; all other findings remain open for a later batch. This report replaces the previous report.
-**Additional review:** 102 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
+**Status:** Deployment follow-ups include verified schema readiness, reset recovery and optional starter-content work. Findings marked ✅ have been fixed and verified; nine earlier findings remain open. No production database was changed during these checks.
+**Additional review:** 108 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
@@ -120,6 +120,13 @@
 
 101: BUG ZOB-V2-101: ✅ [Medium] Health readiness succeeds against a database missing deployed authentication columns
 102: BUG ZOB-V2-102: ✅ [Medium] Google callback error logging exposes personal SQL parameters
+
+103: BUG ZOB-V2-103: ✅ [High] Optional seed creates a privileged demo account with placeholder credentials
+104: BUG ZOB-V2-104: ✅ [Medium] Optional guild seed references columns absent from the consolidated schema
+105: BUG ZOB-V2-105: ✅ [Medium] Seed reruns duplicate announcements and reaction items
+106: BUG ZOB-V2-106: ✅ [Medium] Optional event seed installs expired hardcoded 2025 dates
+107: BUG ZOB-V2-107: ✅ [Medium] Starter Q&A invents votes while membership counters disagree with child rows
+108: BUG ZOB-V2-108: ✅ [Medium] Root seed command points to a nonexistent TypeScript file
 
 ## Detailed findings and proposed fixes
 
@@ -1511,6 +1518,78 @@
 
 **VALIDATION:** Three diagnostic tests passed, including wrapped SQL errors containing private data, application codes, arbitrary strings, and cyclic causes.
 
+### 103: BUG ZOB-V2-103: ✅ [High] Optional seed creates a privileged demo account with placeholder credentials
+
+**PROBLEM:** The old seed inserts a fixed email as an email-verified administrator on the max plan with a placeholder password hash. Running demo content should not provision a privileged identity or claim a paid entitlement.
+
+**FILES:** `apps/web/db/seed.sql`
+
+**FIX:** Require one existing active, verified administrator as content owner; do not insert users or alter privileges, plans or balances.
+
+**RESOLUTION:** ✅ The standalone SQL validates the configured owner and refuses missing, ambiguous, blocked or unverified accounts. No account or financial activity is generated.
+
+**VALIDATION:** Real PostgreSQL preflight tests reject all ineligible owner states without changing data; the full seed preserves the single existing account, free plan and wallet balance.
+
+### 104: BUG ZOB-V2-104: ✅ [Medium] Optional guild seed references columns absent from the consolidated schema
+
+**PROBLEM:** The old guild inserts include city and country, which do not exist in the final guild table. The optional seed therefore cannot complete against the current baseline.
+
+**FILES:** `apps/web/db/seed.sql`
+
+**FIX:** Use the actual current table/relationship shapes and execute the full seed in one explicit transaction.
+
+**RESOLUTION:** ✅ The administrator-owned seed runs against the current schema, with guarded parent ownership and required child records. Any failure rolls back the complete operation.
+
+**VALIDATION:** The exact SQL Editor file installs 296 rows across 57 tables in a fresh PostgreSQL fixture. A late blog-slug collision rolls back earlier inserts.
+
+### 105: BUG ZOB-V2-105: ✅ [Medium] Seed reruns duplicate announcements and reaction items
+
+**PROBLEM:** Announcement rows and reaction items previously omitted stable IDs and had no matching natural uniqueness constraint. ON CONFLICT DO NOTHING therefore inserted fresh duplicates on each rerun.
+
+**FILES:** `apps/web/db/seed.sql`
+
+**FIX:** Use stable IDs for every seeded row, serialize concurrent seeds, and preserve existing rows instead of updating them on conflict.
+
+**RESOLUTION:** ✅ Every inserted seed row has a stable ID; a transaction advisory lock serializes runs. Counters advance only when a corresponding child row is actually inserted.
+
+**VALIDATION:** Exact snapshots remain unchanged on rerun, concurrent invocations, owner edits, disabled announcements and expired Moments. Related counters are checked against their child rows.
+
+### 106: BUG ZOB-V2-106: ✅ [Medium] Optional event seed installs expired hardcoded 2025 dates
+
+**PROBLEM:** The event examples used fixed 2025 timestamps and did not enable the annual recurrence claimed in their comments. New deployments received expired events, while the seed activated seasonal and XP examples before operator review.
+
+**FILES:** `apps/web/db/seed.sql`
+
+**FIX:** Anchor examples to current/future dates, leave seasonal/financial event templates inactive, and retain their original dates on rerun.
+
+**RESOLUTION:** ✅ The season, cultural events and flash event are inactive examples with valid installation-relative dates. No repeat run extends schedules or reactivates records.
+
+**VALIDATION:** PostgreSQL tests confirm inactive seed events/seasons and exact schedule preservation across reruns.
+
+### 107: BUG ZOB-V2-107: ✅ [Medium] Starter Q&A invents votes while membership counters disagree with child rows
+
+**PROBLEM:** The old questions and answers contain positive vote scores without vote records. Seed rooms also create memberships without matching member totals, yielding misleading popularity and statistics.
+
+**FILES:** `apps/web/db/seed.sql`
+
+**FIX:** Start engagement at zero and derive denormalized membership, message, answer and comment counters only from inserted child records.
+
+**RESOLUTION:** ✅ Starter votes, ratings and activity remain empty. Membership and contribution counters reflect actual administrator-authored rows, without issuing rewards.
+
+**VALIDATION:** Real PostgreSQL checks compare nine counter relationships with actual child counts and confirm zero vote scores and no fabricated progress, ledgers or notifications.
+
+### 108: BUG ZOB-V2-108: ✅ [Medium] Root seed command points to a nonexistent TypeScript file
+
+**PROBLEM:** npm run seed invoked apps/web/db/seed.ts, which is absent. The working SQL file had no safe owner configuration through the migration runner.
+
+**FILES:** `package.json; apps/web/db/migrate.ts`
+
+**FIX:** Route the command through the existing optional seed runner and bind the administrator email as a transaction-local setting.
+
+**RESOLUTION:** ✅ The command now uses migrate --seed, requires SEED_OWNER_EMAIL, and runs the same standalone SQL without editing the migration baseline.
+
+**VALIDATION:** The actual migration runner adopts the fixture schema and seeds with a bound owner email; the resulting content snapshot is unchanged from the SQL Editor path.
+
 ## Ratings and brief review
 
 Ratings are engineering judgments, not a certification. Scores show **audited base → this verified batch → projected after every remaining fix**. Live deployment/provider checks still depend on the user's configured services.
@@ -1524,7 +1603,7 @@ Ratings are engineering judgments, not a certification. Scores show **audited ba
 
 ## Review scope and concise validation
 
-The initial audit and additional deep review identified **102 findings: 58 High and 44 Medium**. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit and additional deep review identified **108 findings: 59 High and 49 Medium**. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
 The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Android and shared source inventory contains 1,993 TypeScript/TSX files; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
@@ -1534,10 +1613,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **93/102 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
+Remediation progress: **99/108 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 01:33:34 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 02:32:15 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

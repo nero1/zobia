@@ -19,7 +19,7 @@
     "build:expo": "cd apps/expo && eas build --platform android --profile preview",
     "build:expo:prod": "cd apps/expo && eas build --platform android --profile production",
     "migrate": "cd apps/web && npx tsx db/migrate.ts",
-    "seed": "cd apps/web && npx tsx db/seed.ts",
+    "seed": "npm run migrate -- --seed",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "cd apps/web && npm run test",
