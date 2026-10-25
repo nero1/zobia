@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "إثبات الإكمال",
   "sponsoredFunding.noApplications": "لا توجد طلبات بانتظار المراجعة.",
   "common.pagination": "التنقل بين الصفحات",
-  "common.firstPage": "الصفحة الأولى"
+  "common.firstPage": "الصفحة الأولى",
+  "admin.googleTitle": "التحقق من وصول المسؤول",
+  "admin.googleIntro": "تابع باستخدام Google ثم أكد رمز تطبيق المصادقة. لا تحتاج إلى كلمة مرور.",
+  "admin.googleSetup": "امسح رمز QR بتطبيق المصادقة أو أدخل المفتاح أدناه."
 }

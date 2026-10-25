@@ -46,6 +46,7 @@ function TwoFAForm() {
       const data = (await res.json()) as {
         success?: boolean;
         onboardingCompleted?: boolean;
+        redirect?: string;
         error?: string;
       };
 
@@ -54,7 +55,9 @@ function TwoFAForm() {
         return;
       }
 
-      router.replace(data.onboardingCompleted ? "/home" : "/onboarding");
+      const destination = data.redirect && /^\/(?!\/)[a-zA-Z0-9/_-]*$/.test(data.redirect)
+        ? data.redirect : "/home";
+      router.replace(data.onboardingCompleted ? destination : "/onboarding");
     } catch {
       setError("Network error. Please try again.");
     } finally {

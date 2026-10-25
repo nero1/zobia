@@ -35,7 +35,11 @@ async function main() {
       process.execPath,
       [
         resolve("../../node_modules/tsx/dist/cli.mjs"),
-        resolve("scripts/check-v3-contract.ts"),
+        resolve(
+          process.argv.includes("--google-admin")
+            ? "scripts/check-google-admin-contract.ts"
+            : "scripts/check-v3-contract.ts",
+        ),
       ],
       {
         stdio: "inherit",

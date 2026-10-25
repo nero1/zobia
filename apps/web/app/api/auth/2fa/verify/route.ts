@@ -69,12 +69,17 @@ export async function POST(req: NextRequest) {
     // -----------------------------------------------------------------------
     {
       let userId: string;
+      let googleSource = false;
+      let returnTo: string | undefined;
       try {
         const payload = await verifyAccessToken(preAuthToken);
         if ((payload as Record<string, unknown>).type !== "pre_auth") {
           throw new Error("Not a pre-auth token");
         }
         userId = payload.sub;
+        googleSource = payload.auth_provider === "google";
+        returnTo = typeof payload.return_to === "string" && /^\/(?!\/)[a-zA-Z0-9/_-]*$/.test(payload.return_to)
+          ? payload.return_to : undefined;
       } catch {
         throw unauthorized("Invalid or expired pre-auth token");
       }
@@ -153,7 +158,7 @@ export async function POST(req: NextRequest) {
           is_moderator: user.isModerator,
           is_creator: user.isCreator,
         },
-        { ip, ua }
+        { ip, ua, ...(googleSource ? { authProvider: "google" as const, adminSession: user.isAdmin } : {}) }
       );
 
       if (isMobile) {
@@ -186,6 +191,7 @@ export async function POST(req: NextRequest) {
       const response = NextResponse.json({
         success: true,
         onboardingCompleted: user.onboardingCompleted,
+        ...(user.onboardingCompleted && returnTo ? { redirect: returnTo } : {}),
       });
       response.headers.append("Set-Cookie", accessCookie);
       response.headers.append("Set-Cookie", refreshCookie);

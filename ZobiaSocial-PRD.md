@@ -1706,7 +1706,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 ### Admin Panel Architecture
 
 - Web-based admin panel (separate from the user-facing interface).
-- Authentication: email + password + mandatory 2FA (authenticator app). No Google OAuth for admin login.
+- Authentication: Google sign-in + mandatory 2FA (authenticator app). No local password is required. Fresh Google sessions can enroll/verify the admin authenticator without signing out; administrator privileges are checked live in the database.
 - is_admin checked against the database on every admin API call, not just session data.
 
 ### Admin Dashboard Sections

@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "पूर्णता का प्रमाण",
   "sponsoredFunding.noApplications": "समीक्षा के लिए कोई आवेदन लंबित नहीं है।",
   "common.pagination": "पृष्ठ नेविगेशन",
-  "common.firstPage": "पहला पृष्ठ"
+  "common.firstPage": "पहला पृष्ठ",
+  "admin.googleTitle": "व्यवस्थापक पहुँच सत्यापित करें",
+  "admin.googleIntro": "Google से जारी रखें, फिर अपने प्रमाणक का कोड दर्ज करें। पासवर्ड की ज़रूरत नहीं है।",
+  "admin.googleSetup": "अपने प्रमाणक ऐप से यह QR कोड स्कैन करें या नीचे दी गई कुंजी दर्ज करें।"
 }

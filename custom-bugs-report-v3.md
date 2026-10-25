@@ -1,8 +1,8 @@
 # Custom Bugs Report — Version 3
 
-**Date and time:** October 25, 2026 — 07:32:38 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 10:28:25 PM WAT (Africa/Lagos)
 **Audited starting revision:** `3814f279` (main after PR #566).
-**Status:** Fresh review: eleven confirmed findings. All eleven findings are fixed and verified; final release checks are in progress. This replaces v2; earlier findings and fixes remain in Git history. No production database was changed.
+**Status:** Fresh review: twelve confirmed findings. All twelve findings are fixed and verified. Release checks are recorded with the pull request. This replaces v2; earlier findings and fixes remain in Git history. No production database was changed.
 
 ## Discovered bugs and issues
 
@@ -27,6 +27,8 @@
 10: BUG ZOB-V3-010: ✅ [High] Two-factor disable can race administrator promotion and ignore a failed update
 
 11: BUG ZOB-V3-011: ✅ [Medium] Tales discovery and subscriber paging lack matching ordered indexes
+
+12: BUG ZOB-V3-012: ✅ [Medium] Google-only administrators are sent to an unusable password-based admin login
 
 ## Detailed findings and fixes
 
@@ -140,6 +142,16 @@
 
 **VALIDATION:** Isolated fresh/upgrade catalogs match and preserve a fixture wallet balance. PostgreSQL query-plan checks verify the ordered discovery and author/subscriber access paths.
 
+### 12: BUG ZOB-V3-012: ✅ [Medium] Google-only administrators are sent to an unusable password-based admin login
+
+**PROBLEM:** Ordinary Google sessions lack administrator assurance, while the admin entry page requires a local password that Google-only accounts do not have. This leaves manually promoted Google users unable to complete the admin flow despite their valid site session.
+
+**FILES:** `/workspace/zobia/apps/web/lib/auth/googleAdmin.ts`; `/workspace/zobia/apps/web/app/api/auth/admin-session/route.ts`; `/workspace/zobia/apps/web/app/(admin)/gate44/login/page.tsx`; `/workspace/zobia/apps/android/src/components/admin/AdminGuard.tsx`; `/workspace/zobia/shared/ui/GoogleAdminVerification.tsx`
+
+**FIX:** Use server-verified Google provenance plus mandatory authenticator setup/verification. Rotate to a new privileged session ID after proof, keep the old token unprivileged, enforce live database roles and replay/rate limits, and share the themed flow across active clients. No local password is required.
+
+**VALIDATION:** Real PostgreSQL/Redis contracts cover first-time enrollment without a password, cookie and native token delivery, SID rotation, old-token denial, refreshed tokens, signed Google pre-auth, role removal and revoked source sessions. Production mobile/dark-mode browser checks verify QR enrollment, invalid-code handling and no logout or request loop. Setup instructions now describe the Google flow.
+
 ## Ratings and brief review
 
 Engineering judgments, **current baseline before v3 fixes → after these fixes**:
@@ -159,8 +171,8 @@ Review areas included live sessions, role assurance, account restoration, admini
 
 Tests use isolated local PostgreSQL databases, fixture Redis sessions and mocked external providers. No live payment or production migration was initiated. Physical-device/provider configuration and production load limits require deployment evidence; an audit cannot prove the absence of all future bugs.
 
-**Remediation progress:** 11/11 fixed and verified.
+**Remediation progress:** 12/12 fixed and verified.
 
 ---
 
-**Version 3 — Audit signature: Codex — October 25, 2026 — 07:32:38 PM WAT (Africa/Lagos)**
+**Version 3 — Audit signature: Codex — October 25, 2026 — 10:28:25 PM WAT (Africa/Lagos)**

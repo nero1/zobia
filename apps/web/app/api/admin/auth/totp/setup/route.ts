@@ -19,7 +19,7 @@ export const dynamic = 'force-dynamic';
  *      when needsSetup: true. This allows first-time TOTP setup without a session.
  *   2. A valid admin JWT (for re-setup after 2FA is already configured).
  *
- * PRD §20: "mandatory 2FA (authenticator app). No Google OAuth for admin login."
+ * Legacy credentials compatibility endpoint. Current admin entry uses Google + authenticator through /api/auth/admin-session.
  */
 
 import { NextRequest, NextResponse } from "next/server";

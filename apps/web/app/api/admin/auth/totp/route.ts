@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  * By re-verifying credentials here, the two-step flow remains stateless:
  * no temporary token is needed between the credentials and TOTP steps.
  *
- * PRD §20: "mandatory 2FA (authenticator app). No Google OAuth for admin login."
+ * Legacy credentials compatibility endpoint. Current admin entry uses Google + authenticator through /api/auth/admin-session.
  */
 
 import { NextRequest, NextResponse } from "next/server";

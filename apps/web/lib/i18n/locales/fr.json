@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "Preuve de réalisation",
   "sponsoredFunding.noApplications": "Aucune candidature en attente d’examen.",
   "common.pagination": "Pagination",
-  "common.firstPage": "Première page"
+  "common.firstPage": "Première page",
+  "admin.googleTitle": "Vérifier l’accès administrateur",
+  "admin.googleIntro": "Continuez avec Google, puis confirmez votre code d’authentification. Aucun mot de passe n’est nécessaire.",
+  "admin.googleSetup": "Scannez ce code QR avec votre application d’authentification ou saisissez la clé ci-dessous."
 }

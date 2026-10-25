@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
  * No session is issued at this step — the full session is issued only after
  * both credentials AND the TOTP code have been verified.
  *
- * PRD §20: "mandatory 2FA (authenticator app). No Google OAuth for admin login."
+ * Legacy credentials compatibility endpoint. Current admin entry uses Google + authenticator through /api/auth/admin-session.
  */
 
 import { NextRequest, NextResponse } from "next/server";

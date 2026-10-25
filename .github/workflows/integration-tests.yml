@@ -105,6 +105,11 @@ jobs:
           TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
         run: npx tsx scripts/test-v3-contracts.ts
 
+      - name: Verify Google-only administrator authentication
+        env:
+          TEST_ADMIN_DATABASE_URL: postgres://zobia:zobia_test_pw@localhost:5432/postgres
+        run: npx tsx scripts/test-v3-contracts.ts --google-admin
+
       - name: Run unit tests
         run: npm run test:unit
 

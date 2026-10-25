@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "Completion proof",
   "sponsoredFunding.noApplications": "No applications are awaiting review.",
   "common.pagination": "Pagination",
-  "common.firstPage": "First page"
+  "common.firstPage": "First page",
+  "admin.googleTitle": "Verify administrator access",
+  "admin.googleIntro": "Continue with Google, then confirm your authenticator code. No password is needed.",
+  "admin.googleSetup": "Scan this QR code with your authenticator app, or enter the key below."
 }

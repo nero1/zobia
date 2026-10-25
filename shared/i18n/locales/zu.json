@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "Ubufakazi bokuqeda",
   "sponsoredFunding.noApplications": "Azikho izicelo ezilinde ukubuyekezwa.",
   "common.pagination": "Ukuzulazula kwamakhasi",
-  "common.firstPage": "Ikhasi lokuqala"
+  "common.firstPage": "Ikhasi lokuqala",
+  "admin.googleTitle": "Qinisekisa ukufinyelela komlawuli",
+  "admin.googleIntro": "Qhubeka nge-Google, bese uqinisekisa ikhodi yohlelo lwakho lokuqinisekisa. Iphasiwedi ayidingeki.",
+  "admin.googleSetup": "Skena le khodi ye-QR ngohlelo lwakho lokuqinisekisa noma ufake ukhiye ongezansi."
 }

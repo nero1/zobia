@@ -1,6 +1,7 @@
 import { authFailureLogDetails } from "@/lib/db/errorCode";
 import { authReturnDestination } from "@/lib/auth/returnDestination";
 export const dynamic = 'force-dynamic';
+const SAFE_REDIRECT_RE = /^\/(?!\/)[a-zA-Z0-9/_-]*$/;
 
 /**
  * app/api/auth/google/callback/route.ts
@@ -138,7 +139,6 @@ async function alreadyAuthenticatedRedirect(
   try {
     const payload = await verifyAccessToken(token);
     if (!payload?.sub || payload.type === "pre_auth") return null;
-    const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*$/;
     const webRedirectRaw = req.cookies.get("zobia_web_redirect")?.value;
     const webRedirect = webRedirectRaw ? decodeURIComponent(webRedirectRaw) : null;
     const destination = webRedirect && SAFE_REDIRECT_RE.test(webRedirect)
@@ -244,8 +244,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const twoFaGloballyEnabled = twoFaRaw !== "false"; // default enabled
     const twoFaRequiredForMods = twoFaModsRaw === "true"; // default disabled
 
-    const needsTwoFaVerify = twoFaGloballyEnabled && user.totp_enabled;
-    const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.totp_enabled;
+    const needsTwoFaVerify = (twoFaGloballyEnabled || user.is_admin) && user.totp_enabled;
+    const mustSetUp2Fa = twoFaRequiredForMods && user.is_moderator && !user.is_admin && !user.totp_enabled;
 
     if (mustSetUp2Fa) {
       // Moderator who hasn't set up 2FA — block and redirect to require page
@@ -258,7 +258,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (needsTwoFaVerify) {
       // Issue a 5-minute pre-auth token and redirect to the 2FA verify page
       const preAuthToken = await signAccessToken(
-        { sub: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth" },
+        { sub: user.id, email: user.email, username: user.username ?? "", is_admin: user.is_admin, sid: "pre_auth", type: "pre_auth", auth_provider: "google", ...(webRedirect && SAFE_REDIRECT_RE.test(webRedirect) ? {return_to:webRedirect} : {}) },
         5 * 60
       );
       await redis.setex(`pre_auth:${user.id}`, 5 * 60, preAuthToken);
@@ -298,7 +298,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         is_creator: user.is_creator,
         onboarding_completed: user.onboarding_completed,
       },
-      { ip, ua }
+      { ip, ua, authProvider:"google" }
     );
 
     // -----------------------------------------------------------------
@@ -366,7 +366,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // (which would pass e.g. /auth?next=//evil.com). The new regex is stricter:
     // only alphanumeric characters, forward slashes, underscores, and hyphens
     // are allowed in the redirect path — no query strings, no fragments.
-    const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*$/;
     const redirectParam = req.nextUrl.searchParams.get("redirect");
     const safeRedirect = typeof redirectParam === "string" && SAFE_REDIRECT_RE.test(redirectParam)
       ? redirectParam

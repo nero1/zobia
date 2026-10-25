@@ -5563,5 +5563,8 @@
   "sponsoredFunding.proof": "Comprovativo de conclusão",
   "sponsoredFunding.noApplications": "Não há candidaturas aguardando análise.",
   "common.pagination": "Paginação",
-  "common.firstPage": "Primeira página"
+  "common.firstPage": "Primeira página",
+  "admin.googleTitle": "Verificar acesso de administrador",
+  "admin.googleIntro": "Continue com o Google e confirme o código do autenticador. Não é necessária uma senha.",
+  "admin.googleSetup": "Digitalize este código QR com o autenticador ou introduza a chave abaixo."
 }
