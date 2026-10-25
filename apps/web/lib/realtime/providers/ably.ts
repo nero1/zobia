@@ -1,3 +1,4 @@
+import { prepareRealtimeEvent } from "../protectedEvents";
 /**
  * lib/realtime/providers/ably.ts
  *
@@ -24,6 +25,7 @@ export class AblyProvider implements RealtimeProvider {
       throw new Error("ABLY_API_KEY is required when REALTIME_PROVIDER=ably");
     }
 
+    const prepared = await prepareRealtimeEvent(channel,event,data);
     const encodedChannel = encodeURIComponent(channel);
     const res = await fetch(
       `https://rest.ably.io/channels/${encodedChannel}/messages`,
@@ -33,13 +35,14 @@ export class AblyProvider implements RealtimeProvider {
           "Content-Type": "application/json",
           Authorization: `Basic ${Buffer.from(apiKey).toString("base64")}`,
         },
-        body: JSON.stringify({ name: event, data: JSON.stringify(data) }),
+        body: JSON.stringify({ name: prepared.event, data: JSON.stringify(prepared.data) }),
+        signal: AbortSignal.timeout(4000),
       }
     );
 
+    await res.body?.cancel().catch(()=>{});
     if (!res.ok) {
-      const text = await res.text().catch(() => "(no body)");
-      throw new Error(`Ably REST publish failed: ${res.status} ${text}`);
+      throw new Error(`Ably REST publish failed: ${res.status}`);
     }
   }
 }

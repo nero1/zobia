@@ -5551,5 +5551,10 @@
   "checkout.signFailed": "Wallet signing failed",
   "checkout.proveOwnership": "Prove that you own the sending wallet",
   "checkout.signOwnership": "Sign with wallet",
-  "checkout.ownershipSignature": "Wallet ownership signature"
+  "checkout.ownershipSignature": "Wallet ownership signature",
+  "mobileBridge.title": "Uendelee kwenye kivinjari?",
+  "mobileBridge.body": "Endelea tu ikiwa ulianza hatua hii kwenye programu ya Zobia. Kivinjari hiki kitaingia kwenye akaunti iliyoonyeshwa hapa chini.",
+  "mobileBridge.expiredTitle": "Kiungo hiki kimeisha muda",
+  "mobileBridge.expiredBody": "Rudi kwenye programu ya Zobia na ufungue ukurasa tena.",
+  "mobileBridge.impersonation": "Hiki ni kipindi cha muda cha usaidizi kwa kutumia akaunti nyingine."
 }

@@ -1,13 +1,13 @@
 # Custom Bugs Report — Version 2
 
-**Date and time:** October 25, 2026 — 02:32:15 AM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 07:35:13 AM WAT (Africa/Lagos)
 **Audited revision:** `35c4e9b1255f4366b2a82baf441a6eb750072e88`
 **Status:** Deployment follow-ups include verified schema readiness, reset recovery and optional starter-content work. Findings marked ✅ have been fixed and verified; nine earlier findings remain open. No production database was changed during these checks.
 **Additional review:** 108 independently confirmed findings. Existing IDs are preserved; additional findings are appended.
 
 ## Discovered bugs and issues
 
-1: BUG ZOB-V2-001: [High] Realtime signing endpoints accept revoked sessions and stale account access
+1: BUG ZOB-V2-001: ✅ [High] Realtime signing endpoints accept revoked sessions and stale account access
 2: BUG ZOB-V2-002: ✅ [High] Public draft preview accepts revoked sessions and pre-authentication tokens
 3: BUG ZOB-V2-003: ✅ [High] Rewarded-ad endpoint grants spendable coins without ad-completion proof
 4: BUG ZOB-V2-004: ✅ [High] Rewarded-ad coins are incorrectly booked as fiat Creator Fund revenue
@@ -69,7 +69,7 @@
 60: BUG ZOB-V2-060: ✅ [High] Quest completion can permanently lose its committed coin reward
 61: BUG ZOB-V2-061: ✅ [High] Guild quest contribution locks expire before completion decisions
 62: BUG ZOB-V2-062: ✅ [High] Referral claims can attach multiple direct inviters to one account
-63: BUG ZOB-V2-063: [High] Mobile browser hand-offs discard source-session revocation and impersonation
+63: BUG ZOB-V2-063: ✅ [High] Mobile browser hand-offs discard source-session revocation and impersonation
 64: BUG ZOB-V2-064: ✅ [High] A push endpoint can remain owned by multiple accounts on one device
 65: BUG ZOB-V2-065: ✅ [Medium] A SQL error aborts an entire DLQ retry batch and prevents retry accounting
 66: BUG ZOB-V2-066: ✅ [High] Referral commission retries lose the original crypto settlement asset
@@ -128,9 +128,11 @@
 107: BUG ZOB-V2-107: ✅ [Medium] Starter Q&A invents votes while membership counters disagree with child rows
 108: BUG ZOB-V2-108: ✅ [Medium] Root seed command points to a nonexistent TypeScript file
 
+109: BUG ZOB-V2-109: ✅ [Medium] Shared Ably acquisition resets the channel reference count
+
 ## Detailed findings and proposed fixes
 
-### 1: BUG ZOB-V2-001: [High] Realtime signing endpoints accept revoked sessions and stale account access
+### 1: BUG ZOB-V2-001: ✅ [High] Realtime signing endpoints accept revoked sessions and stale account access
 
 **PROBLEM:** Both channel-signing handlers verify JWT signatures without checking the current Redis session or active database account. A logged-out or newly banned user can obtain fresh realtime authorization until JWT expiry, with Ably access then lasting one hour. Room authorization also omits ordinary-room ban/expiry checks.
 
@@ -139,6 +141,10 @@
 **FIX:** Use the shared live authentication boundary and current channel entitlement checks. Bind subscription lifetime and revocation to session and membership changes.
 
 **EVIDENCE:** Local HTTP proof: profile API rejected a revoked session with 401 while realtime signing returned 200.
+
+**RESOLUTION:** ✅ Realtime signing and payload reads now validate live sessions, account standing and channel entitlement. Ably/Pusher private broadcasts contain only opaque IDs; body reads are freshly authorized, bounded and batched, so an old socket cannot retain private payload access. Sign-out closes browser connections.
+
+**VALIDATION:** Real PostgreSQL/Redis route contracts cover revoked/pre-auth/cutoff/banned/suspended sessions, lost memberships, blocks, expired VIP/drop/limited rooms and foreign event IDs. Provider tests verify private bodies never leave through broadcasts; batch limits, replay coalescing and cooldown tests pass.
 
 ### 2: BUG ZOB-V2-002: ✅ [High] Public draft preview accepts revoked sessions and pre-authentication tokens
 
@@ -982,7 +988,7 @@
 
 **VALIDATION:** Concurrent codes select one canonical inviter and a cyclic follow-up is rejected. The real migration runner preserves the canonical inviter and quarantines its duplicate while keeping the existing wallet unchanged.
 
-### 63: BUG ZOB-V2-063: [High] Mobile browser hand-offs discard source-session revocation and impersonation
+### 63: BUG ZOB-V2-063: ✅ [High] Mobile browser hand-offs discard source-session revocation and impersonation
 
 **PROBLEM:** A hand-off code stores only userId. Consumption creates an unrelated session without checking whether the originating session remains active or carrying its impersonation provenance and expiry. A code minted before logout can restore access afterward; an impersonation hand-off becomes an ordinary refreshable session without the actor check or impersonation lifetime.
 
@@ -991,6 +997,10 @@
 **FIX:** Bind codes to the source session, provenance, expiry and intended destination; revalidate them on consumption and preserve all security restrictions. Require a browser-bound hand-off intent.
 
 **EVIDENCE:** Local proofs: consumption after source revocation created a session accepted by /auth/me; an impersonation hand-off lost impersonated_by. The access TTL remained 900 seconds; the defect is lost provenance and refresh restrictions.
+
+**RESOLUTION:** ✅ Browser hand-offs require explicit, same-origin confirmation bound to an HttpOnly browser secret and a one-time 90-second grant. Issued sessions retain the immediate source, original expiry and impersonation provenance; chained delegation is rejected, and confirmation rechecks live account/source authority.
+
+**VALIDATION:** Real route contracts and unit tests verify GET cannot sign in, wrong-browser/cross-origin/replay rejection, expiry/path binding, source logout, actor demotion, account bans/suspensions and credential cutoffs after preview. Backend authority outages propagate instead of masquerading as logout.
 
 ### 64: BUG ZOB-V2-064: ✅ [High] A push endpoint can remain owned by multiple accounts on one device
 
@@ -1590,6 +1600,18 @@
 
 **VALIDATION:** The actual migration runner adopts the fixture schema and seeds with a bound owner email; the resulting content snapshot is unchanged from the SQL Editor path.
 
+### 109: BUG ZOB-V2-109: ✅ [Medium] Shared Ably acquisition resets the channel reference count
+
+**PROBLEM:** Both active clients delete a channel from the wanted map before reading its existing reference count. Two subscribers therefore leave a count of one, and the first release detaches the channel while the second still needs it. Live updates silently stop until reconnection or polling.
+
+**FILES:** `apps/web/lib/realtime/ablyShared.ts`; `apps/android/src/lib/realtime/ablyShared.ts`
+
+**FIX:** Preserve the existing reference count before moving the channel to the most-recent position, and detach only when the last subscriber releases it.
+
+**RESOLUTION:** ✅ Both active clients now retain the previous count during acquisition.
+
+**VALIDATION:** The shared-client regression acquires twice, releases once and repeats that release without detaching; final release detaches exactly once.
+
 ## Ratings and brief review
 
 Ratings are engineering judgments, not a certification. Scores show **audited base → this verified batch → projected after every remaining fix**. Live deployment/provider checks still depend on the user's configured services.
@@ -1613,10 +1635,10 @@ The earlier checks for this same revision passed 590 unit tests and 145 integrat
 
 Financial/provider analysis used source tracing and isolated local fixtures; no live payment was initiated. Findings marked as masked explain their blocking condition and do not claim a successful exploit through that condition. Pool/concurrency recommendations are based on observed command structure; thousands-user load capacity and future zero-cost operation were not established by this audit.
 
-Remediation progress: **99/108 fixed and verified**. This batch is being prepared for the user’s requested deployment checkpoint; unresolved findings remain open and are not claimed fixed.
+Remediation progress: **102/109 fixed and verified**. The remaining financial and upload findings are being completed in subsequent batches; unresolved findings are not claimed fixed.
 
 ---
 
-**Version 2 — Audit signature: Codex — October 25, 2026 — 02:32:15 AM WAT (Africa/Lagos)**
+**Version 2 — Audit signature: Codex — October 25, 2026 — 07:35:13 AM WAT (Africa/Lagos)**
 
 End of complete Version 2 report.

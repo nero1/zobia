@@ -1,68 +1,22 @@
+import { BRIDGE_COOKIE, bridgeCookie, readBridgeGrant, createBridgeIntent, consumeBridgeIntent, type BridgeGrant } from "@/lib/auth/mobileBridge";
+import { readBoundedBytes } from "@/lib/security/requestBody";
 export const dynamic = 'force-dynamic';
 
-/**
- * app/api/auth/mobile-bridge/consume/route.ts
- *
- * GET /api/auth/mobile-bridge/consume?code=<code>&redirect=<path>
- *
- * Companion to ../route.ts (see its header comment for the full ZSB-04
- * context). Not authenticated by Bearer token — the single-use `code` itself
- * is the credential, exactly like the OAuth `mobile_exchange` code flow.
- *
- * Looks up the code (atomically deleting it — single use), resolves the
- * owning user, mints a brand-new web session, sets the same HttpOnly
- * `accessCookie`/`refreshCookie` the OAuth web flow sets, and redirects to
- * the originally-requested path so the destination page renders normally.
- */
+/** GET establishes a browser-bound confirmation intent; only a same-origin,
+ * one-time POST can create the delegated cookie session. Both phases recheck
+ * the originating session and live account standing. */
 
 import { NextRequest, NextResponse } from "next/server";
-import { redis } from "@/lib/redis";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { createSession, buildCookieHeaders, getSessionFresh } from "@/lib/auth/session";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { handleApiError,badRequest } from "@/lib/api/errors";
+import { handleApiError,forbidden,badRequest } from "@/lib/api/errors";
 
-// Path plus an optional bounded query string (alphanumeric keys/values,
-// `=`/`&` separators only — no fragments). Deliberately looser than the
-// OAuth web-redirect SAFE_REDIRECT_RE in app/api/auth/google/callback/
-// route.ts, which disallows query strings entirely because that redirect
-// target is public-facing (BUG-030). This endpoint's redirect targets are
-// restricted server-side to `ALLOWED_BRIDGE_PATHS` in ../route.ts — the only
-// one that currently carries a query string is `/gate44/kyc?userId=<uuid>`,
-// so allowing a bounded alphanumeric query string here is required for that
-// flow to actually land on the right admin page instead of silently falling
-// back to /home, while still rejecting anything that could carry `<`, `"`,
-// `javascript:`, `//`, or other injection-relevant characters.
-const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*(?:\?[a-zA-Z0-9=&_-]*)?$/;
-
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  try {
-    const ip = getClientIp(req);
-    const ua = getUserAgent(req);
-    await enforceRateLimit(ip, "ip", RATE_LIMITS.oauthCallback);
-
-    const reqOrigin = new URL(req.url).origin;
-    const code = req.nextUrl.searchParams.get("code");
-    const redirectParam = req.nextUrl.searchParams.get("redirect");
-    if (!code || !/^[a-f0-9]{64}$/.test(code)) {
-      return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
-    }
-
-    // Atomic single-use consume — a replayed/guessed code fails from here on.
-    const raw = await redis.getdel(`mobile_bridge:${code}`);
-    if (!raw) {
-      return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
-    }
-
-    const grant = JSON.parse(raw) as {userId:string;sourceSid:string;path:string};
+async function loadPrincipal(grant: BridgeGrant) {
     const source = await getSessionFresh(grant.sourceSid);
-    if (!source || source.uid !== grant.userId) return NextResponse.redirect(new URL("/auth/login",reqOrigin),{status:302});
+    if (!source || source.uid !== grant.userId || source.parentSid) return null;
     const userId = grant.userId;
-    if (!grant.path.startsWith("/") || grant.path.startsWith("//") || !SAFE_REDIRECT_RE.test(grant.path)) throw badRequest("Invalid hand-off destination");
-    if (redirectParam && redirectParam !== grant.path) throw badRequest("Hand-off destination does not match");
-    const destination = new URL(grant.path, reqOrigin);
-    if(destination.origin!==reqOrigin)throw badRequest("Invalid hand-off destination");
     const orm = await getDb();
     const rows = await orm
       .select({
@@ -79,20 +33,53 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .limit(1);
     const user = rows[0];
     if (!user) {
-      return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
+      return null;
     }
 
-    const authTokens = await createSession(
-      { ...user, onboarding_completed: user.onboarding_completed ?? false },
-      { ip, ua, parentSid:source.sid, impersonatedBy:source.impersonatedBy, adminSession:source.adminSession }
-    );
-    const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens, undefined, authTokens.refreshTtl);
+    return { user, source };
+}
 
-    const response = NextResponse.redirect(destination, { status: 302 });
-    response.headers.append("Set-Cookie", accessCookie);
-    response.headers.append("Set-Cookie", refreshCookie);
+export async function GET(req: NextRequest): Promise<NextResponse> {
+  try {
+    await enforceRateLimit(getClientIp(req), "ip", RATE_LIMITS.oauthCallback);
+    const origin = new URL(req.url).origin;
+    const code = req.nextUrl.searchParams.get("code") ?? "";
+    const grant = await readBridgeGrant(code);
+    if (grant && req.nextUrl.searchParams.has("redirect") && req.nextUrl.searchParams.get("redirect") !== grant.path) throw badRequest("Hand-off destination does not match");
+    if (!grant) {
+      return NextResponse.redirect(new URL("/auth/mobile-bridge", origin), {status:303});
+    }
+    const principal = await loadPrincipal(grant);
+    if (!principal) return NextResponse.redirect(new URL("/auth/mobile-bridge",origin),{status:303});
+    const intent = await createBridgeIntent(code, grant, principal.user.username, !!principal.source.impersonatedBy);
+    const response = NextResponse.redirect(new URL(`/auth/mobile-bridge?intent=${intent.id}`, origin), {status:303});
+    response.headers.append("Set-Cookie", bridgeCookie(intent.secret));
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
     return response;
-  } catch (err) {
-    return handleApiError(err);
-  }
+  } catch (error) { return handleApiError(error); }
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  try {
+    const origin = new URL(req.url).origin;
+    if (req.headers.get("origin") !== origin) throw forbidden("Browser confirmation must originate from this website");
+    await enforceRateLimit(getClientIp(req), "ip", RATE_LIMITS.oauthCallback);
+    const body = new URLSearchParams(new TextDecoder("utf-8", {fatal:true}).decode(await readBoundedBytes(req,4096)));
+    const grant = await consumeBridgeIntent(body.get("intent") ?? "", req.cookies.get(BRIDGE_COOKIE)?.value);
+    if (!grant) return NextResponse.redirect(new URL("/auth/mobile-bridge",origin), {status:303});
+    const principal = await loadPrincipal(grant);
+    if (!principal) return NextResponse.redirect(new URL("/auth/mobile-bridge",origin), {status:303});
+    const {user,source} = principal;
+    const authTokens = await createSession(
+      {...user, onboarding_completed:user.onboarding_completed ?? false},
+      {ip:getClientIp(req),ua:getUserAgent(req),parentSid:source.sid,impersonatedBy:source.impersonatedBy,adminSession:source.adminSession}
+    );
+    const {accessCookie,refreshCookie} = buildCookieHeaders(authTokens,undefined,authTokens.refreshTtl);
+    const response = NextResponse.redirect(new URL(grant.path,origin),{status:303});
+    for (const cookie of [accessCookie,refreshCookie,bridgeCookie("",true)]) response.headers.append("Set-Cookie",cookie);
+    response.headers.set("Cache-Control","no-store");
+    response.headers.set("Referrer-Policy","no-referrer");
+    return response;
+  } catch (error) { return handleApiError(error); }
 }

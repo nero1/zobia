@@ -8,8 +8,8 @@
  *
  * `openAuthenticatedWebLink()` mints a short-lived, single-use bridge code via
  * POST /api/auth/mobile-bridge (authenticated with this app's Bearer token),
- * then opens the consume endpoint, which exchanges the code for a real,
- * cookie-backed web session before redirecting to the requested path.
+ * then opens a browser-bound confirmation page. After confirmation, the backend
+ * exchanges the code for a cookie session tied to the originating app session.
  */
 
 import { Browser } from '@capacitor/browser';
@@ -36,7 +36,7 @@ export async function openAuthenticatedWebLink(path: string): Promise<void> {
     );
     await Browser.open({ url: consumeUrl, presentationStyle: 'popover' });
   } catch (err) {
-    console.error('[bridge] Failed to mint mobile-bridge code, opening unauthenticated link:', err);
+    console.warn('[bridge] Browser hand-off unavailable; opening the page without a delegated session.');
     await Browser.open({ url: universalLink(path), presentationStyle: 'popover' });
   }
 }

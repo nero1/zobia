@@ -1,6 +1,7 @@
 import {readBoundedBytes} from "@/lib/security/requestBody";
-import { realtimeResourceActive } from "@/lib/realtime/channelAccess";
-import { loadClassroomContext } from "@/lib/classroom/access";
+import { authorizeRealtimeChannel } from "@/lib/realtime/channelAccess";
+import { handleApiError } from "@/lib/api/errors";
+import { enforceRateLimit } from "@/lib/security/rateLimit";
 export const runtime = "nodejs";
 
 /**
@@ -18,11 +19,10 @@ export const runtime = "nodejs";
 
 import { type NextRequest } from "next/server";
 import { createHmac } from "node:crypto";
-import { and, eq, exists, isNull, or } from "drizzle-orm";
 import { env } from "@/lib/env";
 import { authenticateAccessToken } from "@/lib/auth/principal";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
-import { getDb, schema } from "@/lib/db/drizzle";
+import { getDb } from "@/lib/db/drizzle";
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const DM_CHANNEL_RE = new RegExp(`^private-dm-conversation-(${UUID})$`);
@@ -39,7 +39,8 @@ const USER_CHANNEL_RE = new RegExp(`^private-user-(${UUID})$`);
 
 export async function POST(req: NextRequest) {
   // 1. Authenticate
-  const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const bearer = req.headers.get("authorization");
+  const token = bearer?.toLowerCase().startsWith("bearer ") ? bearer.slice(7).trim() : req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   if (!token) {
     return new Response("Unauthorized", { status: 401 });
   }
@@ -48,9 +49,12 @@ export async function POST(req: NextRequest) {
   try {
     const { payload } = await authenticateAccessToken(token);
     userId = payload.sub;
-  } catch {
-    return new Response("Unauthorized", { status: 401 });
+  } catch(error) {
+    return handleApiError(error);
   }
+
+  try { await enforceRateLimit(userId,"user",{name:"realtime:sign",limit:60,windowMs:60000,globalLimit:20000}); }
+  catch(error){return handleApiError(error);}
 
   // 2. Parse body
   let body: { socket_id?: string; channel_name?: string };
@@ -71,7 +75,9 @@ export async function POST(req: NextRequest) {
     return new Response("Invalid request body", { status: 400 });
   }
 
+  if (!body || typeof body!=="object" || Array.isArray(body)) return new Response("Invalid request body",{status:400});
   const { socket_id, channel_name } = body;
+  if (typeof socket_id !== "string" || socket_id.length>64 || !/^\d+\.\d+$/.test(socket_id) || typeof channel_name !== "string" || channel_name.length>200) return new Response("Invalid channel request",{status:400});
   if (!socket_id || !channel_name) {
     return new Response("Missing socket_id or channel_name", { status: 400 });
   }
@@ -86,74 +92,9 @@ export async function POST(req: NextRequest) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
+  const logicalChannel = dmMatch ? `dm:conversation:${dmMatch[1]}` : roomMatch ? `room:${roomMatch[1]}:messages` : groupMatch ? `group:${groupMatch[1]}:messages` : `user:${userMatch![1]}`;
   const orm = await getDb();
-  if (dmMatch) {
-    const conversationId = dmMatch[1];
-    const [row] = await orm
-      .select({ id: schema.dmConversations.id })
-      .from(schema.dmConversations)
-      .where(
-        and(
-          eq(schema.dmConversations.id, conversationId),
-          or(eq(schema.dmConversations.userId1, userId), eq(schema.dmConversations.userId2, userId))
-        )
-      )
-      .limit(1);
-    if (!row) {
-      return new Response("Forbidden", { status: 403 });
-    }
-  } else if (roomMatch) {
-    const roomId = roomMatch[1];
-    if (!await realtimeResourceActive("room",roomId,userId)) return new Response("Forbidden", {status:403});
-    const [row] = await orm
-      .select({ id: schema.rooms.id, type: schema.rooms.type })
-      .from(schema.rooms)
-      .where(
-        and(
-          eq(schema.rooms.id, roomId),
-          eq(schema.rooms.isActive, true),
-          or(
-            eq(schema.rooms.creatorId, userId),
-            exists(
-              orm
-                .select({ id: schema.roomMembers.id })
-                .from(schema.roomMembers)
-                .where(
-                  and(
-                    eq(schema.roomMembers.roomId, schema.rooms.id),
-                    eq(schema.roomMembers.userId, userId),
-                    isNull(schema.roomMembers.leftAt)
-                  )
-                )
-            )
-          )
-        )
-      )
-      .limit(1);
-    if (row?.type === "classroom") {
-      const context = await loadClassroomContext({ id: roomId }, userId);
-      if (!context.viewer.can.viewMemberContent) return new Response("Forbidden", { status: 403 });
-    }
-    if (!row) {
-      return new Response("Forbidden", { status: 403 });
-    }
-  } else if (groupMatch) {
-    const groupId = groupMatch[1];
-    if (!await realtimeResourceActive("group",groupId,userId)) return new Response("Forbidden", {status:403});
-    const [row] = await orm
-      .select({ group_chat_id: schema.groupChatMembers.groupChatId })
-      .from(schema.groupChatMembers)
-      .where(and(eq(schema.groupChatMembers.groupChatId, groupId), eq(schema.groupChatMembers.userId, userId)))
-      .limit(1);
-    if (!row) {
-      return new Response("Forbidden", { status: 403 });
-    }
-  } else if (userMatch) {
-    // A user's personal channel may only ever be subscribed to by that user.
-    if (userMatch[1] !== userId) {
-      return new Response("Forbidden", { status: 403 });
-    }
-  }
+  if (await authorizeRealtimeChannel(orm,userId,logicalChannel)!=="ok") return new Response("Forbidden",{status:403});
 
   // 4. Generate Pusher auth signature
   const { PUSHER_KEY, PUSHER_SECRET } = env;

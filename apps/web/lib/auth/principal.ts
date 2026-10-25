@@ -1,12 +1,14 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { verifyAccessToken } from "./jwt";
+import { verifyAccessToken, JwtVerificationError } from "./jwt";
 import { getSessionFresh } from "./session";
 import { getDb, schema } from "@/lib/db/drizzle";
 import { unauthorized } from "@/lib/api/errors";
 
 /** The same live trust boundary for API, SSR and short-lived hand-offs. */
 export async function authenticateAccessToken(token: string) {
-  const payload = await verifyAccessToken(token);
+  let payload;
+  try { payload = await verifyAccessToken(token); }
+  catch(error){if(error instanceof JwtVerificationError)throw unauthorized("Invalid or expired access token");throw error;}
   if (payload.type === "pre_auth" || !payload.sid) throw unauthorized("Complete sign-in first");
   const session = await getSessionFresh(payload.sid);
   if (!session || session.uid !== payload.sub) throw unauthorized("Session revoked");
