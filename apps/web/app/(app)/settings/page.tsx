@@ -697,6 +697,12 @@ export default function SettingsPage() {
     void saveField("notifications", updated);
   }
 
+  useEffect(() => {
+    if (!loading && !error && window.location.hash === "#two-factor") {
+      document.getElementById("two-factor")?.scrollIntoView({ block: "center" });
+    }
+  }, [loading, error, hasPIN, pinVerified, featureFlags.pinEnabled]);
+
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">

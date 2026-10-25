@@ -15,7 +15,7 @@ import { Link, useRouterState, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { adminNavItems } from '@/components/admin/adminNav';
-import { AdminGuard } from '@/components/admin/AdminGuard';
+import { AdminGuard, AdminTwoFactorReminderBanner } from '@/components/admin/AdminGuard';
 import { ImpersonationBanner } from '@/components/admin/ImpersonationBanner';
 import { Icon } from '@/components/ui/Icon';
 
@@ -72,6 +72,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
+        <AdminTwoFactorReminderBanner />
         <main className="flex-1 overflow-y-auto">
           <div className="page-slide-in h-full">{children}</div>
         </main>

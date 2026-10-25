@@ -1,5 +1,7 @@
 import {
   useCallback,
+  createContext,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -19,6 +21,20 @@ import { apiClient } from "@/lib/api/client";
 import { env } from "@/lib/env";
 import { OAUTH_CALLBACK_LINK } from "@/lib/deeplinks/routes";
 import { beginOAuthAttempt, endOAuthAttempt } from "@/lib/auth/preAuth";
+type AdminPolicy = { userId: string; twoFaEnabled: boolean };
+const AdminPolicyContext = createContext<AdminPolicy | null>(null);
+
+export function AdminTwoFactorReminderBanner() {
+  const policy = useContext(AdminPolicyContext);
+  const navigate = useNavigate();
+  return policy ? (
+    <AdminTwoFactorReminder
+      userId={policy.userId}
+      enabled={policy.twoFaEnabled}
+      onEnable={() => void navigate({ to: "/settings/security" })}
+    />
+  ) : null;
+}
 function sessionId(token: string | null) {
   try {
     return String(
@@ -33,10 +49,7 @@ function sessionId(token: string | null) {
 function GoogleAdminGate({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [verified, setVerified] = useState(false);
-  const [policy, setPolicy] = useState<{
-    userId: string;
-    twoFaEnabled: boolean;
-  } | null>(null);
+  const [policy, setPolicy] = useState<AdminPolicy | null>(null);
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -108,16 +121,9 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
     }
   };
   return verified ? (
-    <>
-      {policy && (
-        <AdminTwoFactorReminder
-          userId={policy.userId}
-          enabled={policy.twoFaEnabled}
-          onEnable={() => void navigate({ to: "/settings/security" })}
-        />
-      )}
+    <AdminPolicyContext.Provider value={policy}>
       {children}
-    </>
+    </AdminPolicyContext.Provider>
   ) : (
     <div className="flex min-h-full items-center justify-center p-4">
       <GoogleAdminVerification

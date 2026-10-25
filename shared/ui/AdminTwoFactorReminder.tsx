@@ -29,9 +29,11 @@ export function AdminTwoFactorReminder({
   return (
     <aside
       aria-label={t("settings.twoFa.title")}
-      className="flex flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
+      className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100"
     >
-      <p className="min-w-0 flex-1">{t("admin.twoFaReminder")}</p>
+      <p className="min-w-0 basis-full sm:basis-0 sm:flex-1">
+        {t("admin.twoFaReminder")}
+      </p>
       <button
         type="button"
         onClick={onEnable}

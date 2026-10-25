@@ -1,6 +1,6 @@
 # Custom Bugs Report — Version 3
 
-**Date and time:** October 25, 2026 — 10:50:28 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 10:58:50 PM WAT (Africa/Lagos)
 **Audited starting revision:** `3814f279` (main after PR #566).
 **Admin policy:** 2FA is optional and off by default. Existing enabled factors are preserved; changing this policy requires no migration. Reminder dismissal is local to the account and device.
 
@@ -36,7 +36,7 @@
 
 ### 1: BUG ZOB-V3-001: ✅ [High] Custom staff endpoints bypass administrator two-factor session assurance
 
-**PROBLEM:** Several room, guild and support admin handlers use withAuth plus database role checks rather than the elevated admin wrapper. An ordinary OAuth session for an admin account can therefore exercise those staff privileges. Conditional KYC/profile/guild staff views also check roles without session assurance.
+**PROBLEM:** For accounts with 2FA enabled, several room, guild and support admin handlers use withAuth plus database role checks rather than the elevated admin wrapper. An ordinary OAuth session for an admin account can therefore exercise those staff privileges. Conditional KYC/profile/guild staff views also check roles without session assurance.
 
 **FILES:** `/workspace/zobia/apps/web/lib/api/middleware.ts`; `/workspace/zobia/apps/web/lib/auth/roles.ts`; `/workspace/zobia/apps/web/lib/support/staffAuth.ts`; `/workspace/zobia/apps/web/lib/support/service.ts`; `/workspace/zobia/apps/web/app/api/kyc/documents/[id]/route.ts`; conditional profile and guild staff-view routes
 
@@ -152,7 +152,7 @@
 
 **FIX:** Allow normal sessions while account 2FA is off (the default), with a themed dismissible reminder linking to existing Security settings. When explicitly enabled, require server-verified Google provenance plus authenticator verification. Rotate to a new privileged session ID after proof, keep the old token unprivileged, enforce live database roles and replay/rate limits, and share the themed flow across active clients. No local password is required.
 
-**VALIDATION:** Real PostgreSQL/Redis contracts cover first-time enrollment without a password, cookie and native token delivery, SID rotation, old-token denial, refreshed tokens, signed Google pre-auth, role removal and revoked source sessions. Production mobile/dark-mode browser checks verify QR enrollment, invalid-code handling and no logout or request loop. Setup instructions now describe the Google flow.
+**VALIDATION:** Real PostgreSQL/Redis contracts cover first-time enrollment without a password, cookie and native token delivery, SID rotation, old-token denial, refreshed tokens, signed Google pre-auth, role removal and revoked source sessions. Production mobile/dark-mode browser checks verify ordinary-session admin entry, per-account reminder dismissal across reloads, navigation to existing 2FA settings and no logout or request loop. Setup instructions now describe the Google flow.
 
 ## Ratings and brief review
 
@@ -177,4 +177,4 @@ Tests use isolated local PostgreSQL databases, fixture Redis sessions and mocked
 
 ---
 
-**Version 3 — Audit signature: Codex — October 25, 2026 — 10:50:28 PM WAT (Africa/Lagos)**
+**Version 3 — Audit signature: Codex — October 25, 2026 — 10:58:50 PM WAT (Africa/Lagos)**
