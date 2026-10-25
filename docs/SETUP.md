@@ -105,7 +105,7 @@ Use one website address throughout, for example `https://zobia.vercel.app`. Repl
 
 Choose **one** route below. For a new empty Supabase project, route A is the simplest.
 
-### A. New, empty Supabase database
+### A. Supabase SQL Editor (new, empty database)
 
 - On GitHub, open [`apps/web/db/migrations/0001_consolidated_schema.sql`](../apps/web/db/migrations/0001_consolidated_schema.sql) on branch **main**.
 - Click **Raw**, select the complete file, and copy it. Do not copy only the visible preview.
@@ -124,12 +124,16 @@ Deleting tables does not necessarily delete their helper functions. If SQL Edito
 - After cleanup succeeds, run the complete `0001_consolidated_schema.sql` from route A again.
 - Do not delete Supabase's `auth` or `storage` schemas. Do not change function declarations or skip migration statements to get past the error.
 
-### B. Existing database, or setup through GitHub's website
+### B. GitHub Actions (alternative to Supabase SQL Editor)
 
 - For an existing database, first create a backup using the provider's dashboard and confirm how you would restore it. Backup availability depends on your provider and plan.
-- Open your GitHub repository → **Settings → Secrets and variables → Actions → New repository secret**.
-- Add `MIGRATION_DATABASE_URL` with the direct/session-pooler PostgreSQL URL, including the real database password.
-- Add `MIGRATION_DB_CA_CERT` with the full database CA certificate text. This workflow uses that name for every supported database provider.
+Use this route instead of pasting SQL into Supabase. It installs a new database or applies supported upgrades to an existing one, without a terminal.
+
+- In **Supabase → your project → Connect**, select **Session pooler** and copy the PostgreSQL connection URI. Replace `[YOUR-PASSWORD]` with your database password (URL-encode special characters, as explained in section 1). Do not use the transaction-pooler URL for migrations.
+- Open your **GitHub repository → Settings → Secrets and variables → Actions → New repository secret**.
+- Enter **Name:** `MIGRATION_DATABASE_URL`. Paste the connection URI into **Secret**, then click **Add secret**.
+- Click **New repository secret** again. Name it `MIGRATION_DB_CA_CERT`, paste the complete database CA certificate from section 1, including the BEGIN/END lines, and save.
+- These secrets must be saved in GitHub; adding them only in Vercel does not configure this workflow. If it says **Add MIGRATION_DATABASE_URL in GitHub Actions secrets first**, check the secret's exact name and repository.
 - Open **Actions → Database Setup → Run workflow**.
 - Select branch **main**. Choose **apply** for a new database or a recognized existing installation.
 - Choose **adopt** only if the baseline was previously pasted manually and the database has no migration history. This verifies and registers that schema.
