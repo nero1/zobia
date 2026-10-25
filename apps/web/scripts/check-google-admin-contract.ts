@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Client } from "pg";
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import {
   createSession,
@@ -17,6 +17,19 @@ import { encryptField } from "../lib/security/fieldEncryption";
 import { GET, POST } from "../app/api/auth/admin-session/route";
 import { POST as completeOAuth } from "../app/api/auth/2fa/verify/route";
 import { GET as overview } from "../app/api/admin/rooms/route";
+import { GET as guilds } from "../app/api/admin/guilds/route";
+import { GET as support } from "../app/api/admin/support/tickets/route";
+import { POST as disableTwoFa } from "../app/api/auth/2fa/disable/route";
+import {
+  GET as startTwoFa,
+  POST as confirmTwoFa,
+} from "../app/api/auth/2fa/setup/route";
+import {
+  withAdminAuth,
+  withAdModeratorOrAdminAuth,
+} from "../lib/api/middleware";
+import { requestContext } from "../lib/logger";
+import { getStaffRoles } from "../lib/auth/roles";
 async function main() {
   if (
     !/^\/zobia_v3_[a-f0-9]+$/.test(new URL(process.env.DATABASE_URL!).pathname)
@@ -59,8 +72,60 @@ async function main() {
     const legacy = await createSession(admin);
     const old = await GET(req(legacy.accessToken), ctx);
     assert.equal(old.status, 200);
-    assert.equal((await old.json()).data.state, "google_required");
+    assert.deepEqual((await old.json()).data, {
+      state: "authorized",
+      userId: admin.id,
+      twoFaEnabled: false,
+    });
     assert(!old.headers.get("set-cookie"));
+    const adminOnly = withAdminAuth(async () =>
+      NextResponse.json({ success: true }),
+    );
+    const ads = withAdModeratorOrAdminAuth(async () =>
+      NextResponse.json({ success: true }),
+    );
+    const staffEndpoints = [
+      [overview, "/api/admin/rooms"],
+      [guilds, "/api/admin/guilds"],
+      [support, "/api/admin/support/tickets"],
+      [adminOnly, "/api/admin/fixture"],
+      [ads, "/api/admin/ads/fixture"],
+    ] as const;
+    for (const [handler, path] of staffEndpoints) {
+      for (const cookie of [false, true]) {
+        const request = new NextRequest("http://localhost:3000" + path, {
+          headers: cookie
+            ? { cookie: `${ACCESS_TOKEN_COOKIE}=${legacy.accessToken}` }
+            : { authorization: "Bearer " + legacy.accessToken },
+        });
+        assert.equal((await handler(request, ctx)).status, 200, path);
+      }
+    }
+    await requestContext.run(
+      {
+        requestId: "fixture",
+        userId: admin.id,
+        route: "/api/kyc/documents/fixture",
+        adminSessionVerified: false,
+      },
+      async () => {
+        assert.equal(
+          (await getStaffRoles(admin.id, { requireAdminSession: true }))
+            .isAdmin,
+          true,
+        );
+      },
+    );
+    const impersonated = await createSession(admin, {
+      impersonatedBy: admin.id,
+    });
+    assert.equal(
+      (await adminOnly(req(impersonated.accessToken), ctx)).status,
+      403,
+    );
+    console.log(
+      "PASS new admins default to 2FA off and regular cookie/Bearer sessions reach every staff wrapper; live roles and impersonation boundaries remain enforced",
+    );
     const google = await createSession(admin, {
         authProvider: "google",
         ua: "Fixture/1.0",
@@ -68,7 +133,7 @@ async function main() {
       source = await verifyAccessToken(google.accessToken);
     assert.equal(
       (await (await GET(req(google.accessToken), ctx)).json()).data.state,
-      "setup_required",
+      "authorized",
     );
     const setups = await Promise.all([
       POST(req(google.accessToken, { action: "setup" }), ctx),
@@ -93,6 +158,31 @@ async function main() {
     assert.notEqual(elevated.sid, source.sid);
     assert.equal((await getSessionFresh(elevated.sid))?.adminSession, true);
     assert.notEqual((await getSessionFresh(source.sid))?.adminSession, true);
+    for (const [handler, path] of staffEndpoints) {
+      const denied = await handler(
+        new NextRequest("http://localhost:3000" + path, {
+          headers: { authorization: "Bearer " + legacy.accessToken },
+        }),
+        ctx,
+      );
+      assert.equal(denied.status, 403, path);
+      assert.equal((await denied.json()).error.code, "ADMIN_REAUTH_REQUIRED");
+    }
+    await requestContext.run(
+      {
+        requestId: "fixture",
+        userId: admin.id,
+        route: "/api/kyc/documents/fixture",
+        adminSessionVerified: false,
+      },
+      async () => {
+        assert.equal(
+          (await getStaffRoles(admin.id, { requireAdminSession: true }))
+            .isAdmin,
+          false,
+        );
+      },
+    );
     assert.equal(
       (
         await overview(
@@ -125,7 +215,72 @@ async function main() {
       409,
     );
     console.log(
-      "PASS Google-only admin enrollment needs no password, is bound to a live source, rotates SID, leaves the old token unprivileged, and never exposes refresh tokens in web JSON",
+      "PASS explicit Google-only admin enrollment immediately gates old sessions, needs no password, rotates SID, and never exposes refresh tokens in web JSON",
+    );
+    const disable = (code: string) =>
+      disableTwoFa(
+        new NextRequest("http://localhost:3000/api/auth/2fa/disable", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer " + google.accessToken,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ code }),
+        }),
+        ctx,
+      );
+    assert.equal(
+      (await disable(code)).status,
+      400,
+      "Consumed enrollment code cannot disable protection",
+    );
+    const nextCode = computeTotp(secret, Math.floor(Date.now() / 30000) + 1);
+    assert.equal(
+      (await disable(nextCode)).status,
+      200,
+      "Admin can explicitly disable their own factor with a fresh valid code",
+    );
+    assert.equal(
+      (await (await GET(req(legacy.accessToken), ctx)).json()).data
+        .twoFaEnabled,
+      false,
+    );
+    assert.equal((await adminOnly(req(legacy.accessToken), ctx)).status, 200);
+    console.log(
+      "PASS admin disabling requires a valid unused code and normal-session access resumes when the live account setting is off",
+    );
+
+    // The general-user feature toggle must not hide the admin's own choice.
+    const optional = await user(),
+      optionalSession = await createSession(optional);
+    await db.query(
+      "INSERT INTO x_manifest(key,value) VALUES('auth_2fa_enabled','false') ON CONFLICT(key) DO UPDATE SET value='false'",
+    );
+    const accountReq = (body?: unknown) =>
+      new NextRequest("http://localhost:3000/api/auth/2fa/setup", {
+        method: body ? "POST" : "GET",
+        headers: {
+          authorization: "Bearer " + optionalSession.accessToken,
+          ...(body ? { "content-type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    const started = await startTwoFa(accountReq(), ctx);
+    assert.equal(started.status, 200);
+    const optionalFactor = (await started.json()).secret;
+    const optedIn = await confirmTwoFa(
+      accountReq({
+        code: computeTotp(optionalFactor, Math.floor(Date.now() / 30000)),
+      }),
+      ctx,
+    );
+    assert.equal(optedIn.status, 200);
+    assert.equal(
+      (await adminOnly(req(optionalSession.accessToken), ctx)).status,
+      403,
+    );
+    console.log(
+      "PASS account Security settings allow admins to opt in even when general-user 2FA enrollment is disabled",
     );
     const second = await user(),
       secondSecret = generateTotpSecret();

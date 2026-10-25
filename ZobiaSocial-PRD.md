@@ -1706,7 +1706,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 ### Admin Panel Architecture
 
 - Web-based admin panel (separate from the user-facing interface).
-- Authentication: Google sign-in + mandatory 2FA (authenticator app). No local password is required. Fresh Google sessions can enroll/verify the admin authenticator without signing out; administrator privileges are checked live in the database.
+- Authentication: normal Google sign-in can access admin; account-level authenticator 2FA defaults to off and is explicitly opt-in in Security settings. Show a dismissible, per-account/device reminder while it is off. Once enabled, enforce 2FA for Google sign-in and admin access; require a valid current code to disable it. No local password is required. Check administrator privileges and the 2FA setting live in the database. Deployments preserve existing enabled factors.
 - is_admin checked against the database on every admin API call, not just session data.
 
 ### Admin Dashboard Sections

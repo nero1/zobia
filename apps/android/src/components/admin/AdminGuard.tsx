@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import { Browser } from "@capacitor/browser";
 import { QRCodeSVG } from "qrcode.react";
+import { AdminTwoFactorReminder } from "@zobia/shared/ui/AdminTwoFactorReminder";
 import {
   GoogleAdminVerification,
   type GoogleAdminTransport,
@@ -32,6 +33,10 @@ function sessionId(token: string | null) {
 function GoogleAdminGate({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [verified, setVerified] = useState(false);
+  const [policy, setPolicy] = useState<{
+    userId: string;
+    twoFaEnabled: boolean;
+  } | null>(null);
   const auth = useAuth();
   const authRef = useRef(auth);
   authRef.current = auth;
@@ -60,6 +65,12 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
               { ...expectedUser, is_admin: true },
               result.refreshToken,
             );
+          }
+          if (result.userId && typeof result.twoFaEnabled === "boolean") {
+            setPolicy({
+              userId: result.userId,
+              twoFaEnabled: result.twoFaEnabled,
+            });
           }
           return result;
         } catch (error) {
@@ -97,7 +108,16 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
     }
   };
   return verified ? (
-    <>{children}</>
+    <>
+      {policy && (
+        <AdminTwoFactorReminder
+          userId={policy.userId}
+          enabled={policy.twoFaEnabled}
+          onEnable={() => void navigate({ to: "/settings/security" })}
+        />
+      )}
+      {children}
+    </>
   ) : (
     <div className="flex min-h-full items-center justify-center p-4">
       <GoogleAdminVerification

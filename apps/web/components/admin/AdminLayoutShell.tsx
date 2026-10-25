@@ -14,6 +14,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";
 import { Icon } from "@/components/ui/Icon";
+import { AdminTwoFactorReminder } from "@zobia/shared/ui/AdminTwoFactorReminder";
 
 const adminNavItems = [
   { href: "/gate44/auto-content", label: "Official Content Studio", icon: "Ⓩ" },
@@ -152,6 +153,22 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function AdminStatusBar() {
   const [maintenance, setMaintenance] = useState<{ enabled: boolean } | null>(null);
+  const [policy, setPolicy] = useState<{userId: string; twoFaEnabled: boolean} | null>(null);
+  const pathname = usePathname();
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/auth/admin-session", {credentials: "include", cache: "no-store"});
+        if (!res.ok) return;
+        const {data} = await res.json();
+        if (active && data?.userId && typeof data.twoFaEnabled === "boolean") setPolicy(data);
+      } catch { /* The reminder does not gate admin access. */ }
+    };
+    void load();
+    window.addEventListener("focus", load);
+    return () => { active = false; window.removeEventListener("focus", load); };
+  }, [pathname]);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +185,7 @@ function AdminStatusBar() {
 
   return (
     <>
+      {policy && <AdminTwoFactorReminder key={policy.userId} userId={policy.userId} enabled={policy.twoFaEnabled} onEnable={() => window.location.assign("/settings#two-factor")} />}
       {maintenance?.enabled && (
         <div role="status" className="flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-xs font-semibold text-white">
           <Icon emoji="🚧" size={16} /> Maintenance mode is ON — only admins and moderators can access Zobia right now.

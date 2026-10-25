@@ -35,15 +35,18 @@ async function authority(userId: string, sid: string) {
 }
 export async function googleAdminStatus(userId: string, sid: string) {
   const { user, session } = await authority(userId, sid);
+  const policy = { userId, twoFaEnabled: user.totpEnabled };
+  if (!user.totpEnabled) return { state: "authorized" as const, ...policy };
   if (
     session.authProvider !== "google" ||
     (!session.adminSession &&
       Date.now() - Date.parse(session.created_at) > 15 * 60 * 1000)
   )
-    return { state: "google_required" as const };
+    return { state: "google_required" as const, ...policy };
   if (session.adminSession && user.totpEnabled)
-    return { state: "authorized" as const };
+    return { state: "authorized" as const, ...policy };
   return {
+    ...policy,
     state: user.totpEnabled
       ? ("verify_required" as const)
       : ("setup_required" as const),

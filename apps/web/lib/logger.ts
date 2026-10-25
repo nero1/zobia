@@ -69,6 +69,7 @@ interface RequestContext {
   requestId: string;
   userId: string | null;
   adminSessionVerified?: boolean;
+  adminImpersonated?: boolean;
   route: string;
 }
 

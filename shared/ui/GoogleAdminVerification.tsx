@@ -16,6 +16,8 @@ type State =
   | "denied";
 interface Result {
   state: State;
+  userId?: string;
+  twoFaEnabled?: boolean;
   secret?: string;
   otpauthUri?: string;
 }

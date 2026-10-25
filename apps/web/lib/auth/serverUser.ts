@@ -10,6 +10,7 @@
 
 import { cookies } from "next/headers";
 import { authenticateAccessToken } from "@/lib/auth/principal";
+import { hasAdminAssurance } from "@/lib/auth/adminAccess";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 
 export interface OptionalServerUser {
@@ -28,7 +29,7 @@ export async function getOptionalServerUser(): Promise<OptionalServerUser | null
     const { user, session } = await authenticateAccessToken(accessToken);
     return {
       userId: user.id,
-      isAdmin: !!user.is_admin && !!session.adminSession,
+      isAdmin: !!user.is_admin && hasAdminAssurance(session, user.totp_enabled),
       isModerator: !!user.is_moderator,
       isSupport: !!user.is_support,
       isSeniorSupport: !!user.is_senior_support,

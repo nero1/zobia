@@ -5566,5 +5566,6 @@
   "common.firstPage": "First page",
   "admin.googleTitle": "Confirm admin access",
   "admin.googleIntro": "Continue with Google, then enter your authenticator code. You no need password.",
-  "admin.googleSetup": "Scan this QR code with your authenticator app, or enter the key below."
+  "admin.googleSetup": "Scan this QR code with your authenticator app, or enter the key below.",
+  "admin.twoFaReminder": "Two-factor authentication dey off for your admin account. Turn am on for Security settings to protect your account more."
 }

@@ -5566,5 +5566,6 @@
   "common.firstPage": "Primeira página",
   "admin.googleTitle": "Verificar acesso de administrador",
   "admin.googleIntro": "Continue com o Google e confirme o código do autenticador. Não é necessária uma senha.",
-  "admin.googleSetup": "Digitalize este código QR com o autenticador ou introduza a chave abaixo."
+  "admin.googleSetup": "Digitalize este código QR com o autenticador ou introduza a chave abaixo.",
+  "admin.twoFaReminder": "A autenticação de dois fatores está desativada na sua conta de administrador. Ative-a nas configurações de segurança para ter mais proteção."
 }

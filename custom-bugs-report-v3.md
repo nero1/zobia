@@ -1,7 +1,9 @@
 # Custom Bugs Report — Version 3
 
-**Date and time:** October 25, 2026 — 10:28:25 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 10:50:28 PM WAT (Africa/Lagos)
 **Audited starting revision:** `3814f279` (main after PR #566).
+**Admin policy:** 2FA is optional and off by default. Existing enabled factors are preserved; changing this policy requires no migration. Reminder dismissal is local to the account and device.
+
 **Status:** Fresh review: twelve confirmed findings. All twelve findings are fixed and verified. Release checks are recorded with the pull request. This replaces v2; earlier findings and fixes remain in Git history. No production database was changed.
 
 ## Discovered bugs and issues
@@ -24,7 +26,7 @@
 
 9: BUG ZOB-V3-009: ✅ [Medium] Missing Tales story URLs render a successful page containing a client error
 
-10: BUG ZOB-V3-010: ✅ [High] Two-factor disable can race administrator promotion and ignore a failed update
+10: BUG ZOB-V3-010: ✅ [High] Two-factor disable can falsely succeed after concurrent authenticator changes
 
 11: BUG ZOB-V3-011: ✅ [Medium] Tales discovery and subscriber paging lack matching ordered indexes
 
@@ -38,9 +40,9 @@
 
 **FILES:** `/workspace/zobia/apps/web/lib/api/middleware.ts`; `/workspace/zobia/apps/web/lib/auth/roles.ts`; `/workspace/zobia/apps/web/lib/support/staffAuth.ts`; `/workspace/zobia/apps/web/lib/support/service.ts`; `/workspace/zobia/apps/web/app/api/kyc/documents/[id]/route.ts`; conditional profile and guild staff-view routes
 
-**FIX:** Enforce admin-session assurance before custom admin handlers and provide explicit session-aware staff-role lookup for privileged views. Preserve unfiltered database role truth for policies such as mandatory administrator 2FA and preserve ordinary moderator/support access.
+**FIX:** Enforce admin-session assurance before custom admin handlers and provide explicit session-aware staff-role lookup for privileged views. Check the live per-account 2FA setting: ordinary sessions may administer when it is off; when enabled, all staff entry points require verified assurance. Preserve ordinary moderator/support access and deny impersonated admin access.
 
-**VALIDATION:** Real PostgreSQL/API contracts reject ordinary-admin sessions, accept elevated admin sessions and pure moderators, and distinguish privileged visibility from raw role truth.
+**VALIDATION:** Real PostgreSQL/API contracts accept ordinary-admin sessions by default, reject them after explicit 2FA enrollment, accept verified sessions and pure moderators, and retain live role/revocation checks.
 
 ### 2: BUG ZOB-V3-002: ✅ [Medium] Public Tales responses include private moderation explanations
 
@@ -122,15 +124,15 @@
 
 **VALIDATION:** Production HTTP reaches the framework 404 boundary and renders the not-found page with noindex, without rendering the ordinary Tales client page. Next.js streamed responses can retain HTTP 200; this is recorded rather than claimed as a universal transport-status change.
 
-### 10: BUG ZOB-V3-010: ✅ [High] Two-factor disable can race administrator promotion and ignore a failed update
+### 10: BUG ZOB-V3-010: ✅ [High] Two-factor disable can falsely succeed after concurrent authenticator changes
 
-**PROBLEM:** The disable endpoint checks administrator status before its final update. A concurrent promotion can occur after that check, allowing the new administrator to lose mandatory two-factor authentication. Its secret comparison also ignores the affected-row count, so a concurrent authenticator change can produce a false success response.
+**PROBLEM:** The disable endpoint ignores the affected-row count, so a concurrent authenticator change can produce a false success response even though the factor remains enabled.
 
 **FILES:** `/workspace/zobia/apps/web/app/api/auth/2fa/disable/route.ts`; `/workspace/zobia/apps/web/scripts/check-v3-contract.ts`
 
-**FIX:** Require a non-admin account, enabled authenticator and unchanged secret in the atomic update. Return a conflict when no row changes, preserving the factor and the mandatory-admin-2FA policy.
+**FIX:** Require an enabled authenticator, valid unused code and unchanged secret in the atomic update. Return a conflict when no row changes. Administrators can explicitly disable their own factor under the revised opt-in policy.
 
-**VALIDATION:** A real PostgreSQL row lock pauses disable at its final update; another connection promotes the account, then releases the lock. Disable returns 409 and the promoted account retains its factor.
+**VALIDATION:** A real PostgreSQL row lock pauses disable at its final update; another connection replaces the authenticator, then releases the lock. Disable returns 409 and preserves the new factor.
 
 ### 11: BUG ZOB-V3-011: ✅ [Medium] Tales discovery and subscriber paging lack matching ordered indexes
 
@@ -148,7 +150,7 @@
 
 **FILES:** `/workspace/zobia/apps/web/lib/auth/googleAdmin.ts`; `/workspace/zobia/apps/web/app/api/auth/admin-session/route.ts`; `/workspace/zobia/apps/web/app/(admin)/gate44/login/page.tsx`; `/workspace/zobia/apps/android/src/components/admin/AdminGuard.tsx`; `/workspace/zobia/shared/ui/GoogleAdminVerification.tsx`
 
-**FIX:** Use server-verified Google provenance plus mandatory authenticator setup/verification. Rotate to a new privileged session ID after proof, keep the old token unprivileged, enforce live database roles and replay/rate limits, and share the themed flow across active clients. No local password is required.
+**FIX:** Allow normal sessions while account 2FA is off (the default), with a themed dismissible reminder linking to existing Security settings. When explicitly enabled, require server-verified Google provenance plus authenticator verification. Rotate to a new privileged session ID after proof, keep the old token unprivileged, enforce live database roles and replay/rate limits, and share the themed flow across active clients. No local password is required.
 
 **VALIDATION:** Real PostgreSQL/Redis contracts cover first-time enrollment without a password, cookie and native token delivery, SID rotation, old-token denial, refreshed tokens, signed Google pre-auth, role removal and revoked source sessions. Production mobile/dark-mode browser checks verify QR enrollment, invalid-code handling and no logout or request loop. Setup instructions now describe the Google flow.
 
@@ -175,4 +177,4 @@ Tests use isolated local PostgreSQL databases, fixture Redis sessions and mocked
 
 ---
 
-**Version 3 — Audit signature: Codex — October 25, 2026 — 10:28:25 PM WAT (Africa/Lagos)**
+**Version 3 — Audit signature: Codex — October 25, 2026 — 10:50:28 PM WAT (Africa/Lagos)**
