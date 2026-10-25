@@ -127,7 +127,7 @@ async function main() {
     await Promise.all([db.query(configured), other.query(configured)]);
     assert.deepEqual(await snapshot(db), edited);
     // The optional runner path must execute this same seed, not a second implementation.
-    const fixtureEnv = { ...process.env, NODE_ENV: 'test', DIRECT_URL: target.href, DATABASE_URL: target.href, SEED_OWNER_EMAIL: email };
+    const fixtureEnv: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', DIRECT_URL: target.href, DATABASE_URL: target.href, SEED_OWNER_EMAIL: email };
     execFileSync(process.execPath, [resolve(root, '../../node_modules/tsx/dist/cli.mjs'), resolve(root, 'db/migrate.ts'), '--adopt-baseline', '--seed'], {
       cwd: root, stdio: 'pipe', env: fixtureEnv,
     });
