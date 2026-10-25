@@ -1,3 +1,4 @@
+import {QUEST_ACTION_TYPES} from "@zobia/shared/utils";
 /** Execute the exact SQL Editor seed against disposable local PostgreSQL databases. */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -89,9 +90,7 @@ async function main() {
     const baselineQuests = (baseline.match(/INSERT INTO public\.quest_templates /g) ?? []).length;
     const quests = await db.query("SELECT * FROM quest_templates WHERE title LIKE 'Starter: %'");
     assert.equal(quests.rowCount, 80); assert.equal(baselineQuests, 26);
-    const engine = readFileSync(resolve(root, 'lib/quests/questEngine.ts'), 'utf8');
-    const actionSource = engine.match(/QUEST_ACTION_TYPES = \[([\s\S]*?)\] as const/)![1];
-    const actions = [...actionSource.matchAll(/"(\w+)"/g)].map(match => match[1]);
+    const actions=[...QUEST_ACTION_TYPES];
     assert.deepEqual([...new Set(quests.rows.map(row => row.action_type))].sort(), [...actions].sort());
     for (const quest of quests.rows) {
       assert.equal(quest.coin_reward, 0);
