@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { compare, hash } from "bcryptjs";
+import { hash } from "bcryptjs";
+import { verifyAdminMagicWord } from "@/lib/auth/adminMagicWord";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "@/lib/db/drizzle";
@@ -62,7 +63,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       .limit(1);
 
     const magicWordHash = user?.admin_magic_word_hash ?? (await DUMMY_HASH_PROMISE);
-    const valid = await compare(body.magicWord, magicWordHash);
+    const valid = await verifyAdminMagicWord(body.magicWord, magicWordHash);
 
     if (!user || !user.is_admin || !user.admin_magic_word_hash || !valid) {
       throw unauthorized("Incorrect Secret Magic Word.");

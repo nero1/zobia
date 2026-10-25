@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Verify administrator access",
   "admin.googleIntro": "Continue with Google, then confirm your authenticator code. No password is needed.",
   "admin.googleSetup": "Scan this QR code with your authenticator app, or enter the key below.",
-  "admin.twoFaReminder": "Two-factor authentication is off for your admin account. Enable it in Security settings for extra protection."
+  "admin.twoFaReminder": "Two-factor authentication is off for your admin account. Enable it in Security settings for extra protection.",
+  "admin.magicWord.title": "Secret Magic Word",
+  "admin.magicWord.help": "Use 6–200 characters. This phrase unlocks the admin sign-in attempt lock.",
+  "admin.magicWord.reminder": "You haven’t set your Secret Magic Word. Set it up for admin sign-in recovery.",
+  "admin.magicWord.set": "Set magic word",
+  "admin.magicWord.confirm": "Confirm magic word",
+  "admin.magicWord.saved": "Secret Magic Word saved.",
+  "admin.magicWord.configured": "A Secret Magic Word is set. Saving replaces it.",
+  "admin.magicWord.missing": "No Secret Magic Word is set.",
+  "admin.magicWord.googleRequired": "Sign in with Google again to save this security change.",
+  "admin.magicWord.mismatch": "The secret phrases do not match."
 }

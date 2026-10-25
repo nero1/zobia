@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Thibitisha ufikiaji wa msimamizi",
   "admin.googleIntro": "Endelea na Google, kisha thibitisha msimbo wa programu ya uthibitishaji. Nenosiri halihitajiki.",
   "admin.googleSetup": "Changanua msimbo huu wa QR kwa programu yako ya uthibitishaji au ingiza ufunguo hapa chini.",
-  "admin.twoFaReminder": "Uthibitishaji wa hatua mbili umezimwa kwa akaunti yako ya msimamizi. Uwashe katika mipangilio ya usalama kwa ulinzi zaidi."
+  "admin.twoFaReminder": "Uthibitishaji wa hatua mbili umezimwa kwa akaunti yako ya msimamizi. Uwashe katika mipangilio ya usalama kwa ulinzi zaidi.",
+  "admin.magicWord.title": "Neno la siri la urejeshaji",
+  "admin.magicWord.help": "Tumia herufi 6–200. Kauli hii hufungua kufuli la majaribio ya kuingia kwa msimamizi.",
+  "admin.magicWord.reminder": "Hujaweka neno lako la siri la urejeshaji. Liweke ili kurejesha ufikiaji wa msimamizi uliofungwa.",
+  "admin.magicWord.set": "Weka neno la siri",
+  "admin.magicWord.confirm": "Thibitisha neno la siri",
+  "admin.magicWord.saved": "Neno la siri limehifadhiwa.",
+  "admin.magicWord.configured": "Neno la siri limewekwa. Kuhifadhi jipya kutalibadilisha.",
+  "admin.magicWord.missing": "Hakuna neno la siri la urejeshaji lililowekwa.",
+  "admin.magicWord.googleRequired": "Ingia tena kwa Google ili kuhifadhi badiliko hili la usalama.",
+  "admin.magicWord.mismatch": "Kauli za siri hazilingani."
 }

@@ -30,6 +30,13 @@ import {
 } from "../lib/api/middleware";
 import { requestContext } from "../lib/logger";
 import { getStaffRoles } from "../lib/auth/roles";
+import {
+  GET as magicStatus,
+  POST as saveMagic,
+} from "../app/api/admin/auth/magic-word/route";
+import { POST as unlockAdmin } from "../app/api/admin/auth/unlock/route";
+import { verifyAdminMagicWord } from "../lib/auth/adminMagicWord";
+import { hash } from "bcryptjs";
 async function main() {
   if (
     !/^\/zobia_v3_[a-f0-9]+$/.test(new URL(process.env.DATABASE_URL!).pathname)
@@ -76,6 +83,7 @@ async function main() {
       state: "authorized",
       userId: admin.id,
       twoFaEnabled: false,
+      magicWordSet: false,
     });
     assert(!old.headers.get("set-cookie"));
     const adminOnly = withAdminAuth(async () =>
@@ -371,6 +379,198 @@ async function main() {
     );
     console.log(
       "PASS live role removal and revoked Google sources prevent new administrator access",
+    );
+    const magicAdmin = await user(),
+      plainMagic = await createSession(magicAdmin),
+      googleMagic = await createSession(magicAdmin, { authProvider: "google" });
+    const magicReq = (token: string, body?: unknown) =>
+      new NextRequest("http://localhost:3000/api/admin/auth/magic-word", {
+        method: body ? "POST" : "GET",
+        headers: {
+          authorization: "Bearer " + token,
+          "x-forwarded-for": fixtureIp,
+          ...(body ? { "content-type": "application/json" } : {}),
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    const initialMagic = await magicStatus(
+      magicReq(googleMagic.accessToken),
+      ctx,
+    );
+    assert.equal(initialMagic.headers.get("cache-control"), "no-store");
+    assert.deepEqual((await initialMagic.json()).data, {
+      userId: magicAdmin.id,
+      isSet: false,
+      googleReauthRequired: false,
+    });
+    const phrase = "a".repeat(72) + "long Unicode phrase 秘密";
+    const denied = await saveMagic(
+      magicReq(plainMagic.accessToken, {
+        userId: magicAdmin.id,
+        magicWord: phrase,
+      }),
+      ctx,
+    );
+    assert.equal(denied.status, 403);
+    assert.equal((await denied.json()).error.code, "GOOGLE_REAUTH_REQUIRED");
+    assert(!denied.headers.get("set-cookie"));
+    assert.equal(
+      (
+        await saveMagic(
+          magicReq(googleMagic.accessToken, {
+            userId: randomUUID(),
+            magicWord: phrase,
+          }),
+          ctx,
+        )
+      ).status,
+      409,
+    );
+    const savedMagic = await saveMagic(
+      magicReq(googleMagic.accessToken, {
+        userId: magicAdmin.id,
+        magicWord: phrase,
+      }),
+      ctx,
+    );
+    assert.equal(savedMagic.status, 200);
+    assert.equal(
+      (await (await GET(req(googleMagic.accessToken), ctx)).json()).data
+        .magicWordSet,
+      true,
+    );
+    const wordHash = (
+      await db.query("SELECT admin_magic_word_hash FROM users WHERE id=$1", [
+        magicAdmin.id,
+      ])
+    ).rows[0].admin_magic_word_hash;
+    assert.notEqual(wordHash, phrase);
+    assert(await verifyAdminMagicWord(phrase, wordHash));
+    assert.equal(
+      await verifyAdminMagicWord("a".repeat(72) + "another suffix", wordHash),
+      false,
+      "bcrypt must not truncate long phrases",
+    );
+    const safeStatus = JSON.stringify(
+      await (await magicStatus(magicReq(googleMagic.accessToken), ctx)).json(),
+    );
+    assert(!safeStatus.includes(wordHash) && !safeStatus.includes(phrase));
+    const unlock = async (word: string) =>
+      unlockAdmin(
+        new NextRequest("http://localhost:3000/api/admin/auth/unlock", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-forwarded-for": fixtureIp,
+          },
+          body: JSON.stringify({ email: magicAdmin.email, magicWord: word }),
+        }),
+      );
+    await redis.setex("admin_lockout:" + magicAdmin.email, 60, "3");
+    assert.equal((await unlock("a".repeat(72) + "another suffix")).status, 401);
+    assert.equal((await unlock(phrase)).status, 200);
+    assert.equal(await redis.get("admin_lockout:" + magicAdmin.email), null);
+    console.log(
+      "PASS fresh Google admins set magic words without a password, account switches are rejected, status never leaks secrets, and long phrases unlock only with the complete phrase",
+    );
+
+    const sourceId = (await verifyAccessToken(googleMagic.accessToken)).sid;
+    const sourceKey = "session:" + sourceId,
+      sourceRecord = JSON.parse((await redis.get(sourceKey))!);
+    sourceRecord.created_at = new Date(Date.now() - 11 * 60_000).toISOString();
+    await redis.setex(sourceKey, 900, JSON.stringify(sourceRecord));
+    assert.equal(
+      (await (await magicStatus(magicReq(googleMagic.accessToken), ctx)).json())
+        .data.googleReauthRequired,
+      true,
+    );
+    assert.equal(
+      (
+        await saveMagic(
+          magicReq(googleMagic.accessToken, {
+            userId: magicAdmin.id,
+            magicWord: "changed phrase",
+          }),
+          ctx,
+        )
+      ).status,
+      403,
+    );
+
+    const compatible = await user(),
+      password = "FixtureOnly-admin-password",
+      oldWord = "old fixture magic word";
+    await db.query(
+      "UPDATE users SET password_hash=$2,admin_magic_word_hash=$3 WHERE id=$1",
+      [compatible.id, await hash(password, 4), await hash(oldWord, 4)],
+    );
+    const compatibleSession = await createSession(compatible);
+    const legacyHash = (
+      await db.query("SELECT admin_magic_word_hash FROM users WHERE id=$1", [
+        compatible.id,
+      ])
+    ).rows[0].admin_magic_word_hash;
+    assert(await verifyAdminMagicWord(oldWord, legacyHash));
+    assert.equal(
+      (
+        await saveMagic(
+          magicReq(compatibleSession.accessToken, {
+            password,
+            magicWord: "replacement legacy phrase",
+          }),
+          ctx,
+        )
+      ).status,
+      200,
+    );
+    console.log(
+      "PASS stale Google sessions require reauthentication for changing the recovery phrase; existing bcrypt words and password API clients remain compatible",
+    );
+
+    const racer = await user(),
+      raceSession = await createSession(racer, { authProvider: "google" });
+    const blocker = new Client({ connectionString: process.env.DATABASE_URL });
+    await blocker.connect();
+    await blocker.query("BEGIN");
+    await blocker.query("SELECT id FROM users WHERE id=$1 FOR UPDATE", [
+      racer.id,
+    ]);
+    const pending = ["first racing phrase", "second racing phrase"].map(
+      (magicWord) =>
+        saveMagic(
+          magicReq(raceSession.accessToken, { userId: racer.id, magicWord }),
+          ctx,
+        ),
+    );
+    try {
+      let blocked = false;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        const locks = await db.query(
+          "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query ILIKE '%UPDATE%users%admin_magic_word_hash%' AND pid<>pg_backend_pid()",
+        );
+        if (locks.rows[0].n >= 2) {
+          blocked = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert(blocked, "Both phrase changes must reach the locked final UPDATE");
+      await blocker.query("COMMIT");
+      assert.deepEqual(
+        (await Promise.all(pending)).map((r) => r.status).sort(),
+        [200, 409],
+      );
+    } finally {
+      await blocker.query("ROLLBACK");
+      await blocker.end();
+    }
+    await db.query("UPDATE users SET is_admin=false WHERE id=$1", [racer.id]);
+    assert.equal(
+      (await magicStatus(magicReq(raceSession.accessToken), ctx)).status,
+      403,
+    );
+    console.log(
+      "PASS concurrent magic-word changes cannot overwrite one another and live administrator removal is enforced",
     );
   } finally {
     for (const id of users) await invalidateAllSessions(id);

@@ -22,7 +22,8 @@
     "./ui/SponsoredApplications": "./ui/SponsoredApplications.tsx",
     "./ui/CursorPagination": "./ui/CursorPagination.tsx",
     "./ui/GoogleAdminVerification": "./ui/GoogleAdminVerification.tsx",
-    "./ui/AdminTwoFactorReminder": "./ui/AdminTwoFactorReminder.tsx"
+    "./ui/AdminTwoFactorReminder": "./ui/AdminTwoFactorReminder.tsx",
+    "./ui/AdminMagicWord": "./ui/AdminMagicWord.tsx"
   },
   "peerDependencies": {
     "react": ">=18.2.0 <19",

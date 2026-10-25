@@ -160,6 +160,7 @@ Use this route instead of pasting SQL into Supabase. It installs a new database 
 - Confirm the query updated your account. If it updated zero rows, check the email before continuing.
 - Sign in with Google again after promotion, then open **Admin**. Two-factor authentication is **off by default**, so your normal sign-in can access admin. No local password is needed.
 - Optional: click **Enable 2FA** in the dismissible reminder, or open **Settings → Two-Factor Authentication** (Android: **Settings → Security**). Enabling it requires an authenticator code at sign-in; disabling it requires a current code. Existing enabled settings are preserved.
+- In **Admin → Security** (Android: **Settings → Security**), set and confirm your **Secret Magic Word** for unlocking sign-in attempts. Continue with Google again if prompted. The reminder disappears after saving.
 - In the admin panel, configure the features, payment providers, moderation, and limits you want to enable.
 - Test Google sign-in in a fresh browser session. For the PWA, install the site using your browser's **Install app** / **Add to Home Screen** option and test sign-in there too.
 

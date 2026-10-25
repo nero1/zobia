@@ -15,6 +15,7 @@ import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";
 import { Icon } from "@/components/ui/Icon";
 import { AdminTwoFactorReminder } from "@zobia/shared/ui/AdminTwoFactorReminder";
+import { AdminMagicWordReminder } from "@zobia/shared/ui/AdminMagicWord";
 
 const adminNavItems = [
   { href: "/gate44/auto-content", label: "Official Content Studio", icon: "Ⓩ" },
@@ -153,7 +154,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 function AdminStatusBar() {
   const [maintenance, setMaintenance] = useState<{ enabled: boolean } | null>(null);
-  const [policy, setPolicy] = useState<{userId: string; twoFaEnabled: boolean} | null>(null);
+  const [policy, setPolicy] = useState<{userId: string; twoFaEnabled: boolean; magicWordSet?: boolean} | null>(null);
   const pathname = usePathname();
   useEffect(() => {
     let active = true;
@@ -167,7 +168,8 @@ function AdminStatusBar() {
     };
     void load();
     window.addEventListener("focus", load);
-    return () => { active = false; window.removeEventListener("focus", load); };
+    window.addEventListener("zobia:admin-security-updated", load);
+    return () => { active = false; window.removeEventListener("focus", load); window.removeEventListener("zobia:admin-security-updated", load); };
   }, [pathname]);
 
   useEffect(() => {
@@ -186,6 +188,7 @@ function AdminStatusBar() {
   return (
     <>
       {policy && <AdminTwoFactorReminder key={policy.userId} userId={policy.userId} enabled={policy.twoFaEnabled} onEnable={() => window.location.assign("/settings#two-factor")} />}
+      {policy?.magicWordSet === false && <AdminMagicWordReminder onSetup={() => window.location.assign("/gate44/settings/security")} />}
       {maintenance?.enabled && (
         <div role="status" className="flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-xs font-semibold text-white">
           <Icon emoji="🚧" size={16} /> Maintenance mode is ON — only admins and moderators can access Zobia right now.

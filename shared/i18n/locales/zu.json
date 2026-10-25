@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Qinisekisa ukufinyelela komlawuli",
   "admin.googleIntro": "Qhubeka nge-Google, bese uqinisekisa ikhodi yohlelo lwakho lokuqinisekisa. Iphasiwedi ayidingeki.",
   "admin.googleSetup": "Skena le khodi ye-QR ngohlelo lwakho lokuqinisekisa noma ufake ukhiye ongezansi.",
-  "admin.twoFaReminder": "Ukuqinisekisa ngezinyathelo ezimbili kuvaliwe ku-akhawunti yakho yomlawuli. Kuvule kuzilungiselelo zokuphepha ukuze uthole ukuvikeleka okwengeziwe."
+  "admin.twoFaReminder": "Ukuqinisekisa ngezinyathelo ezimbili kuvaliwe ku-akhawunti yakho yomlawuli. Kuvule kuzilungiselelo zokuphepha ukuze uthole ukuvikeleka okwengeziwe.",
+  "admin.magicWord.title": "Ibinzana eliyimfihlo lokubuyisa ukufinyelela",
+  "admin.magicWord.help": "Sebenzisa izinhlamvu ezingu-6–200. Leli binzana livula ukukhiya kwemizamo yokungena yomlawuli.",
+  "admin.magicWord.reminder": "Awukasethi ibinzana lakho eliyimfihlo. Lisethe ukuze ubuyise ukufinyelela komlawuli okukhiyiwe.",
+  "admin.magicWord.set": "Setha ibinzana eliyimfihlo",
+  "admin.magicWord.confirm": "Qinisekisa ibinzana eliyimfihlo",
+  "admin.magicWord.saved": "Ibinzana eliyimfihlo lilondoloziwe.",
+  "admin.magicWord.configured": "Ibinzana eliyimfihlo lisethiwe. Ukulondoloza elisha kulishintsha.",
+  "admin.magicWord.missing": "Alikho ibinzana eliyimfihlo elisethiwe.",
+  "admin.magicWord.googleRequired": "Ngena futhi nge-Google ukuze ulondoloze lolu shintsho lokuphepha.",
+  "admin.magicWord.mismatch": "Amabinzana ayimfihlo awafani."
 }

@@ -1708,6 +1708,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Web-based admin panel (separate from the user-facing interface).
 - Authentication: normal Google sign-in can access admin; account-level authenticator 2FA defaults to off and is explicitly opt-in in Security settings. Show a dismissible, per-account/device reminder while it is off. Once enabled, enforce 2FA for Google sign-in and admin access; require a valid current code to disable it. No local password is required. Check administrator privileges and the 2FA setting live in the database. Deployments preserve existing enabled factors.
 - is_admin checked against the database on every admin API call, not just session data.
+- Show a persistent Secret Magic Word reminder until configured. Admin → Security supports Google-only setup after a recent Google sign-in; this does not require enabling 2FA. Store a versioned hash, preserve existing phrases, and hide the reminder after saving.
 
 ### Admin Dashboard Sections
 

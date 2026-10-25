@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "የአስተዳዳሪ መዳረሻን ያረጋግጡ",
   "admin.googleIntro": "በGoogle ይቀጥሉ፣ ከዚያ የማረጋገጫ መተግበሪያዎን ኮድ ያስገቡ። የይለፍ ቃል አያስፈልግም።",
   "admin.googleSetup": "ይህን QR ኮድ በማረጋገጫ መተግበሪያዎ ይቃኙ ወይም ከታች ያለውን ቁልፍ ያስገቡ።",
-  "admin.twoFaReminder": "ለአስተዳዳሪ መለያዎ ባለሁለት ደረጃ ማረጋገጫ ጠፍቷል። ለተጨማሪ ጥበቃ በደህንነት ቅንብሮች ያብሩት።"
+  "admin.twoFaReminder": "ለአስተዳዳሪ መለያዎ ባለሁለት ደረጃ ማረጋገጫ ጠፍቷል። ለተጨማሪ ጥበቃ በደህንነት ቅንብሮች ያብሩት።",
+  "admin.magicWord.title": "ሚስጥራዊ ቃል",
+  "admin.magicWord.help": "ከ6 እስከ 200 ቁምፊዎችን ይጠቀሙ። ይህ ሐረግ የአስተዳዳሪ መግቢያ ሙከራ እገዳን ይከፍታል።",
+  "admin.magicWord.reminder": "ሚስጥራዊ ቃልዎን አላዘጋጁም። የአስተዳዳሪ መግቢያን ለማስመለስ ያዘጋጁት።",
+  "admin.magicWord.set": "ሚስጥራዊ ቃል አዘጋጅ",
+  "admin.magicWord.confirm": "ሚስጥራዊ ቃሉን ያረጋግጡ",
+  "admin.magicWord.saved": "ሚስጥራዊ ቃሉ ተቀምጧል።",
+  "admin.magicWord.configured": "ሚስጥራዊ ቃል ተዘጋጅቷል። አዲስ ሲያስቀምጡ ይተካዋል።",
+  "admin.magicWord.missing": "ሚስጥራዊ ቃል አልተዘጋጀም።",
+  "admin.magicWord.googleRequired": "ይህን የደህንነት ለውጥ ለማስቀመጥ በGoogle እንደገና ይግቡ።",
+  "admin.magicWord.mismatch": "ሚስጥራዊ ሐረጎቹ አይዛመዱም።"
 }

@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Tabbatar da damar mai gudanarwa",
   "admin.googleIntro": "Ci gaba da Google, sannan ka tabbatar da lambar manhajar tantancewa. Ba a buƙatar kalmar sirri.",
   "admin.googleSetup": "Duba wannan lambar QR da manhajar tantancewa ko shigar da maɓallin da ke ƙasa.",
-  "admin.twoFaReminder": "An kashe tantancewa ta matakai biyu ga asusun gudanarwarka. Kunna ta a saitunan tsaro don ƙarin kariya."
+  "admin.twoFaReminder": "An kashe tantancewa ta matakai biyu ga asusun gudanarwarka. Kunna ta a saitunan tsaro don ƙarin kariya.",
+  "admin.magicWord.title": "Kalmar sirrin dawo da shiga",
+  "admin.magicWord.help": "Yi amfani da haruffa 6–200. Wannan jimla tana buɗe kullewar ƙoƙarin shigar mai gudanarwa.",
+  "admin.magicWord.reminder": "Ba ka saita kalmar sirrin dawo da shiga ba. Saita ta don dawo da shigar mai gudanarwa.",
+  "admin.magicWord.set": "Saita kalmar sirri",
+  "admin.magicWord.confirm": "Tabbatar da kalmar sirri",
+  "admin.magicWord.saved": "An adana kalmar sirrin dawo da shiga.",
+  "admin.magicWord.configured": "An saita kalmar sirri. Adana sabuwa zai maye gurbinta.",
+  "admin.magicWord.missing": "Ba a saita kalmar sirrin dawo da shiga ba.",
+  "admin.magicWord.googleRequired": "Sake shiga da Google don adana wannan canjin tsaro.",
+  "admin.magicWord.mismatch": "Jimlolin sirrin ba su dace ba."
 }
