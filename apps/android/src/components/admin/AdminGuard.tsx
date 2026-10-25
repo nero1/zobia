@@ -9,30 +9,39 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Browser } from "@capacitor/browser";
 import { QRCodeSVG } from "qrcode.react";
 import { AdminTwoFactorReminder } from "@zobia/shared/ui/AdminTwoFactorReminder";
+import { AdminMagicWordReminder } from "@zobia/shared/ui/AdminMagicWord";
 import {
   GoogleAdminVerification,
   type GoogleAdminTransport,
 } from "@zobia/shared/ui/GoogleAdminVerification";
 import { useAuth } from "@/lib/auth/store";
 import { apiClient } from "@/lib/api/client";
-import { env } from "@/lib/env";
-import { OAUTH_CALLBACK_LINK } from "@/lib/deeplinks/routes";
-import { beginOAuthAttempt, endOAuthAttempt } from "@/lib/auth/preAuth";
-type AdminPolicy = { userId: string; twoFaEnabled: boolean };
+import { signInWithGoogle } from "@/lib/auth/googleSignIn";
+type AdminPolicy = {
+  userId: string;
+  twoFaEnabled: boolean;
+  magicWordSet?: boolean;
+};
 const AdminPolicyContext = createContext<AdminPolicy | null>(null);
 
 export function AdminTwoFactorReminderBanner() {
   const policy = useContext(AdminPolicyContext);
   const navigate = useNavigate();
   return policy ? (
-    <AdminTwoFactorReminder
-      userId={policy.userId}
-      enabled={policy.twoFaEnabled}
-      onEnable={() => void navigate({ to: "/settings/security" })}
-    />
+    <>
+      <AdminTwoFactorReminder
+        userId={policy.userId}
+        enabled={policy.twoFaEnabled}
+        onEnable={() => void navigate({ to: "/settings/security" })}
+      />
+      {policy.magicWordSet === false && (
+        <AdminMagicWordReminder
+          onSetup={() => void navigate({ to: "/settings/security" })}
+        />
+      )}
+    </>
   ) : null;
 }
 function sessionId(token: string | null) {
@@ -83,6 +92,7 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
             setPolicy({
               userId: result.userId,
               twoFaEnabled: result.twoFaEnabled,
+              magicWordSet: result.magicWordSet,
             });
           }
           return result;
@@ -108,18 +118,6 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
   const ready = useCallback(async () => {
     setVerified(true);
   }, []);
-  const google = async () => {
-    beginOAuthAttempt();
-    try {
-      await Browser.open({
-        url: `${env.VITE_API_BASE_URL}/api/auth/google?redirect=${encodeURIComponent(OAUTH_CALLBACK_LINK)}`,
-        presentationStyle: "popover",
-      });
-    } catch (error) {
-      endOAuthAttempt();
-      throw error;
-    }
-  };
   return verified ? (
     <AdminPolicyContext.Provider value={policy}>
       {children}
@@ -130,7 +128,7 @@ function GoogleAdminGate({ children }: { children: ReactNode }) {
         onCancel={() => void navigate({ to: "/home" })}
         api={api}
         onAuthorized={ready}
-        onGoogleSignIn={google}
+        onGoogleSignIn={signInWithGoogle}
         renderQr={(uri) => <QRCodeSVG value={uri} size={180} />}
       />
     </div>

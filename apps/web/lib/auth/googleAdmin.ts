@@ -35,7 +35,7 @@ async function authority(userId: string, sid: string) {
 }
 export async function googleAdminStatus(userId: string, sid: string) {
   const { user, session } = await authority(userId, sid);
-  const policy = { userId, twoFaEnabled: user.totpEnabled };
+  const policy = { userId, twoFaEnabled: user.totpEnabled, magicWordSet: !!user.adminMagicWordHash };
   if (!user.totpEnabled) return { state: "authorized" as const, ...policy };
   if (
     session.authProvider !== "google" ||

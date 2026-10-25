@@ -16,10 +16,13 @@
  * adding a new native dependency.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+import { signInWithGoogle } from '@/lib/auth/googleSignIn';
+import { AdminMagicWordSettings, type AdminMagicWordTransport } from '@zobia/shared/ui/AdminMagicWord';
 
 // ---------------------------------------------------------------------------
 // Active Sessions
@@ -418,8 +421,17 @@ function TwoFactorSection() {
 // ---------------------------------------------------------------------------
 
 function SecurityPage() {
+  const {user,token} = useAuth();
+  const magicWordApi = useMemo<AdminMagicWordTransport>(() => ({request: async (method='GET', body) => {
+    try { return (await apiClient.request({url:'/admin/auth/magic-word',method,data:body})).data; }
+    catch (error) {
+      const e=error as {response?:{status:number;data?:{error?:{message?:string;code?:string}}}};
+      throw Object.assign(new Error(e.response?.data?.error?.message ?? 'Unable to update security settings'),{code:e.response?.data?.error?.code,status:e.response?.status});
+    }
+  }}),[]);
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
+      {user?.is_admin && <AdminMagicWordSettings key={user.id} api={magicWordApi} onGoogleSignIn={signInWithGoogle} refreshKey={token} />}
       <ActiveSessions />
       <PinSection />
       <TwoFactorSection />

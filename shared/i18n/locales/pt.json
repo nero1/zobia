@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Verificar acesso de administrador",
   "admin.googleIntro": "Continue com o Google e confirme o código do autenticador. Não é necessária uma senha.",
   "admin.googleSetup": "Digitalize este código QR com o autenticador ou introduza a chave abaixo.",
-  "admin.twoFaReminder": "A autenticação de dois fatores está desativada na sua conta de administrador. Ative-a nas configurações de segurança para ter mais proteção."
+  "admin.twoFaReminder": "A autenticação de dois fatores está desativada na sua conta de administrador. Ative-a nas configurações de segurança para ter mais proteção.",
+  "admin.magicWord.title": "Frase secreta de recuperação",
+  "admin.magicWord.help": "Use de 6 a 200 caracteres. Esta frase desbloqueia as tentativas de acesso do administrador.",
+  "admin.magicWord.reminder": "Você ainda não definiu sua frase secreta. Configure-a para recuperar o acesso bloqueado do administrador.",
+  "admin.magicWord.set": "Definir frase secreta",
+  "admin.magicWord.confirm": "Confirmar frase secreta",
+  "admin.magicWord.saved": "Frase secreta salva.",
+  "admin.magicWord.configured": "Uma frase secreta está definida. Salvar uma nova substitui a atual.",
+  "admin.magicWord.missing": "Nenhuma frase secreta foi definida.",
+  "admin.magicWord.googleRequired": "Entre novamente com o Google para salvar esta alteração de segurança.",
+  "admin.magicWord.mismatch": "As frases secretas não coincidem."
 }

@@ -5567,5 +5567,15 @@
   "admin.googleTitle": "Vérifier l’accès administrateur",
   "admin.googleIntro": "Continuez avec Google, puis confirmez votre code d’authentification. Aucun mot de passe n’est nécessaire.",
   "admin.googleSetup": "Scannez ce code QR avec votre application d’authentification ou saisissez la clé ci-dessous.",
-  "admin.twoFaReminder": "L’authentification à deux facteurs est désactivée pour votre compte administrateur. Activez-la dans les paramètres de sécurité pour mieux le protéger."
+  "admin.twoFaReminder": "L’authentification à deux facteurs est désactivée pour votre compte administrateur. Activez-la dans les paramètres de sécurité pour mieux le protéger.",
+  "admin.magicWord.title": "Phrase secrète de récupération",
+  "admin.magicWord.help": "Utilisez 6 à 200 caractères. Cette phrase débloque les tentatives de connexion administrateur.",
+  "admin.magicWord.reminder": "Vous n’avez pas défini de phrase secrète. Configurez-la pour récupérer l’accès administrateur bloqué.",
+  "admin.magicWord.set": "Définir la phrase",
+  "admin.magicWord.confirm": "Confirmer la phrase",
+  "admin.magicWord.saved": "Phrase secrète enregistrée.",
+  "admin.magicWord.configured": "Une phrase secrète est définie. Enregistrer la remplace.",
+  "admin.magicWord.missing": "Aucune phrase secrète n’est définie.",
+  "admin.magicWord.googleRequired": "Reconnectez-vous avec Google pour enregistrer ce changement de sécurité.",
+  "admin.magicWord.mismatch": "Les phrases secrètes ne correspondent pas."
 }

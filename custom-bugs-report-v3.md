@@ -1,10 +1,10 @@
 # Custom Bugs Report — Version 3
 
-**Date and time:** October 25, 2026 — 10:58:50 PM WAT (Africa/Lagos)
+**Date and time:** October 25, 2026 — 11:25:40 PM WAT (Africa/Lagos)
 **Audited starting revision:** `3814f279` (main after PR #566).
 **Admin policy:** 2FA is optional and off by default. Existing enabled factors are preserved; changing this policy requires no migration. Reminder dismissal is local to the account and device.
 
-**Status:** Fresh review: twelve confirmed findings. All twelve findings are fixed and verified. Release checks are recorded with the pull request. This replaces v2; earlier findings and fixes remain in Git history. No production database was changed.
+**Status:** Fresh review: fourteen confirmed findings. All fourteen findings are fixed and verified. Release checks are recorded with the pull request. This replaces v2; earlier findings and fixes remain in Git history. No production database was changed.
 
 ## Discovered bugs and issues
 
@@ -31,6 +31,10 @@
 11: BUG ZOB-V3-011: ✅ [Medium] Tales discovery and subscriber paging lack matching ordered indexes
 
 12: BUG ZOB-V3-012: ✅ [Medium] Google-only administrators are sent to an unusable password-based admin login
+
+13: BUG ZOB-V3-013: ✅ [Medium] Magic-word reminder and setup disappeared, leaving Google-only admins without the recovery setup flow
+
+14: BUG ZOB-V3-014: ✅ [Medium] Magic-word hashing silently truncates long or Unicode phrases at 72 bytes
 
 ## Detailed findings and fixes
 
@@ -154,6 +158,26 @@
 
 **VALIDATION:** Real PostgreSQL/Redis contracts cover first-time enrollment without a password, cookie and native token delivery, SID rotation, old-token denial, refreshed tokens, signed Google pre-auth, role removal and revoked source sessions. Production mobile/dark-mode browser checks verify ordinary-session admin entry, per-account reminder dismissal across reloads, navigation to existing 2FA settings and no logout or request loop. Setup instructions now describe the Google flow.
 
+### 13: BUG ZOB-V3-013: ✅ [Medium] Magic-word reminder and setup disappeared, leaving Google-only admins without the recovery setup flow
+
+**PROBLEM:** The Google admin changes removed the magic-word reminder and replaced Admin Security with a 2FA redirect. The surviving save API still required a local password, preventing Google-only administrators from setting the recovery phrase.
+
+**FILES:** `/workspace/zobia/apps/web/components/admin/AdminLayoutShell.tsx`; `/workspace/zobia/apps/web/app/(admin)/gate44/settings/security/page.tsx`; `/workspace/zobia/apps/web/app/api/admin/auth/magic-word/route.ts`; `/workspace/zobia/apps/android/src/components/admin/AdminGuard.tsx`; `/workspace/zobia/apps/android/src/routes/settings/security.tsx`; `/workspace/zobia/shared/ui/AdminMagicWord.tsx`
+
+**FIX:** Restore the persistent warning until configured, plus a shared themed setup/replace form. Authorize phrase changes through a recent server-verified Google session, preserving optional 2FA and normal admin entry. Bind saves to the displayed account, check live authority, rate-limit sensitive writes, and prevent concurrent replacement with a conditional update. Legacy password API clients remain compatible.
+
+**VALIDATION:** Real PostgreSQL/Redis/API contracts cover Google-only setup, warning metadata, secret-free status, stale sessions, account switches, existing credentials, role removal and concurrent updates.
+
+### 14: BUG ZOB-V3-014: ✅ [Medium] Magic-word hashing silently truncates long or Unicode phrases at 72 bytes
+
+**PROBLEM:** The API accepts up to 200 characters but hashes the raw phrase with bcrypt, which uses at most 72 UTF-8 bytes. Different longer phrases sharing that prefix can validate against the same stored hash.
+
+**FILES:** `/workspace/zobia/apps/web/lib/auth/adminMagicWord.ts`; `/workspace/zobia/apps/web/app/api/admin/auth/magic-word/route.ts`; `/workspace/zobia/apps/web/app/api/admin/auth/unlock/route.ts`; `/workspace/zobia/apps/web/scripts/check-google-admin-contract.ts`
+
+**FIX:** Prehash new/updated phrases with SHA-256 before bcrypt and store a version marker. Verify the complete phrase for this format, while retaining compatibility with existing bcrypt hashes. Re-saving an existing phrase through Security upgrades its stored format; its original full text cannot be reconstructed from a legacy hash.
+
+**VALIDATION:** Real save/unlock tests accept the correct long Unicode phrase, reject a different suffix after the same 72-byte prefix, and continue accepting legacy bcrypt phrases.
+
 ## Ratings and brief review
 
 Engineering judgments, **current baseline before v3 fixes → after these fixes**:
@@ -173,8 +197,8 @@ Review areas included live sessions, role assurance, account restoration, admini
 
 Tests use isolated local PostgreSQL databases, fixture Redis sessions and mocked external providers. No live payment or production migration was initiated. Physical-device/provider configuration and production load limits require deployment evidence; an audit cannot prove the absence of all future bugs.
 
-**Remediation progress:** 12/12 fixed and verified.
+**Remediation progress:** 14/14 fixed and verified.
 
 ---
 
-**Version 3 — Audit signature: Codex — October 25, 2026 — 10:58:50 PM WAT (Africa/Lagos)**
+**Version 3 — Audit signature: Codex — October 25, 2026 — 11:25:40 PM WAT (Africa/Lagos)**
