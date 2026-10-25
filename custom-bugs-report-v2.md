@@ -1524,7 +1524,7 @@ Ratings are engineering judgments, not a certification. Scores show **audited ba
 
 ## Review scope and concise validation
 
-The initial audit and additional deep review identified **100 findings: 58 High and 42 Medium**. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
+The initial audit and additional deep review identified **102 findings: 58 High and 44 Medium**. High includes important integrity failures and explicitly identified latent financial defects. No currently reachable Critical exploit is asserted. Entries describe distinct defects; related defects in one subsystem may share a coordinated fix.
 
 The initial three passes and this additional deep review covered (1) source/schema inventory and trust-boundary scans, (2) manual tracing of authorization, payments, privacy, persistence and failure paths, and (3) adversarial local reproductions and cross-checks against the migrated PostgreSQL schema, current tests and production CSS. The active web, Android and shared source inventory contains 1,993 TypeScript/TSX files; discontinued Expo code was excluded. The inventory count does not imply every line was manually inspected three times.
 
