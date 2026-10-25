@@ -18,6 +18,7 @@ async function main(){
   try{await database.query(readFileSync(resolve('db/migrations/0001_consolidated_schema.sql'),'utf8'));}
   finally{await database.end();}
   await checkSchema(target.href);
+  if(!process.argv.includes('--financial-only')){
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-db-context-contract.ts')],{stdio:'inherit',env:{...process.env,DATABASE_URL:target.href,DIRECT_URL:target.href}});
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-realtime-contract.ts')],{stdio:'inherit',env:{...process.env,ABLY_API_KEY:'fixture.key:fixture-secret',PUSHER_KEY:'fixture-key',PUSHER_SECRET:'fixture-secret',DATABASE_URL:target.href,DIRECT_URL:target.href}});
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-handoff-contract.ts')],{stdio:'inherit',env:{...process.env,DATABASE_URL:target.href,DIRECT_URL:target.href}});
@@ -26,6 +27,8 @@ async function main(){
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-maintenance-contract.ts')],{stdio:'inherit',env:{...process.env,DATABASE_URL:target.href,DIRECT_URL:target.href}});
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-public-contract.ts')],{stdio:'inherit',env:{...process.env,DATABASE_URL:target.href,DIRECT_URL:target.href}});
   execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-merch-contract.ts')],{stdio:'inherit',env:{...process.env,PAYSTACK_SECRET_KEY:'fixture-no-network',DATABASE_URL:target.href,DIRECT_URL:target.href}});
+  }
+  execFileSync(process.execPath,[resolve('../../node_modules/tsx/dist/cli.mjs'),resolve('scripts/check-financial-contract.ts')],{stdio:'inherit',env:{...process.env,DATABASE_URL:target.href,DIRECT_URL:target.href}});
  }finally{
   if(created)await control.query(`DROP DATABASE "${name}" WITH (FORCE)`);
   await control.end();

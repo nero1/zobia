@@ -72,6 +72,7 @@ export const PATCH = withAdminAuth(
         .limit(1).for("update");
 
       if (!payout) throw notFound("Payout not found");
+      if(payout.payout_method==="coins" && body.status!=="cancelled")throw badRequest("Use approval or rejection to resolve a reviewed coin conversion", "PAYOUT_REVIEW_REQUIRED");
       if(payout.earnings_restored)throw badRequest("This payout has already been refunded. Create a newly funded payout to retry.","PAYOUT_ALREADY_REFUNDED");
 
       const grossKobo = payout.gross_kobo ?? BigInt(0);
@@ -146,7 +147,7 @@ export const PATCH = withAdminAuth(
 
       const notifBody =
         body.status === "completed"
-          ? `Your payout of ₦${(Number(netKobo) / 100).toFixed(2)} has been completed.`
+          ? payout.cryptoAmountBaseUnits!==null ? `Your payout of ${payout.cryptoAmountBaseUnits} base units of ${payout.cryptoCurrency} on ${payout.cryptoChain} has been completed.` : `Your payout of ₦${(Number(netKobo) / 100).toFixed(2)} has been completed.`
           : body.status === "failed"
           ? "Your payout could not be completed. Your earnings have been restored to your balance."
           : body.status === "cancelled"
@@ -168,10 +169,11 @@ export const PATCH = withAdminAuth(
         success: true,
         payoutId,
         previousStatus: payout.status,
+        ...(payout.cryptoAmountBaseUnits!==null ? {asset:payout.cryptoCurrency,chain:payout.cryptoChain,amountBaseUnits:payout.cryptoAmountBaseUnits,reservationRestored:["failed","cancelled"].includes(body.status)} : {}),
         newStatus: body.status,
         earningsRestored:
           body.status === "failed" || body.status === "cancelled"
-            ? Number(grossKobo)
+            ? payout.cryptoAmountBaseUnits!==null ? undefined : Number(grossKobo)
             : undefined,
       });
     } catch (err) {

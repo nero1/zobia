@@ -1762,15 +1762,16 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
   const price = currency === "credits" ? tier.credits_price : tier.stars_price;
   if (price == null || price <= 0) throw badRequest(`This tier does not accept ${currency}.`, "BLOG_GIFT_CURRENCY_NOT_ACCEPTED");
 
-  const referenceId = `blog_gift:${tierId}:${buyerId}:${Date.now()}`;
+  const referenceId = `blog_gift:${randomUUID()}`;
 
   const settleEarnings=await prepareGiftEarnings(tier.owner_id,price,currency,referenceId);
   const outcome = await orm.transaction(async (tx) => {
     const { rows: lockRows } = await tx.execute<
       { enabled: boolean; expires_at: string | null; max_redemptions: number | null; redemption_count: number } & Record<string, unknown>
-    >(sql`SELECT enabled, expires_at, max_redemptions, redemption_count FROM blog_gift_tiers WHERE id = ${tierId} FOR UPDATE`);
+    >(sql`SELECT t.*, b.owner_id FROM blog_gift_tiers t JOIN blogs b ON b.id=t.blog_id WHERE t.id = ${tierId} AND b.deleted_at IS NULL FOR UPDATE OF t, b`);
     const locked = lockRows[0];
     if (!locked) throw notFound("Gift tier not found");
+    if (locked.owner_id !== tier.owner_id || locked.blog_id !== tier.blog_id || locked.credits_price !== tier.credits_price || locked.stars_price !== tier.stars_price || locked.benefit_type !== tier.benefit_type || JSON.stringify(locked.benefit_config) !== JSON.stringify(tier.benefit_config)) throw badRequest("The gift offer changed; reload it before buying.", "BLOG_GIFT_CHANGED");
     if (!locked.enabled) throw forbidden("This gift tier is no longer available.", "BLOG_GIFT_TIER_DISABLED");
     if (locked.expires_at && new Date(locked.expires_at) <= new Date()) throw forbidden("This gift tier has expired.", "BLOG_GIFT_TIER_EXPIRED");
     if (locked.max_redemptions != null && locked.redemption_count >= locked.max_redemptions) {
@@ -1825,7 +1826,7 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
           await creditCoins(buyerId, treasuryAmount, "blog_gift_treasury_claim", `blog_gift_treasury_claim:${purchaseId}`, "Gift reward pot payout", { tierId, purchaseId }, tx);
           payoutAmount = treasuryAmount;
         } else {
-          logger.warn({ tierId, purchaseId }, "[blogs/service] gift custom_reward reward pot has insufficient funds; skipping payout");
+          throw badRequest("This gift reward pot is not funded. No payment was taken.", "BLOG_GIFT_REWARD_UNFUNDED");
         }
       }
 

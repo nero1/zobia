@@ -7,7 +7,7 @@
 
 import { randomUUID } from "node:crypto";
 import { badRequest } from "@/lib/api/errors";
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { getTableColumns, and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import type { BlogMenuConfig } from "@/lib/blogs/menu";
 import { normalizeMenuConfig } from "@/lib/blogs/menu";
@@ -598,7 +598,7 @@ export async function listGiftTiersForOwner(blogId: string): Promise<BlogGiftTie
 export async function listPublicGiftTiers(blogId: string): Promise<BlogGiftTierRow[]> {
   const orm = await getDb();
   const rows = await orm
-    .select()
+    .select({ ...getTableColumns(schema.blogGiftTiers), benefitConfig: sql<Record<string, unknown>>`'{}'::jsonb` })
     .from(schema.blogGiftTiers)
     .where(
       and(

@@ -89,15 +89,21 @@ export const POST = withAdminAuth(
         // Set to 'pending' — CRON will pick up and send via Paystack
         newStatus = "pending";
       } else if (payout.payout_method === "crypto") {
-        // Admin sends USDT manually — provide wallet address for reference
-        if (payout.wallet_address_snapshot) {
-          try {
-            const addr = payout.crypto_currency && ["BNB","SOL","JAGA"].includes(payout.crypto_currency) ? readPayoutWallet(payout.wallet_address_snapshot,payout.crypto_currency as CryptoCurrency) : decryptField(payout.wallet_address_snapshot);
-            walletAddressMasked = addr ?? "Could not decrypt address"; // full address shown to admin for sending
-          } catch {
-            walletAddressMasked = "Could not decrypt address";
+        if (!payout.wallet_address_snapshot) throw badRequest("Payout wallet snapshot is missing", "MISSING_SNAPSHOT");
+        try {
+          if (payout.crypto_amount_base_units !== null) {
+            if (!payout.crypto_currency || !["BNB","SOL","JAGA"].includes(payout.crypto_currency) || BigInt(payout.crypto_amount_base_units)<=0n) throw new Error("Invalid native payout");
+            const {getToken}=await import("@/lib/payments/crypto/tokens");
+            const {getChainAdapter}=await import("@/lib/payments/crypto/chains");
+            const token=getToken(payout.crypto_currency as CryptoCurrency);
+            const address=readPayoutWallet(payout.wallet_address_snapshot,token.symbol);
+            if(token.chain!==payout.crypto_chain || !address || !getChainAdapter(token.chain).isValidAddress(address))throw new Error("Invalid wallet snapshot");
+            walletAddressMasked=address;
+          } else {
+            walletAddressMasked=decryptField(payout.wallet_address_snapshot)??undefined;
+            if(!walletAddressMasked)throw new Error("Unreadable wallet snapshot");
           }
-        }
+        } catch { throw badRequest("The saved payout wallet cannot be verified. Do not send funds; reject and request a new payout.", "INVALID_PAYOUT_SNAPSHOT"); }
         newStatus = "processing";
       } else if(payout.payout_method==="coins") {
         approvedCoins=Number((payout.bank_account_snapshot as {coinsToCredit?:unknown}|null)?.coinsToCredit);
@@ -114,6 +120,11 @@ export const POST = withAdminAuth(
         .returning({id:schema.creatorPayouts.id});
       if(!changed.length)throw badRequest("Payout changed while approval was being processed", "PAYOUT_CHANGED");
 
+      const [liveCreator]=await tx.select({id:schema.users.id}).from(schema.users).where(and(
+        eq(schema.users.id,payout.creator_id),isNull(schema.users.deletedAt),eq(schema.users.isBanned,false),
+        sql`NOT(COALESCE(${schema.users.isSuspended},false) AND (${schema.users.suspendedUntil} IS NULL OR ${schema.users.suspendedUntil}>NOW()))`,
+      )).for("update");
+      if(!liveCreator)throw badRequest("Cannot approve payout for an unavailable or suspended creator", "CREATOR_UNAVAILABLE");
       if(approvedCoins!==undefined)await creditCoins(payout.creator_id,approvedCoins,"creator_coin_conversion",payout.idempotency_key??payout.id,"Reviewed earnings conversion",{payoutId},tx);
       });
 
